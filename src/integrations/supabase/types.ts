@@ -14,38 +14,131 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_log: {
+        Row: {
+          acao: string
+          criado_em: string
+          dados_antes: Json | null
+          dados_depois: Json | null
+          id: string
+          registro_id: string | null
+          tabela: string
+          user_id: string | null
+        }
+        Insert: {
+          acao: string
+          criado_em?: string
+          dados_antes?: Json | null
+          dados_depois?: Json | null
+          id?: string
+          registro_id?: string | null
+          tabela: string
+          user_id?: string | null
+        }
+        Update: {
+          acao?: string
+          criado_em?: string
+          dados_antes?: Json | null
+          dados_depois?: Json | null
+          id?: string
+          registro_id?: string | null
+          tabela?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      competencias: {
+        Row: {
+          atualizado_em: string
+          criado_em: string
+          empresa_id: string
+          fechado_em: string | null
+          id: string
+          iniciado_em: string | null
+          observacoes: string | null
+          periodo: string
+          status: string
+        }
+        Insert: {
+          atualizado_em?: string
+          criado_em?: string
+          empresa_id: string
+          fechado_em?: string | null
+          id?: string
+          iniciado_em?: string | null
+          observacoes?: string | null
+          periodo: string
+          status?: string
+        }
+        Update: {
+          atualizado_em?: string
+          criado_em?: string
+          empresa_id?: string
+          fechado_em?: string | null
+          id?: string
+          iniciado_em?: string | null
+          observacoes?: string | null
+          periodo?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "competencias_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conciliacoes: {
         Row: {
           competencia: string
+          competencia_id: string | null
           concluido_em: string | null
           created_at: string
           divergencias_count: number
           empresa_id: string
           id: string
+          planilha_conciliacao_url: string | null
+          razao_csv_url: string | null
           status: Database["public"]["Enums"]["conciliacao_status"]
           updated_at: string
         }
         Insert: {
           competencia: string
+          competencia_id?: string | null
           concluido_em?: string | null
           created_at?: string
           divergencias_count?: number
           empresa_id: string
           id?: string
+          planilha_conciliacao_url?: string | null
+          razao_csv_url?: string | null
           status?: Database["public"]["Enums"]["conciliacao_status"]
           updated_at?: string
         }
         Update: {
           competencia?: string
+          competencia_id?: string | null
           concluido_em?: string | null
           created_at?: string
           divergencias_count?: number
           empresa_id?: string
           id?: string
+          planilha_conciliacao_url?: string | null
+          razao_csv_url?: string | null
           status?: Database["public"]["Enums"]["conciliacao_status"]
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "conciliacoes_competencia_id_fkey"
+            columns: ["competencia_id"]
+            isOneToOne: false
+            referencedRelation: "competencias"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "conciliacoes_empresa_id_fkey"
             columns: ["empresa_id"]
@@ -63,6 +156,8 @@ export type Database = {
           created_at: string
           empresa_id: string
           id: string
+          tipo: Database["public"]["Enums"]["conta_tipo"]
+          updated_at: string
         }
         Insert: {
           agencia: string
@@ -71,6 +166,8 @@ export type Database = {
           created_at?: string
           empresa_id: string
           id?: string
+          tipo?: Database["public"]["Enums"]["conta_tipo"]
+          updated_at?: string
         }
         Update: {
           agencia?: string
@@ -79,6 +176,8 @@ export type Database = {
           created_at?: string
           empresa_id?: string
           id?: string
+          tipo?: Database["public"]["Enums"]["conta_tipo"]
+          updated_at?: string
         }
         Relationships: [
           {
@@ -93,13 +192,18 @@ export type Database = {
       documentos: {
         Row: {
           arquivo_nome: string | null
+          arquivo_tamanho_bytes: number | null
           arquivo_url: string | null
           competencia: string
+          competencia_id: string | null
           created_at: string
           dados_extraidos: Json
+          documento_id: string | null
           empresa_id: string
+          gestta_ref: string | null
           id: string
           origem: Database["public"]["Enums"]["documento_origem"]
+          processado_em: string | null
           recebido_em: string
           responsavel_id: string | null
           status: Database["public"]["Enums"]["documento_status"]
@@ -108,13 +212,18 @@ export type Database = {
         }
         Insert: {
           arquivo_nome?: string | null
+          arquivo_tamanho_bytes?: number | null
           arquivo_url?: string | null
           competencia: string
+          competencia_id?: string | null
           created_at?: string
           dados_extraidos?: Json
+          documento_id?: string | null
           empresa_id: string
+          gestta_ref?: string | null
           id?: string
           origem?: Database["public"]["Enums"]["documento_origem"]
+          processado_em?: string | null
           recebido_em?: string
           responsavel_id?: string | null
           status?: Database["public"]["Enums"]["documento_status"]
@@ -123,13 +232,18 @@ export type Database = {
         }
         Update: {
           arquivo_nome?: string | null
+          arquivo_tamanho_bytes?: number | null
           arquivo_url?: string | null
           competencia?: string
+          competencia_id?: string | null
           created_at?: string
           dados_extraidos?: Json
+          documento_id?: string | null
           empresa_id?: string
+          gestta_ref?: string | null
           id?: string
           origem?: Database["public"]["Enums"]["documento_origem"]
+          processado_em?: string | null
           recebido_em?: string
           responsavel_id?: string | null
           status?: Database["public"]["Enums"]["documento_status"]
@@ -137,6 +251,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "documentos_competencia_id_fkey"
+            columns: ["competencia_id"]
+            isOneToOne: false
+            referencedRelation: "competencias"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "documentos_empresa_id_fkey"
             columns: ["empresa_id"]
@@ -160,6 +281,7 @@ export type Database = {
           id: string
           obrigatorio: boolean
           tipo: Database["public"]["Enums"]["documento_tipo"]
+          updated_at: string
         }
         Insert: {
           created_at?: string
@@ -167,6 +289,7 @@ export type Database = {
           id?: string
           obrigatorio?: boolean
           tipo: Database["public"]["Enums"]["documento_tipo"]
+          updated_at?: string
         }
         Update: {
           created_at?: string
@@ -174,6 +297,7 @@ export type Database = {
           id?: string
           obrigatorio?: boolean
           tipo?: Database["public"]["Enums"]["documento_tipo"]
+          updated_at?: string
         }
         Relationships: [
           {
@@ -187,6 +311,7 @@ export type Database = {
       }
       empresas: {
         Row: {
+          ativo: boolean
           cnpj: string
           consultor_id: string | null
           created_at: string
@@ -201,6 +326,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ativo?: boolean
           cnpj: string
           consultor_id?: string | null
           created_at?: string
@@ -215,6 +341,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ativo?: boolean
           cnpj?: string
           consultor_id?: string | null
           created_at?: string
@@ -238,6 +365,41 @@ export type Database = {
           },
         ]
       }
+      historicos_contabeis: {
+        Row: {
+          ativo: boolean
+          codigo: string
+          criado_em: string
+          descricao: string
+          empresa_id: string | null
+          id: string
+        }
+        Insert: {
+          ativo?: boolean
+          codigo: string
+          criado_em?: string
+          descricao: string
+          empresa_id?: string | null
+          id?: string
+        }
+        Update: {
+          ativo?: boolean
+          codigo?: string
+          criado_em?: string
+          descricao?: string
+          empresa_id?: string | null
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "historicos_contabeis_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integracoes: {
         Row: {
           atualizado_em: string
@@ -245,6 +407,8 @@ export type Database = {
           id: string
           status: string
           tipo: string
+          ultima_sync: string | null
+          updated_at: string
         }
         Insert: {
           atualizado_em?: string
@@ -252,6 +416,8 @@ export type Database = {
           id?: string
           status?: string
           tipo: string
+          ultima_sync?: string | null
+          updated_at?: string
         }
         Update: {
           atualizado_em?: string
@@ -259,16 +425,21 @@ export type Database = {
           id?: string
           status?: string
           tipo?: string
+          ultima_sync?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
       lancamentos: {
         Row: {
           competencia: string
+          competencia_id: string | null
           created_at: string
+          documento_id: string | null
           empresa_id: string
           id: string
           importado_em: string | null
+          linhas_count: number | null
           planilha_url: string | null
           status: Database["public"]["Enums"]["lancamento_status"]
           total_lancamentos: number
@@ -276,10 +447,13 @@ export type Database = {
         }
         Insert: {
           competencia: string
+          competencia_id?: string | null
           created_at?: string
+          documento_id?: string | null
           empresa_id: string
           id?: string
           importado_em?: string | null
+          linhas_count?: number | null
           planilha_url?: string | null
           status?: Database["public"]["Enums"]["lancamento_status"]
           total_lancamentos?: number
@@ -287,16 +461,33 @@ export type Database = {
         }
         Update: {
           competencia?: string
+          competencia_id?: string | null
           created_at?: string
+          documento_id?: string | null
           empresa_id?: string
           id?: string
           importado_em?: string | null
+          linhas_count?: number | null
           planilha_url?: string | null
           status?: Database["public"]["Enums"]["lancamento_status"]
           total_lancamentos?: number
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "lancamentos_competencia_id_fkey"
+            columns: ["competencia_id"]
+            isOneToOne: false
+            referencedRelation: "competencias"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lancamentos_documento_id_fkey"
+            columns: ["documento_id"]
+            isOneToOne: false
+            referencedRelation: "documentos"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "lancamentos_empresa_id_fkey"
             columns: ["empresa_id"]
@@ -306,12 +497,66 @@ export type Database = {
           },
         ]
       }
+      plano_contas: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          codigo: string
+          conta_pai_id: string | null
+          criado_em: string
+          descricao: string
+          empresa_id: string | null
+          id: string
+          tipo: string | null
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          codigo: string
+          conta_pai_id?: string | null
+          criado_em?: string
+          descricao: string
+          empresa_id?: string | null
+          id?: string
+          tipo?: string | null
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          codigo?: string
+          conta_pai_id?: string | null
+          criado_em?: string
+          descricao?: string
+          empresa_id?: string | null
+          id?: string
+          tipo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plano_contas_conta_pai_id_fkey"
+            columns: ["conta_pai_id"]
+            isOneToOne: false
+            referencedRelation: "plano_contas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plano_contas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tarefas: {
         Row: {
+          competencia: string | null
+          competencia_id: string | null
           concluido_em: string | null
           consultor_id: string | null
           created_at: string
           empresa_id: string
+          gestta_task_id: string | null
           id: string
           ordem: number
           prazo: string | null
@@ -321,10 +566,13 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          competencia?: string | null
+          competencia_id?: string | null
           concluido_em?: string | null
           consultor_id?: string | null
           created_at?: string
           empresa_id: string
+          gestta_task_id?: string | null
           id?: string
           ordem?: number
           prazo?: string | null
@@ -334,10 +582,13 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          competencia?: string | null
+          competencia_id?: string | null
           concluido_em?: string | null
           consultor_id?: string | null
           created_at?: string
           empresa_id?: string
+          gestta_task_id?: string | null
           id?: string
           ordem?: number
           prazo?: string | null
@@ -347,6 +598,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "tarefas_competencia_id_fkey"
+            columns: ["competencia_id"]
+            isOneToOne: false
+            referencedRelation: "competencias"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tarefas_consultor_id_fkey"
             columns: ["consultor_id"]
@@ -401,7 +659,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_admin: { Args: never; Returns: boolean }
     }
     Enums: {
       conciliacao_status:
@@ -409,12 +667,14 @@ export type Database = {
         | "em_andamento"
         | "divergencias"
         | "concluida"
-      documento_origem: "gestta" | "manual"
+      conta_tipo: "corrente" | "aplicacao" | "poupanca"
+      documento_origem: "gestta" | "manual" | "upload_manual" | "email"
       documento_status:
         | "recebido"
         | "classificado"
         | "processado"
         | "conciliado"
+        | "erro"
       documento_tipo:
         | "extrato"
         | "nf_entrada"
@@ -424,6 +684,7 @@ export type Database = {
         | "darf"
         | "planilha_financeira"
         | "movimento_contabil"
+        | "outros"
       empresa_status:
         | "em_dia"
         | "cobranca"
@@ -431,11 +692,34 @@ export type Database = {
         | "conciliacao"
         | "entregue"
         | "atrasado"
-      lancamento_status: "gerada" | "upload_leveldrive" | "importada_sci"
+      lancamento_status:
+        | "gerada"
+        | "upload_leveldrive"
+        | "importada_sci"
+        | "pendente"
+        | "planilha_gerada"
+        | "enviado_leveldrive"
+        | "importado_sci"
+        | "validado"
       perfil_usuario: "admin" | "consultor" | "assistente"
       regime_tributario: "simples" | "presumido" | "real" | "mei"
-      tarefa_status: "now" | "doing" | "next" | "back" | "done"
-      tarefa_tipo: "cobranca" | "lancamentos" | "conciliacao"
+      tarefa_status:
+        | "now"
+        | "doing"
+        | "next"
+        | "back"
+        | "done"
+        | "aberta"
+        | "em_andamento"
+        | "concluida"
+        | "bloqueada"
+      tarefa_tipo:
+        | "cobranca"
+        | "lancamentos"
+        | "conciliacao"
+        | "cobranca_movimento"
+        | "lancamentos_contabeis"
+        | "conciliacao_balancete"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -569,12 +853,14 @@ export const Constants = {
         "divergencias",
         "concluida",
       ],
-      documento_origem: ["gestta", "manual"],
+      conta_tipo: ["corrente", "aplicacao", "poupanca"],
+      documento_origem: ["gestta", "manual", "upload_manual", "email"],
       documento_status: [
         "recebido",
         "classificado",
         "processado",
         "conciliado",
+        "erro",
       ],
       documento_tipo: [
         "extrato",
@@ -585,6 +871,7 @@ export const Constants = {
         "darf",
         "planilha_financeira",
         "movimento_contabil",
+        "outros",
       ],
       empresa_status: [
         "em_dia",
@@ -594,11 +881,37 @@ export const Constants = {
         "entregue",
         "atrasado",
       ],
-      lancamento_status: ["gerada", "upload_leveldrive", "importada_sci"],
+      lancamento_status: [
+        "gerada",
+        "upload_leveldrive",
+        "importada_sci",
+        "pendente",
+        "planilha_gerada",
+        "enviado_leveldrive",
+        "importado_sci",
+        "validado",
+      ],
       perfil_usuario: ["admin", "consultor", "assistente"],
       regime_tributario: ["simples", "presumido", "real", "mei"],
-      tarefa_status: ["now", "doing", "next", "back", "done"],
-      tarefa_tipo: ["cobranca", "lancamentos", "conciliacao"],
+      tarefa_status: [
+        "now",
+        "doing",
+        "next",
+        "back",
+        "done",
+        "aberta",
+        "em_andamento",
+        "concluida",
+        "bloqueada",
+      ],
+      tarefa_tipo: [
+        "cobranca",
+        "lancamentos",
+        "conciliacao",
+        "cobranca_movimento",
+        "lancamentos_contabeis",
+        "conciliacao_balancete",
+      ],
     },
   },
 } as const
