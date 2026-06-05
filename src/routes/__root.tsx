@@ -60,7 +60,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "LCR Contábil" },
       { name: "description", content: "Plataforma central de Integração e Conciliação Bancária — LCR Contábil." },
-      { name: "author", content: "IAplicada" },
+      { name: "author", content: "LCR Contábil" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },

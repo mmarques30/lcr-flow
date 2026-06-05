@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { IAplicadaWordmark, LcrLogo } from "@/components/brand";
+import { LcrWordmark, LcrLogo } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -67,10 +67,10 @@ function AuthPage() {
             Uma plataforma central <span className="italic text-accent-lime">para a LCR</span> gerir a integração e a conciliação bancária dos clientes.
           </h2>
           <p className="mt-6 text-deep-foreground/70 text-base leading-relaxed">
-            Cobrança de documentos, lançamentos contábeis e conciliação — em um único fluxo, com a marca IAplicada.
+            Cobrança de documentos, lançamentos contábeis e conciliação — em um único fluxo.
           </p>
         </div>
-        <IAplicadaWordmark className="text-deep-foreground" />
+        <LcrWordmark className="text-deep-foreground" />
       </div>
 
       <div className="flex items-center justify-center p-8 bg-background">
@@ -120,7 +120,7 @@ function AuthPage() {
           </Tabs>
 
           <div className="mt-8 text-center">
-            <IAplicadaWordmark className="text-xl inline-block" />
+            <LcrWordmark className="text-xl inline-block" />
           </div>
         </div>
       </div>

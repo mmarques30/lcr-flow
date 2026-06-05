@@ -64,70 +64,70 @@
 :root {
   --radius: 6px;
 
-  /* Brand IAplicada */
-  --background: oklch(0.971 0.012 95);          /* #f7f6f0 */
-  --foreground: oklch(0.215 0.018 110);         /* #1e2216 */
-  --soft-foreground: oklch(0.36 0.018 110);     /* #4b4f3f */
-  --muted-foreground: oklch(0.52 0.013 105);    /* #7a7c6c */
+  /* Brand LCR Contábil — navy corporativo */
+  --background: oklch(0.978 0.004 250);         /* #f6f7f9 */
+  --foreground: oklch(0.205 0.025 255);         /* #0f1827 */
+  --soft-foreground: oklch(0.34 0.022 255);     /* #3a4252 */
+  --muted-foreground: oklch(0.50 0.018 255);    /* #5a6373 */
 
   --card: oklch(1 0 0);                          /* #ffffff */
   --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
 
-  --primary: oklch(0.55 0.12 119);              /* #6f7f3d olive */
-  --primary-foreground: oklch(0.985 0.005 100);
-  --primary-hover: oklch(0.44 0.105 119);       /* #566627 */
-  --accent-lime: oklch(0.78 0.105 119);         /* #aebd7e */
+  --primary: oklch(0.43 0.115 255);             /* #1e4d8b LCR blue */
+  --primary-foreground: oklch(0.985 0.003 250);
+  --primary-hover: oklch(0.32 0.095 256);       /* #13335c */
+  --accent-lime: oklch(0.72 0.10 250);          /* azul claro de apoio */
 
-  --deep: oklch(0.295 0.06 122);                /* #2f3a1c */
-  --deep-foreground: oklch(0.955 0.012 100);    /* #f3f4ea */
+  --deep: oklch(0.235 0.075 258);               /* #0b2240 */
+  --deep-foreground: oklch(0.965 0.006 250);    /* off-white frio */
 
-  --secondary: oklch(0.93 0.018 105);
+  --secondary: oklch(0.945 0.012 250);
   --secondary-foreground: var(--foreground);
 
-  --muted: oklch(0.945 0.013 100);
-  --accent: oklch(0.91 0.025 119);
-  --accent-foreground: var(--foreground);
+  --muted: oklch(0.955 0.008 250);
+  --accent: oklch(0.93 0.024 250);              /* #e8eff7 */
+  --accent-foreground: oklch(0.32 0.095 256);
 
   --destructive: oklch(0.55 0.18 25);
   --destructive-foreground: oklch(0.985 0 0);
 
-  --border: oklch(0.895 0.015 100);             /* #e5e3d6 */
-  --input: oklch(0.895 0.015 100);
-  --ring: oklch(0.55 0.12 119);
+  --border: oklch(0.905 0.012 250);             /* #dfe3ea */
+  --input: oklch(0.905 0.012 250);
+  --ring: oklch(0.43 0.115 255);
 
   /* Status pills */
-  --status-now: oklch(0.55 0.12 119);
-  --status-now-foreground: oklch(0.985 0.005 100);
-  --status-doing: oklch(0.86 0.06 119);
-  --status-doing-foreground: oklch(0.32 0.06 119);
-  --status-next: oklch(0.96 0.005 100);
-  --status-next-foreground: oklch(0.36 0.018 110);
-  --status-back: oklch(0.85 0.11 90);
-  --status-back-foreground: oklch(0.32 0.08 80);
+  --status-now: oklch(0.43 0.115 255);
+  --status-now-foreground: oklch(0.985 0.003 250);
+  --status-doing: oklch(0.88 0.045 250);
+  --status-doing-foreground: oklch(0.32 0.095 256);
+  --status-next: oklch(0.96 0.005 250);
+  --status-next-foreground: oklch(0.34 0.022 255);
+  --status-back: oklch(0.85 0.11 75);
+  --status-back-foreground: oklch(0.34 0.09 60);
 
   /* Sidebar */
-  --sidebar: oklch(0.295 0.06 122);
-  --sidebar-foreground: oklch(0.955 0.012 100);
-  --sidebar-primary: oklch(0.78 0.105 119);
-  --sidebar-primary-foreground: oklch(0.215 0.018 110);
-  --sidebar-accent: oklch(0.36 0.06 122);
-  --sidebar-accent-foreground: oklch(0.955 0.012 100);
-  --sidebar-border: oklch(0.36 0.05 122);
-  --sidebar-ring: oklch(0.78 0.105 119);
+  --sidebar: oklch(0.235 0.075 258);
+  --sidebar-foreground: oklch(0.965 0.006 250);
+  --sidebar-primary: oklch(0.72 0.10 250);
+  --sidebar-primary-foreground: oklch(0.205 0.025 255);
+  --sidebar-accent: oklch(0.305 0.075 258);
+  --sidebar-accent-foreground: oklch(0.965 0.006 250);
+  --sidebar-border: oklch(0.305 0.06 258);
+  --sidebar-ring: oklch(0.72 0.10 250);
 
-  --chart-1: oklch(0.55 0.12 119);
-  --chart-2: oklch(0.78 0.105 119);
-  --chart-3: oklch(0.295 0.06 122);
-  --chart-4: oklch(0.65 0.13 85);
-  --chart-5: oklch(0.45 0.08 230);
+  --chart-1: oklch(0.43 0.115 255);
+  --chart-2: oklch(0.72 0.10 250);
+  --chart-3: oklch(0.235 0.075 258);
+  --chart-4: oklch(0.62 0.14 220);
+  --chart-5: oklch(0.55 0.12 195);
 }
 
 .dark {
   /* unused – sistema é light only */
-  --background: oklch(0.971 0.012 95);
-  --foreground: oklch(0.215 0.018 110);
+  --background: oklch(0.978 0.004 250);
+  --foreground: oklch(0.205 0.025 255);
 }
 
 @layer base {
