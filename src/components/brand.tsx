@@ -1,10 +1,10 @@
 import lcrLogo from "@/assets/lcr-logo.jpeg.asset.json";
 
-export function IAplicadaWordmark({ className = "" }: { className?: string }) {
+export function LcrWordmark({ className = "" }: { className?: string }) {
   return (
     <div className={`font-display text-3xl tracking-tight ${className}`}>
-      <span className="text-foreground">IA</span>
-      <span className="italic text-primary-hover">plicada</span>
+      <span className="text-foreground">LCR</span>
+      <span className="italic text-primary-hover ml-1.5">Contábil</span>
     </div>
   );
 }
