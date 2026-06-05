@@ -397,8 +397,10 @@ export const saveIntegracao = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { error } = await context.supabase
       .from("integracoes")
-      .update({ config: data.config as never, status: data.status ?? "configurado", atualizado_em: new Date().toISOString() })
-      .eq("tipo", data.tipo);
+      .upsert(
+        { tipo: data.tipo, config: data.config as never, status: data.status ?? "configurado", atualizado_em: new Date().toISOString() },
+        { onConflict: "tipo" },
+      );
     if (error) throw new Error(error.message);
     return { ok: true };
   });

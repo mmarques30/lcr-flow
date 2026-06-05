@@ -29,6 +29,7 @@ const INTEGRACOES_DEFS: { tipo: string; nome: string; campos: { key: string; lab
   { tipo: "sci", nome: "SCI Único", campos: [{ key: "url", label: "URL" }, { key: "usuario", label: "Usuário" }, { key: "senha", label: "Senha", type: "password" }] },
   { tipo: "leveldrive", nome: "LevelDrive", campos: [{ key: "path", label: "Caminho da pasta" }] },
   { tipo: "sharepoint", nome: "SharePoint", campos: [{ key: "folder_url", label: "URL da pasta" }] },
+  { tipo: "claude_api", nome: "Claude API", campos: [{ key: "api_key", label: "API Key", type: "password" }, { key: "model", label: "Modelo" }] },
 ];
 
 function ConfiguracoesPage() {
@@ -80,7 +81,7 @@ function IntegracaoCard({ def, status, initialConfig, onSaved }: { def: typeof I
   }
 
   return (
-    <Card className="border-border">
+    <Card className="card-interactive">
       <CardContent className="pt-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display text-lg">{def.nome}</h3>
