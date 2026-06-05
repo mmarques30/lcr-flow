@@ -10,7 +10,7 @@ export const getDashboardStats = createServerFn({ method: "GET" })
     const { supabase } = context;
     const competencia = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
 
-    const [empresas, docsAguardando, lancamentosMes, conciliacoesPendentes, fases, atencaoUrgente] = await Promise.all([
+    const [empresas, docsAguardando, lancamentosMes, conciliacoesPendentes, fases, atencaoUrgente, docsRows, conciliacoesRows, tarefasRows] = await Promise.all([
       supabase.from("empresas").select("id", { count: "exact", head: true }),
       supabase.from("documentos").select("id", { count: "exact", head: true }).in("status", ["recebido", "classificado"]),
       supabase.from("lancamentos").select("id", { count: "exact", head: true }).eq("competencia", competencia),
@@ -21,6 +21,9 @@ export const getDashboardStats = createServerFn({ method: "GET" })
         .select("id, razao_social, status, tags")
         .in("status", ["atrasado", "cobranca"])
         .limit(8),
+      supabase.from("documentos").select("status"),
+      supabase.from("conciliacoes").select("status"),
+      supabase.from("tarefas").select("status"),
     ]);
 
     const faseCounts: Record<string, number> = { cobranca: 0, lancamento: 0, conciliacao: 0, entregue: 0 };
@@ -30,19 +33,47 @@ export const getDashboardStats = createServerFn({ method: "GET" })
       else if (row.status === "em_dia") faseCounts.entregue++;
     });
 
+    const countBy = (rows: { status: string }[] | null, keys: string[]) => {
+      const acc: Record<string, number> = Object.fromEntries(keys.map((k) => [k, 0]));
+      (rows ?? []).forEach((r) => { if (r.status in acc) acc[r.status]++; });
+      return acc;
+    };
+
+    const docsByStatus = countBy(docsRows.data, ["recebido", "classificado", "processado", "conciliado", "erro"]);
+    const conciliacoesByStatus = countBy(conciliacoesRows.data, ["nao_iniciada", "em_andamento", "divergencias", "concluida"]);
+    const totalDocs = (docsRows.data ?? []).length;
+    const totalConciliacoes = (conciliacoesRows.data ?? []).length;
+    const tarefasAbertas = (tarefasRows.data ?? []).filter((t) => !["done", "concluida"].includes(t.status)).length;
+
     return {
       competencia,
       clientesAtivos: empresas.count ?? 0,
       docsAguardando: docsAguardando.count ?? 0,
       lancamentosMes: lancamentosMes.count ?? 0,
       conciliacoesPendentes: conciliacoesPendentes.count ?? 0,
+      tarefasAbertas,
+      totalDocs,
+      totalConciliacoes,
+      atencaoUrgente: atencaoUrgente.data ?? [],
       fases: [
         { fase: "Cobrança", total: faseCounts.cobranca },
         { fase: "Lançamento", total: faseCounts.lancamento },
         { fase: "Conciliação", total: faseCounts.conciliacao },
         { fase: "Entrega", total: faseCounts.entregue },
       ],
-      atencaoUrgente: atencaoUrgente.data ?? [],
+      docsByStatus: [
+        { label: "Recebido", key: "recebido", total: docsByStatus.recebido },
+        { label: "Classificado", key: "classificado", total: docsByStatus.classificado },
+        { label: "Processado", key: "processado", total: docsByStatus.processado },
+        { label: "Conciliado", key: "conciliado", total: docsByStatus.conciliado },
+        { label: "Erro", key: "erro", total: docsByStatus.erro },
+      ],
+      conciliacoesByStatus: [
+        { label: "Não iniciada", key: "nao_iniciada", total: conciliacoesByStatus.nao_iniciada },
+        { label: "Em andamento", key: "em_andamento", total: conciliacoesByStatus.em_andamento },
+        { label: "Divergências", key: "divergencias", total: conciliacoesByStatus.divergencias },
+        { label: "Concluída", key: "concluida", total: conciliacoesByStatus.concluida },
+      ],
     };
   });
 
