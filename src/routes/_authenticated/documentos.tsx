@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus } from "lucide-react";
+import { Plus, Download } from "lucide-react";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { listDocumentos, listEmpresas, createDocumento, setDocumentoStatus, ensureCompetencia } from "@/lib/lcr.functions";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
@@ -43,6 +43,13 @@ function DocsPage() {
     if (status !== "all" && d.status !== status) return false;
     return true;
   }), [docs, empresa, tipo, status]);
+
+  async function baixar(path: string) {
+    // gera uma URL assinada temporária (60s) para o arquivo no bucket privado
+    const { data, error } = await supabase.storage.from("documentos").createSignedUrl(path, 60);
+    if (error || !data?.signedUrl) return toast.error(error?.message ?? "Não foi possível gerar o link.");
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
 
   async function avancarStatus(id: string, atual: string) {
     const ordem = ["recebido", "classificado", "processado", "conciliado"] as const;
@@ -115,9 +122,16 @@ function DocsPage() {
                 <TableCell className="text-xs text-muted-foreground">{new Date(d.recebido_em).toLocaleDateString("pt-BR")}</TableCell>
                 <TableCell><StatusPill variant={variantFor(d.status)}>{DOC_STATUS_LABEL[d.status]}</StatusPill></TableCell>
                 <TableCell>
-                  {d.status !== "conciliado" && (
-                    <Button variant="outline" size="sm" onClick={() => avancarStatus(d.id, d.status)}>Avançar</Button>
-                  )}
+                  <div className="flex items-center justify-end gap-2">
+                    {d.arquivo_url && (
+                      <Button variant="ghost" size="sm" onClick={() => baixar(d.arquivo_url!)} title="Baixar arquivo">
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {d.status !== "conciliado" && (
+                      <Button variant="outline" size="sm" onClick={() => avancarStatus(d.id, d.status)}>Avançar</Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
