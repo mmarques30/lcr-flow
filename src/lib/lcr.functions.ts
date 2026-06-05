@@ -133,20 +133,66 @@ const createDocSchema = z.object({
   empresa_id: z.string().uuid(),
   tipo: z.enum(["extrato", "nf_entrada", "nf_saida", "fatura_cartao", "recibo", "darf", "planilha_financeira", "movimento_contabil"]),
   competencia: z.string().regex(/^\d{4}-\d{2}$/),
+  competencia_id: z.string().uuid().optional().nullable(),
   arquivo_nome: z.string().max(255).optional().nullable(),
+  arquivo_url: z.string().max(1024).optional().nullable(),
+  arquivo_tamanho_bytes: z.number().int().nonnegative().optional().nullable(),
 });
 
 export const createDocumento = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => createDocSchema.parse(d))
   .handler(async ({ context, data }) => {
+    // resolve o perfil do usuário autenticado para gravar como responsável
+    const { data: perfil } = await context.supabase
+      .from("usuarios_perfil")
+      .select("id")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+
     const { data: doc, error } = await context.supabase
       .from("documentos")
-      .insert({ ...data, origem: "manual", status: "recebido" })
+      .insert({
+        empresa_id: data.empresa_id,
+        tipo: data.tipo,
+        competencia: data.competencia,
+        competencia_id: data.competencia_id ?? null,
+        arquivo_nome: data.arquivo_nome ?? null,
+        arquivo_url: data.arquivo_url ?? null,
+        arquivo_tamanho_bytes: data.arquivo_tamanho_bytes ?? null,
+        origem: "upload_manual",
+        status: "recebido",
+        responsavel_id: perfil?.id ?? null,
+      })
       .select()
       .single();
     if (error) throw new Error(error.message);
     return doc;
+  });
+
+// Garante a competência (empresa_id, primeiro dia do mês 'YYYY-MM') e retorna o id.
+export const ensureCompetencia = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ empresa_id: z.string().uuid(), competencia: z.string().regex(/^\d{4}-\d{2}$/) }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const periodo = `${data.competencia}-01`;
+    const { data: existing } = await context.supabase
+      .from("competencias")
+      .select("id")
+      .eq("empresa_id", data.empresa_id)
+      .eq("periodo", periodo)
+      .maybeSingle();
+    if (existing) return { id: existing.id };
+
+    const { data: created, error } = await context.supabase
+      .from("competencias")
+      .insert({ empresa_id: data.empresa_id, periodo, status: "aberta" })
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    return { id: created.id };
   });
 
 export const setDocumentoStatus = createServerFn({ method: "POST" })

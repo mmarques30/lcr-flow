@@ -11,8 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Plus } from "lucide-react";
 import { StatusPill, variantFor } from "@/components/status-pill";
-import { listDocumentos, listEmpresas, createDocumento, setDocumentoStatus } from "@/lib/lcr.functions";
+import { listDocumentos, listEmpresas, createDocumento, setDocumentoStatus, ensureCompetencia } from "@/lib/lcr.functions";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/documentos")({
@@ -130,17 +131,48 @@ function DocsPage() {
 
 function UploadDialog({ empresas, onSuccess }: { empresas: { id: string; razao_social: string }[]; onSuccess: () => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({ empresa_id: "", tipo: "extrato", competencia: competenciaAtual(), arquivo_nome: "" });
+  const [form, setForm] = useState({ empresa_id: "", tipo: "extrato", competencia: competenciaAtual() });
+  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.empresa_id) return toast.error("Selecione o cliente");
+    if (!form.competencia.match(/^\d{4}-\d{2}$/)) return toast.error("Competência no formato AAAA-MM");
+    if (!file) return toast.error("Selecione um arquivo");
     setLoading(true);
     try {
-      await createDocumento({ data: { ...form, tipo: form.tipo as "extrato" } });
+      // 1) garante a competência e obtém o id
+      const { id: competencia_id } = await ensureCompetencia({
+        data: { empresa_id: form.empresa_id, competencia: form.competencia },
+      });
+
+      // 2) upload real do arquivo no Storage (bucket privado "documentos")
+      const path = `${form.empresa_id}/${competencia_id}/${crypto.randomUUID()}-${file.name}`;
+      const { error: upErr } = await supabase.storage
+        .from("documentos")
+        .upload(path, file, { upsert: false, cacheControl: "3600" });
+      if (upErr) {
+        toast.error(upErr.message);
+        setLoading(false);
+        return;
+      }
+
+      // 3) registra o documento apontando para o arquivo enviado
+      await createDocumento({
+        data: {
+          empresa_id: form.empresa_id,
+          tipo: form.tipo as "extrato",
+          competencia: form.competencia,
+          competencia_id,
+          arquivo_url: path,
+          arquivo_nome: file.name,
+          arquivo_tamanho_bytes: file.size,
+        },
+      });
+
       qc.invalidateQueries({ queryKey: ["documentos"] });
-      toast.success("Documento registrado.");
+      toast.success("Documento enviado.");
       onSuccess();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
@@ -167,7 +199,10 @@ function UploadDialog({ empresas, onSuccess }: { empresas: { id: string; razao_s
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5"><Label>Competência</Label><Input value={form.competencia} onChange={(e) => setForm({ ...form, competencia: e.target.value })} placeholder="2026-05" /></div>
-          <div className="space-y-1.5"><Label>Arquivo (nome)</Label><Input value={form.arquivo_nome} onChange={(e) => setForm({ ...form, arquivo_nome: e.target.value })} placeholder="nfe.xml" /></div>
+          <div className="space-y-1.5">
+            <Label>Arquivo</Label>
+            <Input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          </div>
         </div>
         <DialogFooter><Button type="submit" disabled={loading}>{loading ? "Enviando..." : "Registrar"}</Button></DialogFooter>
       </form>
