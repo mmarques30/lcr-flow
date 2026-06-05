@@ -76,14 +76,14 @@
   --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
 
-  --primary: oklch(0.43 0.115 255);             /* #1e4d8b LCR blue */
+  --primary: oklch(0.38 0.15 257);              /* #003c8c LCR royal navy */
   --primary-foreground: oklch(0.985 0.003 250);
-  --primary-hover: oklch(0.32 0.095 256);       /* #13335c */
-  --accent-lime: oklch(0.72 0.10 250);          /* azul claro */
-  --accent-gold: oklch(0.79 0.13 80);           /* #d4a84a mustard */
+  --primary-hover: oklch(0.30 0.13 257);        /* #002a66 */
+  --accent-lime: oklch(0.78 0.06 240);          /* #8cb4c8 soft logo blue */
+  --accent-gold: oklch(0.78 0.06 240);          /* alias → soft logo blue (no mustard) */
 
-  --deep: oklch(0.19 0.04 255);                 /* near-black navy, ref-style */
-  --deep-foreground: oklch(0.96 0.012 90);      /* warm cream */
+  --deep: oklch(0.18 0.05 258);                 /* #001428 logo deep navy */
+  --deep-foreground: oklch(0.96 0.008 240);     /* cool cream */
 
   --secondary: oklch(0.945 0.012 250);
   --secondary-foreground: var(--foreground);
