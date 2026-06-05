@@ -16,7 +16,6 @@ export function LcrLogo({ size = 36 }: { size?: number }) {
       alt="LCR Contábil"
       width={size}
       height={size}
-      className="rounded-md bg-white p-0.5"
       style={{ width: size, height: size }}
     />
   );

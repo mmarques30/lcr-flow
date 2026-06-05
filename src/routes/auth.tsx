@@ -58,9 +58,9 @@ function AuthPage() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       <div className="hidden lg:flex flex-col justify-between bg-deep text-deep-foreground p-12">
-        <div className="flex items-center gap-3">
-          <LcrLogo size={44} />
-          <div className="font-display text-xl">LCR Contábil</div>
+        <div className="font-display text-2xl tracking-tight">
+          <span className="text-deep-foreground">LCR</span>
+          <span className="italic text-accent-lime ml-1.5">Contábil</span>
         </div>
         <div className="max-w-lg">
           <h2 className="font-display text-4xl leading-tight">
@@ -70,7 +70,7 @@ function AuthPage() {
             Cobrança de documentos, lançamentos contábeis e conciliação — em um único fluxo.
           </p>
         </div>
-        <LcrWordmark className="text-deep-foreground" />
+        <div />
       </div>
 
       <div className="flex items-center justify-center p-8 bg-background">
