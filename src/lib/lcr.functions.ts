@@ -244,7 +244,7 @@ export const listLancamentosAgrupados = createServerFn({ method: "GET" })
     const [{ data: empresas }, { data: docs }, { data: lanc }] = await Promise.all([
       context.supabase.from("empresas").select("id, razao_social"),
       context.supabase.from("documentos").select("empresa_id, status").eq("competencia", competencia),
-      context.supabase.from("lancamentos").select("id, empresa_id, competencia, status, total_lancamentos, importado_em, created_at").order("created_at", { ascending: false }).limit(50),
+      context.supabase.from("lancamentos").select("id, empresa_id, competencia, status, total_lancamentos, planilha_url, importado_em, created_at").order("created_at", { ascending: false }).limit(50),
     ]);
     const docsByEmpresa = new Map<string, number>();
     (docs ?? []).forEach((d) => {
@@ -272,16 +272,83 @@ export const gerarPlanilhaSci = createServerFn({ method: "POST" })
     return doc;
   });
 
+// Registra uma planilha SCI enviada manualmente ao Storage como um lançamento.
+export const registrarPlanilhaSci = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      empresa_id: z.string().uuid(),
+      competencia: z.string().regex(/^\d{4}-\d{2}$/),
+      planilha_url: z.string().max(1024),
+      linhas_count: z.number().int().nonnegative().optional().nullable(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { data: lanc, error } = await context.supabase
+      .from("lancamentos")
+      .insert({
+        empresa_id: data.empresa_id,
+        competencia: data.competencia,
+        status: "planilha_gerada",
+        planilha_url: data.planilha_url,
+        linhas_count: data.linhas_count ?? null,
+        total_lancamentos: data.linhas_count ?? 0,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return lanc;
+  });
+
 export const listConciliacoes = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const competencia = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
     const { data, error } = await context.supabase
       .from("empresas")
-      .select("id, razao_social, conciliacoes(id, competencia, status, divergencias_count, concluido_em)")
+      .select("id, razao_social, conciliacoes(id, competencia, status, divergencias_count, concluido_em, razao_csv_url, planilha_conciliacao_url)")
       .order("razao_social");
     if (error) throw new Error(error.message);
     return { competencia, empresas: data ?? [] };
+  });
+
+// Garante a conciliação (empresa_id, competencia) e retorna o id.
+export const ensureConciliacao = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ empresa_id: z.string().uuid(), competencia: z.string().regex(/^\d{4}-\d{2}$/) }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { data: existing } = await context.supabase
+      .from("conciliacoes")
+      .select("id")
+      .eq("empresa_id", data.empresa_id)
+      .eq("competencia", data.competencia)
+      .maybeSingle();
+    if (existing) return { id: existing.id };
+
+    const { data: created, error } = await context.supabase
+      .from("conciliacoes")
+      .insert({ empresa_id: data.empresa_id, competencia: data.competencia, status: "nao_iniciada" })
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    return { id: created.id };
+  });
+
+// Vincula a razão CSV (já enviada ao Storage) a uma conciliação e a marca em andamento.
+export const setConciliacaoRazaoCsv = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().uuid(), razao_csv_url: z.string().max(1024) }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { error } = await context.supabase
+      .from("conciliacoes")
+      .update({ razao_csv_url: data.razao_csv_url, status: "em_andamento" })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 export const listTarefas = createServerFn({ method: "GET" })

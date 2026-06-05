@@ -1,15 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PageHeader, DemoFlag } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusPill, variantFor } from "@/components/status-pill";
-import { listLancamentosAgrupados, gerarPlanilhaSci } from "@/lib/lcr.functions";
+import { listLancamentosAgrupados, gerarPlanilhaSci, registrarPlanilhaSci } from "@/lib/lcr.functions";
 import { formatCompetencia, LANCAMENTO_STATUS_LABEL } from "@/lib/format";
-import { FileSpreadsheet } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { FileSpreadsheet, Upload, Download } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/lancamentos")({
@@ -18,6 +19,62 @@ export const Route = createFileRoute("/_authenticated/lancamentos")({
   component: LancamentosPage,
   errorComponent: ({ error }) => <div className="p-6 text-destructive">Erro: {error.message}</div>,
 });
+
+type Grupo = { id: string; razao_social: string; prontos: number };
+
+async function baixarPlanilha(path: string) {
+  const { data, error } = await supabase.storage.from("planilhas-sci").createSignedUrl(path, 60);
+  if (error || !data?.signedUrl) return toast.error(error?.message ?? "Não foi possível gerar o link.");
+  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+}
+
+function GrupoCard({ grupo, competencia, onGerar }: { grupo: Grupo; competencia: string; onGerar: (id: string, nome: string) => void }) {
+  const qc = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      const path = `${grupo.id}/${competencia}/${crypto.randomUUID()}-${file.name}`;
+      const { error } = await supabase.storage.from("planilhas-sci").upload(path, file, { upsert: false, cacheControl: "3600" });
+      if (error) { toast.error(error.message); return; }
+      await registrarPlanilhaSci({ data: { empresa_id: grupo.id, competencia, planilha_url: path } });
+      qc.invalidateQueries({ queryKey: ["lancamentos"] });
+      toast.success("Planilha SCI enviada.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao enviar");
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  return (
+    <Card className="card-interactive">
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-medium text-foreground">{grupo.razao_social}</div>
+            <div className="mt-1 text-sm text-soft-foreground">{grupo.prontos} documento(s) prontos</div>
+          </div>
+          <span className="icon-chip h-10 w-10 shrink-0"><FileSpreadsheet className="h-5 w-5" /></span>
+        </div>
+        <div className="mt-4 flex gap-2">
+          <Button className="flex-1" disabled={grupo.prontos === 0} onClick={() => onGerar(grupo.id, grupo.razao_social)}>
+            Gerar planilha SCI
+          </Button>
+          <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFile} />
+          <Button variant="outline" size="icon" disabled={busy} onClick={() => inputRef.current?.click()} title="Enviar planilha pronta">
+            <Upload className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function LancamentosPage() {
   const qc = useQueryClient();
@@ -37,32 +94,19 @@ function LancamentosPage() {
 
   return (
     <>
-      <PageHeader title="Lançamentos contábeis" description={`Competência ${formatCompetencia(data.competencia)} — geração de planilhas SCI.`} actions={<DemoFlag />} />
+      <PageHeader title="Lançamentos contábeis" description={`Competência ${formatCompetencia(data.competencia)} — geração e envio de planilhas SCI.`} actions={<DemoFlag />} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
         {data.grupos.map((g) => (
-          <Card key={g.id} className="border-border">
-            <CardContent className="pt-6">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-medium text-foreground">{g.razao_social}</div>
-                  <div className="mt-1 text-sm text-soft-foreground">{g.prontos} documento(s) prontos</div>
-                </div>
-                <FileSpreadsheet className="h-5 w-5 text-primary" />
-              </div>
-              <Button className="w-full mt-4" disabled={g.prontos === 0} onClick={() => gerar(g.id, g.razao_social)}>
-                Gerar planilha SCI
-              </Button>
-            </CardContent>
-          </Card>
+          <GrupoCard key={g.id} grupo={g} competencia={data.competencia} onGerar={gerar} />
         ))}
       </div>
 
       <h2 className="font-display text-xl mb-3">Histórico de planilhas</h2>
-      <Card className="border-border">
+      <Card>
         <Table>
           <TableHeader>
-            <TableRow><TableHead>Cliente</TableHead><TableHead>Competência</TableHead><TableHead>Lançamentos</TableHead><TableHead>Status</TableHead><TableHead>Gerada em</TableHead></TableRow>
+            <TableRow><TableHead>Cliente</TableHead><TableHead>Competência</TableHead><TableHead>Lançamentos</TableHead><TableHead>Status</TableHead><TableHead>Gerada em</TableHead><TableHead></TableHead></TableRow>
           </TableHeader>
           <TableBody>
             {data.historico.map((h) => {
@@ -74,10 +118,19 @@ function LancamentosPage() {
                   <TableCell>{h.total_lancamentos}</TableCell>
                   <TableCell><StatusPill variant={variantFor(h.status)}>{LANCAMENTO_STATUS_LABEL[h.status]}</StatusPill></TableCell>
                   <TableCell className="text-xs text-muted-foreground">{new Date(h.created_at).toLocaleString("pt-BR")}</TableCell>
+                  <TableCell>
+                    {h.planilha_url && (
+                      <div className="flex justify-end">
+                        <Button variant="ghost" size="sm" onClick={() => baixarPlanilha(h.planilha_url!)} title="Baixar planilha">
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </TableCell>
                 </TableRow>
               );
             })}
-            {data.historico.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhuma planilha gerada.</TableCell></TableRow>}
+            {data.historico.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhuma planilha gerada.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Card>
