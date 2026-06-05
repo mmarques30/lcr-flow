@@ -89,7 +89,7 @@ export function AppShell({ children, userName }: { children: ReactNode; userName
         </div>
       </aside>
       <main className="ml-64 flex-1">
-        <div className="mx-auto max-w-[1440px] px-6 py-8 lg:px-10 lg:py-10">{children}</div>
+        <div className="w-full px-6 py-8 lg:px-12 lg:py-10">{children}</div>
       </main>
     </div>
   );
