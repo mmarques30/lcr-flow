@@ -33,18 +33,20 @@ function Dashboard() {
         actions={<DemoFlag />}
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
-            <Card key={s.label} className="border-border">
-              <CardContent className="pt-6">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{s.label}</div>
-                    <div className="mt-2 font-display text-4xl text-foreground">{s.value}</div>
+            <Card key={s.label} className="card-interactive">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.label}</div>
+                    <div className="mt-3 font-display text-[2.75rem] leading-none text-foreground">{s.value}</div>
                   </div>
-                  <Icon className="h-5 w-5 text-primary" />
+                  <span className="icon-chip h-11 w-11 shrink-0">
+                    <Icon className="h-5 w-5" />
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -52,8 +54,8 @@ function Dashboard() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 border-border">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="font-display text-xl">Ciclo mensal por fase</CardTitle>
           </CardHeader>

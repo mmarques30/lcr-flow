@@ -60,13 +60,18 @@
   --color-status-next-foreground: var(--status-next-foreground);
   --color-status-back: var(--status-back);
   --color-status-back-foreground: var(--status-back-foreground);
+
+  /* Elevation — sombras suaves, estilo corporativo moderno */
+  --shadow-soft: 0 1px 2px -1px oklch(0.43 0.06 255 / 0.10), 0 1px 3px oklch(0.43 0.06 255 / 0.06);
+  --shadow-card: 0 1px 2px oklch(0.43 0.06 255 / 0.04), 0 6px 16px -8px oklch(0.43 0.06 255 / 0.12);
+  --shadow-elevated: 0 2px 4px oklch(0.43 0.06 255 / 0.05), 0 18px 36px -14px oklch(0.43 0.08 255 / 0.20);
 }
 
 :root {
-  --radius: 6px;
+  --radius: 12px;
 
   /* Brand LCR Contábil — navy corporativo */
-  --background: oklch(0.978 0.004 250);         /* #f6f7f9 */
+  --background: oklch(0.984 0.004 250);         /* #f7f8fb */
   --foreground: oklch(0.205 0.025 255);         /* #0f1827 */
   --soft-foreground: oklch(0.34 0.022 255);     /* #3a4252 */
   --muted-foreground: oklch(0.50 0.018 255);    /* #5a6373 */
@@ -137,9 +142,39 @@
   html, body { font-family: var(--font-sans); }
   body {
     background-color: var(--color-background);
+    /* leve profundidade no fundo, sem fugir da paleta */
+    background-image:
+      radial-gradient(1200px 600px at 100% -10%, oklch(0.43 0.115 255 / 0.05), transparent 60%),
+      radial-gradient(900px 500px at -10% 0%, oklch(0.72 0.10 250 / 0.05), transparent 55%);
+    background-attachment: fixed;
     color: var(--color-foreground);
     font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
   h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0.01em; }
   .emphasis { font-family: var(--font-display); font-style: italic; color: var(--color-primary-hover); }
+}
+
+@layer components {
+  /* Card com elevação + lift sutil no hover (estilo moderno/clean) */
+  .card-interactive {
+    transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  }
+  .card-interactive:hover {
+    box-shadow: var(--shadow-elevated);
+    transform: translateY(-2px);
+    border-color: oklch(0.43 0.115 255 / 0.22);
+  }
+  /* "Chip" para ícones dentro de cards/stats */
+  .icon-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, oklch(0.43 0.115 255 / 0.10), oklch(0.43 0.115 255 / 0.04));
+    color: var(--color-primary);
+    box-shadow: inset 0 0 0 1px oklch(0.43 0.115 255 / 0.12);
+  }
 }
