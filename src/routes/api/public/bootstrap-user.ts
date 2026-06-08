@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/api/public/_admin-create-user")({
+export const Route = createFileRoute("/api/public/bootstrap-user")({
   server: {
     handlers: {
       POST: async ({ request }) => {

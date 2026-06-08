@@ -19,7 +19,7 @@ import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authen
 import { Route as AuthenticatedConciliacaoRouteImport } from './routes/_authenticated/conciliacao'
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
 import { Route as AuthenticatedAppRouteImport } from './routes/_authenticated/app'
-import { Route as ApiPublicAdminCreateUserRouteImport } from './routes/api/public/_admin-create-user'
+import { Route as ApiPublicBootstrapUserRouteImport } from './routes/api/public/bootstrap-user'
 import { Route as AuthenticatedConciliacaoEmpresaIdRouteImport } from './routes/_authenticated/conciliacao.$empresaId'
 import { Route as AuthenticatedClientesIdRouteImport } from './routes/_authenticated/clientes.$id'
 
@@ -75,12 +75,11 @@ const AuthenticatedAppRoute = AuthenticatedAppRouteImport.update({
   path: '/app',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const ApiPublicAdminCreateUserRoute =
-  ApiPublicAdminCreateUserRouteImport.update({
-    id: '/api/public/_admin-create-user',
-    path: '/api/public',
-    getParentRoute: () => rootRouteImport,
-  } as any)
+const ApiPublicBootstrapUserRoute = ApiPublicBootstrapUserRouteImport.update({
+  id: '/api/public/bootstrap-user',
+  path: '/api/public/bootstrap-user',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedConciliacaoEmpresaIdRoute =
   AuthenticatedConciliacaoEmpresaIdRouteImport.update({
     id: '/$empresaId',
@@ -105,7 +104,7 @@ export interface FileRoutesByFullPath {
   '/tarefas': typeof AuthenticatedTarefasRoute
   '/clientes/$id': typeof AuthenticatedClientesIdRoute
   '/conciliacao/$empresaId': typeof AuthenticatedConciliacaoEmpresaIdRoute
-  '/api/public': typeof ApiPublicAdminCreateUserRoute
+  '/api/public/bootstrap-user': typeof ApiPublicBootstrapUserRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -119,7 +118,7 @@ export interface FileRoutesByTo {
   '/tarefas': typeof AuthenticatedTarefasRoute
   '/clientes/$id': typeof AuthenticatedClientesIdRoute
   '/conciliacao/$empresaId': typeof AuthenticatedConciliacaoEmpresaIdRoute
-  '/api/public': typeof ApiPublicAdminCreateUserRoute
+  '/api/public/bootstrap-user': typeof ApiPublicBootstrapUserRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -135,7 +134,7 @@ export interface FileRoutesById {
   '/_authenticated/tarefas': typeof AuthenticatedTarefasRoute
   '/_authenticated/clientes/$id': typeof AuthenticatedClientesIdRoute
   '/_authenticated/conciliacao/$empresaId': typeof AuthenticatedConciliacaoEmpresaIdRoute
-  '/api/public/_admin-create-user': typeof ApiPublicAdminCreateUserRoute
+  '/api/public/bootstrap-user': typeof ApiPublicBootstrapUserRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -151,7 +150,7 @@ export interface FileRouteTypes {
     | '/tarefas'
     | '/clientes/$id'
     | '/conciliacao/$empresaId'
-    | '/api/public'
+    | '/api/public/bootstrap-user'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -165,7 +164,7 @@ export interface FileRouteTypes {
     | '/tarefas'
     | '/clientes/$id'
     | '/conciliacao/$empresaId'
-    | '/api/public'
+    | '/api/public/bootstrap-user'
   id:
     | '__root__'
     | '/'
@@ -180,14 +179,14 @@ export interface FileRouteTypes {
     | '/_authenticated/tarefas'
     | '/_authenticated/clientes/$id'
     | '/_authenticated/conciliacao/$empresaId'
-    | '/api/public/_admin-create-user'
+    | '/api/public/bootstrap-user'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
-  ApiPublicAdminCreateUserRoute: typeof ApiPublicAdminCreateUserRoute
+  ApiPublicBootstrapUserRoute: typeof ApiPublicBootstrapUserRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -262,11 +261,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/api/public/_admin-create-user': {
-      id: '/api/public/_admin-create-user'
-      path: '/api/public'
-      fullPath: '/api/public'
-      preLoaderRoute: typeof ApiPublicAdminCreateUserRouteImport
+    '/api/public/bootstrap-user': {
+      id: '/api/public/bootstrap-user'
+      path: '/api/public/bootstrap-user'
+      fullPath: '/api/public/bootstrap-user'
+      preLoaderRoute: typeof ApiPublicBootstrapUserRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/conciliacao/$empresaId': {
@@ -341,8 +340,18 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
-  ApiPublicAdminCreateUserRoute: ApiPublicAdminCreateUserRoute,
+  ApiPublicBootstrapUserRoute: ApiPublicBootstrapUserRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
