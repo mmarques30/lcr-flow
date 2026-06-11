@@ -11,8 +11,10 @@ import { CONCILIACAO_STATUS_LABEL, formatCompetencia } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { Upload, Download } from "lucide-react";
 import { toast } from "sonner";
+import { requireAcesso } from "@/lib/guard";
 
 export const Route = createFileRoute("/_authenticated/conciliacao")({
+  beforeLoad: ({ context }) => requireAcesso(context.queryClient, "conciliacao", "/conciliacao"),
   head: () => ({ meta: [{ title: "Conciliação — LCR Contábil" }] }),
   loader: ({ context }) => context.queryClient.ensureQueryData({ queryKey: ["conciliacoes"], queryFn: () => listConciliacoes() }),
   component: ConciliacaoPage,

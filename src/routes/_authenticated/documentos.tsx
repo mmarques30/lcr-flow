@@ -15,8 +15,10 @@ import { listDocumentos, listEmpresas, createDocumento, setDocumentoStatus, ensu
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { requireAcesso } from "@/lib/guard";
 
 export const Route = createFileRoute("/_authenticated/documentos")({
+  beforeLoad: ({ context }) => requireAcesso(context.queryClient, "documentos", "/documentos"),
   head: () => ({ meta: [{ title: "Documentos — LCR Contábil" }] }),
   loader: async ({ context }) => {
     await Promise.all([

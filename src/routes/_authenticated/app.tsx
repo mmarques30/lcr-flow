@@ -7,8 +7,10 @@ import { getDashboardStats } from "@/lib/lcr.functions";
 import { EMPRESA_STATUS_LABEL, formatCompetencia } from "@/lib/format";
 import { Building2, FileClock, BookOpen, GitCompare, AlertTriangle, ListTodo, ArrowRight } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
+import { requireAcesso } from "@/lib/guard";
 
 export const Route = createFileRoute("/_authenticated/app")({
+  beforeLoad: ({ context }) => requireAcesso(context.queryClient, "dashboard", "/app"),
   head: () => ({ meta: [{ title: "Dashboard — LCR Contábil" }] }),
   loader: ({ context }) => context.queryClient.ensureQueryData({ queryKey: ["dashboard"], queryFn: () => getDashboardStats() }),
   component: Dashboard,

@@ -15,8 +15,10 @@ import { StatusPill, variantFor } from "@/components/status-pill";
 import { listEmpresas, listConsultores, createEmpresa } from "@/lib/lcr.functions";
 import { REGIME_LABEL, EMPRESA_STATUS_LABEL, DOC_TIPO_LABEL, formatCNPJ } from "@/lib/format";
 import { toast } from "sonner";
+import { requireAcesso } from "@/lib/guard";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
+  beforeLoad: ({ context }) => requireAcesso(context.queryClient, "clientes", "/clientes"),
   head: () => ({ meta: [{ title: "Clientes — LCR Contábil" }] }),
   loader: async ({ context }) => {
     await Promise.all([

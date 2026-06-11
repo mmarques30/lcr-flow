@@ -22,6 +22,20 @@ const fail = (error: string) => json(200, { ok: false, error });
 
 const PERFIS = ["admin", "consultor", "assistente"];
 
+// Gera uma senha temporária legível (letras + números + símbolo).
+function gerarSenha(): string {
+  const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const min = "abcdefghijkmnpqrstuvwxyz";
+  const num = "23456789";
+  const sym = "!@#$%&*";
+  const all = abc + min + num + sym;
+  const buf = new Uint32Array(12);
+  crypto.getRandomValues(buf);
+  let s = abc[buf[0] % abc.length] + num[buf[1] % num.length] + sym[buf[2] % sym.length];
+  for (let i = 3; i < 12; i++) s += all[buf[i] % all.length];
+  return s;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return fail("Método não permitido");
@@ -52,12 +66,17 @@ Deno.serve(async (req) => {
     const nome = String(body.nome ?? "").trim();
     const perfil = String(body.perfil ?? "assistente");
     const permissoes_custom = Array.isArray(body.permissoes_custom) ? body.permissoes_custom as string[] : null;
+    const senhaInformada = typeof body.senha === "string" ? body.senha.trim() : "";
     if (!email || !email.includes("@")) return fail("E-mail inválido");
     if (!nome) return fail("Nome obrigatório");
     if (!PERFIS.includes(perfil)) return fail("Perfil inválido");
+    if (senhaInformada && senhaInformada.length < 6) return fail("A senha precisa ter ao menos 6 caracteres.");
+
+    const senha = senhaInformada || gerarSenha();
 
     const { data: created, error } = await admin.auth.admin.createUser({
       email,
+      password: senha,
       email_confirm: true,
       user_metadata: { nome },
     });
@@ -69,9 +88,8 @@ Deno.serve(async (req) => {
       .upsert({ user_id: created.user.id, nome, email, perfil, permissoes_custom, ativo: true }, { onConflict: "user_id" });
     if (upErr) return fail(upErr.message);
 
-    // dispara e-mail de definição de senha (convite/recuperação)
-    await admin.auth.admin.generateLink({ type: "recovery", email }).catch(() => {});
-    return json(200, { ok: true, user_id: created.user.id });
+    // Retorna a senha temporária para o admin repassar (login imediato por e-mail+senha).
+    return json(200, { ok: true, user_id: created.user.id, email, senha_temporaria: senha });
   }
 
   if (action === "delete") {

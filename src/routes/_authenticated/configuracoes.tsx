@@ -19,10 +19,12 @@ import {
 } from "@/lib/lcr.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { ACESSOS, TODAS_CHAVES, temAcesso } from "@/lib/acessos";
-import { Plus, Trash2, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, ShieldCheck, Copy } from "lucide-react";
 import { toast } from "sonner";
+import { requireAcesso } from "@/lib/guard";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
+  beforeLoad: ({ context }) => requireAcesso(context.queryClient, "configuracoes", "/configuracoes"),
   head: () => ({ meta: [{ title: "Configurações — LCR Contábil" }] }),
   loader: async ({ context }) => {
     const perfil = await context.queryClient.ensureQueryData({ queryKey: ["meu-perfil"], queryFn: () => getMeuPerfil() });
@@ -230,44 +232,69 @@ function UsuariosTab() {
 
 function NovoUsuarioDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ nome: "", email: "", perfil: "assistente" as Usuario["perfil"] });
+  const [form, setForm] = useState({ nome: "", email: "", perfil: "assistente" as Usuario["perfil"], senha: "" });
   const [loading, setLoading] = useState(false);
+  const [criado, setCriado] = useState<{ email: string; senha: string } | null>(null);
+
+  function reset() {
+    setForm({ nome: "", email: "", perfil: "assistente", senha: "" });
+    setCriado(null);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
-      await invocarAdminUsers({ action: "create", nome: form.nome, email: form.email, perfil: form.perfil });
-      toast.success("Usuário criado. Um e-mail para definir a senha foi enviado.");
+      const res = await invocarAdminUsers({ action: "create", nome: form.nome, email: form.email, perfil: form.perfil, senha: form.senha || undefined });
       onCreated();
-      setOpen(false);
-      setForm({ nome: "", email: "", perfil: "assistente" });
+      setCriado({ email: (res?.email as string) ?? form.email, senha: (res?.senha_temporaria as string) ?? form.senha });
+      toast.success("Usuário criado.");
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setLoading(false); }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
       <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-1" />Novo usuário</Button></DialogTrigger>
       <DialogContent>
         <DialogHeader><DialogTitle className="font-display text-2xl">Novo usuário</DialogTitle></DialogHeader>
-        <form onSubmit={submit} className="space-y-4">
-          <div className="space-y-1.5"><Label>Nome</Label><Input required value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></div>
-          <div className="space-y-1.5"><Label>Email</Label><Input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-          <div className="space-y-1.5">
-            <Label>Perfil</Label>
-            <Select value={form.perfil} onValueChange={(v) => setForm({ ...form, perfil: v as Usuario["perfil"] })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="admin">admin</SelectItem>
-                <SelectItem value="consultor">consultor</SelectItem>
-                <SelectItem value="assistente">assistente</SelectItem>
-              </SelectContent>
-            </Select>
+        {criado ? (
+          <div className="space-y-4">
+            <p className="text-sm text-soft-foreground">Usuário criado. Repasse estas credenciais — a pessoa entra com e-mail e a senha temporária e pode trocá-la depois.</p>
+            <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-2"><span className="text-muted-foreground">E-mail</span><span className="font-mono">{criado.email}</span></div>
+              <div className="flex items-center justify-between gap-2"><span className="text-muted-foreground">Senha temporária</span><span className="font-mono font-medium">{criado.senha}</span></div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => { navigator.clipboard?.writeText(`E-mail: ${criado.email}\nSenha: ${criado.senha}`); toast.success("Credenciais copiadas."); }}>
+                <Copy className="h-4 w-4 mr-1" />Copiar
+              </Button>
+              <Button onClick={() => { setOpen(false); reset(); }}>Concluir</Button>
+            </DialogFooter>
           </div>
-          <p className="text-xs text-muted-foreground">O acesso segue o preset do perfil. Ajuste permissões individuais depois, se necessário.</p>
-          <DialogFooter><Button type="submit" disabled={loading}>{loading ? "Criando..." : "Criar usuário"}</Button></DialogFooter>
-        </form>
+        ) : (
+          <form onSubmit={submit} className="space-y-4">
+            <div className="space-y-1.5"><Label>Nome</Label><Input required value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Email</Label><Input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+            <div className="space-y-1.5">
+              <Label>Perfil</Label>
+              <Select value={form.perfil} onValueChange={(v) => setForm({ ...form, perfil: v as Usuario["perfil"] })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">admin</SelectItem>
+                  <SelectItem value="consultor">consultor</SelectItem>
+                  <SelectItem value="assistente">assistente</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Senha temporária <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+              <Input value={form.senha} onChange={(e) => setForm({ ...form, senha: e.target.value })} placeholder="Em branco = gerar automaticamente" />
+            </div>
+            <p className="text-xs text-muted-foreground">O acesso segue o preset do perfil. Ajuste permissões individuais depois, se necessário.</p>
+            <DialogFooter><Button type="submit" disabled={loading}>{loading ? "Criando..." : "Criar usuário"}</Button></DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -12,8 +12,10 @@ import { formatCompetencia, LANCAMENTO_STATUS_LABEL } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { FileSpreadsheet, Upload, Download } from "lucide-react";
 import { toast } from "sonner";
+import { requireAcesso } from "@/lib/guard";
 
 export const Route = createFileRoute("/_authenticated/lancamentos")({
+  beforeLoad: ({ context }) => requireAcesso(context.queryClient, "lancamentos", "/lancamentos"),
   head: () => ({ meta: [{ title: "Lançamentos — LCR Contábil" }] }),
   loader: ({ context }) => context.queryClient.ensureQueryData({ queryKey: ["lancamentos"], queryFn: () => listLancamentosAgrupados() }),
   component: LancamentosPage,

@@ -9,6 +9,7 @@ import { TAREFA_TIPO_LABEL } from "@/lib/format";
 import { StatusPill } from "@/components/status-pill";
 import { Calendar, User, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { requireAcesso } from "@/lib/guard";
 
 type TarefaStatus = "now" | "doing" | "next" | "back" | "done";
 type Tarefa = {
@@ -42,6 +43,7 @@ const TIPOS: { key: "cobranca" | "lancamentos" | "conciliacao"; label: string }[
 ];
 
 export const Route = createFileRoute("/_authenticated/tarefas")({
+  beforeLoad: ({ context }) => requireAcesso(context.queryClient, "tarefas", "/tarefas"),
   head: () => ({ meta: [{ title: "Tarefas — LCR Contábil" }] }),
   loader: async ({ context }) => {
     await Promise.all([

@@ -4,8 +4,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getEmpresa } from "@/lib/lcr.functions";
 import { ChevronLeft, AlertCircle, CheckCircle2 } from "lucide-react";
+import { requireAcesso } from "@/lib/guard";
 
 export const Route = createFileRoute("/_authenticated/conciliacao/$empresaId")({
+  beforeLoad: ({ context }) => requireAcesso(context.queryClient, "conciliacao", "/conciliacao"),
   head: () => ({ meta: [{ title: "Conciliação cliente — LCR" }] }),
   loader: ({ context, params }) =>
     context.queryClient.ensureQueryData({ queryKey: ["empresa", params.empresaId], queryFn: () => getEmpresa({ data: { id: params.empresaId } }) }),
