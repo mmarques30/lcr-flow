@@ -7,16 +7,17 @@ import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
 
 const NAV = [
-  { to: "/app", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/clientes", label: "Clientes", icon: Building2 },
-  { to: "/documentos", label: "Documentos", icon: FileText },
-  { to: "/lancamentos", label: "Lançamentos", icon: BookOpen },
-  { to: "/conciliacao", label: "Conciliação", icon: GitCompare },
-  { to: "/tarefas", label: "Tarefas", icon: ListChecks },
-  { to: "/configuracoes", label: "Configurações", icon: Settings },
+  { to: "/app", label: "Dashboard", icon: LayoutDashboard, acesso: "dashboard" },
+  { to: "/clientes", label: "Clientes", icon: Building2, acesso: "clientes" },
+  { to: "/documentos", label: "Documentos", icon: FileText, acesso: "documentos" },
+  { to: "/lancamentos", label: "Lançamentos", icon: BookOpen, acesso: "lancamentos" },
+  { to: "/conciliacao", label: "Conciliação", icon: GitCompare, acesso: "conciliacao" },
+  { to: "/tarefas", label: "Tarefas", icon: ListChecks, acesso: "tarefas" },
+  { to: "/configuracoes", label: "Configurações", icon: Settings, acesso: "configuracoes" },
 ] as const;
 
-export function AppShell({ children, userName }: { children: ReactNode; userName?: string }) {
+export function AppShell({ children, userName, acessos }: { children: ReactNode; userName?: string; acessos?: string[] }) {
+  const navItems = acessos ? NAV.filter((i) => acessos.includes(i.acesso)) : NAV;
   const router = useRouter();
   const qc = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -44,7 +45,7 @@ export function AppShell({ children, userName }: { children: ReactNode; userName
           <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
             Menu
           </div>
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const active = pathname === item.to || (item.to !== "/app" && pathname.startsWith(item.to));
             const Icon = item.icon;
             return (

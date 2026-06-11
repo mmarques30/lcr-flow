@@ -1,6 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Database } from "@/integrations/supabase/types";
+import { TODAS_CHAVES } from "@/lib/acessos";
+
+async function assertAdmin(supabase: SupabaseClient<Database>, userId: string) {
+  const { data } = await supabase.from("usuarios_perfil").select("perfil").eq("user_id", userId).maybeSingle();
+  if (data?.perfil !== "admin") throw new Error("Apenas administradores.");
+}
 
 const competenciaInput = z.object({ competencia: z.string().optional() }).optional();
 
@@ -410,10 +418,83 @@ export const getMeuPerfil = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data } = await context.supabase
       .from("usuarios_perfil")
-      .select("id, nome, email, perfil")
+      .select("id, nome, email, perfil, permissoes_custom")
       .eq("user_id", context.userId)
       .maybeSingle();
-    return data;
+    if (!data) return null;
+
+    let acessos: string[];
+    if (data.perfil === "admin") {
+      acessos = TODAS_CHAVES;
+    } else if (data.permissoes_custom) {
+      acessos = data.permissoes_custom;
+    } else {
+      const { data: preset } = await context.supabase
+        .from("permissoes_perfil")
+        .select("chaves")
+        .eq("perfil", data.perfil)
+        .maybeSingle();
+      acessos = preset?.chaves ?? [];
+    }
+    return { ...data, acessos };
+  });
+
+// ---------------------------------------------------------------------
+// Administração de usuários e permissões (somente admin)
+// ---------------------------------------------------------------------
+export const listUsuarios = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { data, error } = await context.supabase
+      .from("usuarios_perfil")
+      .select("id, user_id, nome, email, perfil, ativo, permissoes_custom")
+      .order("nome");
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+export const updateUsuario = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      id: z.string().uuid(),
+      perfil: z.enum(["admin", "consultor", "assistente"]).optional(),
+      permissoes_custom: z.array(z.string().max(60)).nullable().optional(),
+      ativo: z.boolean().optional(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const patch: Database["public"]["Tables"]["usuarios_perfil"]["Update"] = {};
+    if (data.perfil !== undefined) patch.perfil = data.perfil;
+    if (data.permissoes_custom !== undefined) patch.permissoes_custom = data.permissoes_custom;
+    if (data.ativo !== undefined) patch.ativo = data.ativo;
+    const { error } = await context.supabase.from("usuarios_perfil").update(patch).eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const listPresetsPermissoes = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase.from("permissoes_perfil").select("perfil, chaves").order("perfil");
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+export const savePresetPermissoes = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ perfil: z.enum(["admin", "consultor", "assistente"]), chaves: z.array(z.string().max(60)) }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.supabase, context.userId);
+    const { error } = await context.supabase
+      .from("permissoes_perfil")
+      .upsert({ perfil: data.perfil, chaves: data.chaves, atualizado_em: new Date().toISOString() }, { onConflict: "perfil" });
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 void competenciaInput;
