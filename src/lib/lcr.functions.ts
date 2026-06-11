@@ -161,7 +161,7 @@ export const listDocumentos = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("documentos")
-      .select("id, tipo, competencia, origem, status, arquivo_nome, arquivo_url, recebido_em, empresa:empresa_id(id, razao_social), responsavel:responsavel_id(nome)")
+      .select("id, tipo, competencia, origem, status, arquivo_nome, arquivo_url, dados_extraidos, recebido_em, empresa:empresa_id(id, razao_social), responsavel:responsavel_id(nome)")
       .order("recebido_em", { ascending: false })
       .limit(500);
     if (error) throw new Error(error.message);

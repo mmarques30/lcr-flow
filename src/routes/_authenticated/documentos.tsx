@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Download } from "lucide-react";
+import { Plus, Download, Sparkles, Eye, Loader2 } from "lucide-react";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { listDocumentos, listEmpresas, createDocumento, setDocumentoStatus, ensureCompetencia } from "@/lib/lcr.functions";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
@@ -38,6 +38,27 @@ function DocsPage() {
   const [tipo, setTipo] = useState("all");
   const [status, setStatus] = useState("all");
   const [open, setOpen] = useState(false);
+  const [processando, setProcessando] = useState<string | null>(null);
+  const [verDados, setVerDados] = useState<{ nome: string; dados: Record<string, unknown> } | null>(null);
+
+  async function processarIA(id: string) {
+    setProcessando(id);
+    try {
+      const { data, error } = await supabase.functions.invoke("processar-documento", { body: { documento_id: id } });
+      if (error) throw new Error(error.message);
+      if (data && data.ok === false) throw new Error(data.error ?? "Falha ao processar");
+      qc.invalidateQueries({ queryKey: ["documentos"] });
+      toast.success("Documento processado pela IA.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally {
+      setProcessando(null);
+    }
+  }
+
+  function temDados(dados: unknown): dados is Record<string, unknown> {
+    return !!dados && typeof dados === "object" && Object.keys(dados as object).length > 0;
+  }
 
   const filtered = useMemo(() => docs.filter((d) => {
     if (empresa !== "all" && d.empresa?.id !== empresa) return false;
@@ -125,6 +146,16 @@ function DocsPage() {
                 <TableCell><StatusPill variant={variantFor(d.status)}>{DOC_STATUS_LABEL[d.status]}</StatusPill></TableCell>
                 <TableCell>
                   <div className="flex items-center justify-end gap-2">
+                    {temDados(d.dados_extraidos) && (
+                      <Button variant="ghost" size="sm" onClick={() => setVerDados({ nome: d.arquivo_nome ?? d.empresa?.razao_social ?? "Documento", dados: d.dados_extraidos as Record<string, unknown> })} title="Ver dados extraídos">
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {d.arquivo_url && (
+                      <Button variant="ghost" size="sm" disabled={processando === d.id} onClick={() => processarIA(d.id)} title="Processar com IA (Claude)">
+                        {processando === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      </Button>
+                    )}
                     {d.arquivo_url && (
                       <Button variant="ghost" size="sm" onClick={() => baixar(d.arquivo_url!)} title="Baixar arquivo">
                         <Download className="h-4 w-4" />
@@ -141,6 +172,14 @@ function DocsPage() {
           </TableBody>
         </Table>
       </Card>
+
+      <Dialog open={!!verDados} onOpenChange={(o) => !o && setVerDados(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle className="font-display text-2xl">Dados extraídos — {verDados?.nome}</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Campos identificados pela IA (Claude) a partir do documento.</p>
+          <pre className="max-h-[60vh] overflow-auto rounded-lg border border-border bg-muted/40 p-4 text-xs">{JSON.stringify(verDados?.dados ?? {}, null, 2)}</pre>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
