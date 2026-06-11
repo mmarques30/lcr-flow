@@ -621,6 +621,24 @@ export type Database = {
           },
         ]
       }
+      permissoes_perfil: {
+        Row: {
+          atualizado_em: string
+          chaves: string[]
+          perfil: string
+        }
+        Insert: {
+          atualizado_em?: string
+          chaves?: string[]
+          perfil: string
+        }
+        Update: {
+          atualizado_em?: string
+          chaves?: string[]
+          perfil?: string
+        }
+        Relationships: []
+      }
       usuarios_perfil: {
         Row: {
           ativo: boolean
@@ -629,6 +647,7 @@ export type Database = {
           id: string
           nome: string
           perfil: Database["public"]["Enums"]["perfil_usuario"]
+          permissoes_custom: string[] | null
           updated_at: string
           user_id: string
         }
@@ -639,6 +658,7 @@ export type Database = {
           id?: string
           nome: string
           perfil?: Database["public"]["Enums"]["perfil_usuario"]
+          permissoes_custom?: string[] | null
           updated_at?: string
           user_id: string
         }
@@ -649,6 +669,7 @@ export type Database = {
           id?: string
           nome?: string
           perfil?: Database["public"]["Enums"]["perfil_usuario"]
+          permissoes_custom?: string[] | null
           updated_at?: string
           user_id?: string
         }

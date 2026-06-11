@@ -7,18 +7,34 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusPill } from "@/components/status-pill";
-import { listIntegracoes, saveIntegracao, listConsultores } from "@/lib/lcr.functions";
+import {
+  listIntegracoes, saveIntegracao, getMeuPerfil,
+  listUsuarios, updateUsuario, listPresetsPermissoes, savePresetPermissoes,
+} from "@/lib/lcr.functions";
+import { supabase } from "@/integrations/supabase/client";
+import { ACESSOS, TODAS_CHAVES, temAcesso } from "@/lib/acessos";
+import { Plus, Trash2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({ meta: [{ title: "Configurações — LCR Contábil" }] }),
   loader: async ({ context }) => {
+    const perfil = await context.queryClient.ensureQueryData({ queryKey: ["meu-perfil"], queryFn: () => getMeuPerfil() });
     await Promise.all([
       context.queryClient.ensureQueryData({ queryKey: ["integracoes"], queryFn: () => listIntegracoes() }),
-      context.queryClient.ensureQueryData({ queryKey: ["consultores"], queryFn: () => listConsultores() }),
     ]);
+    if (perfil?.perfil === "admin") {
+      await Promise.all([
+        context.queryClient.ensureQueryData({ queryKey: ["usuarios"], queryFn: () => listUsuarios() }),
+        context.queryClient.ensureQueryData({ queryKey: ["presets-permissoes"], queryFn: () => listPresetsPermissoes() }),
+      ]);
+    }
   },
   component: ConfiguracoesPage,
   errorComponent: ({ error }) => <div className="p-6 text-destructive">Erro: {error.message}</div>,
@@ -33,19 +49,28 @@ const INTEGRACOES_DEFS: { tipo: string; nome: string; campos: { key: string; lab
 ];
 
 function ConfiguracoesPage() {
+  const { data: perfil } = useSuspenseQuery({ queryKey: ["meu-perfil"], queryFn: () => getMeuPerfil() });
+  const acessos = perfil?.acessos ?? [];
+
+  const tabs = [
+    { key: "integracoes", acesso: "configuracoes:integracoes", label: "Integrações", el: <IntegracoesTab /> },
+    { key: "usuarios", acesso: "configuracoes:usuarios", label: "Usuários", el: <UsuariosTab /> },
+    { key: "plano", acesso: "configuracoes:plano", label: "Plano de contas", el: <PlanoContasTab /> },
+  ].filter((t) => temAcesso(acessos, t.acesso));
+
   return (
     <>
       <PageHeader title="Configurações" description="Integrações externas, equipe LCR e plano de contas." />
-      <Tabs defaultValue="integracoes">
-        <TabsList>
-          <TabsTrigger value="integracoes">Integrações</TabsTrigger>
-          <TabsTrigger value="usuarios">Usuários</TabsTrigger>
-          <TabsTrigger value="plano">Plano de contas</TabsTrigger>
-        </TabsList>
-        <TabsContent value="integracoes" className="mt-4"><IntegracoesTab /></TabsContent>
-        <TabsContent value="usuarios" className="mt-4"><UsuariosTab /></TabsContent>
-        <TabsContent value="plano" className="mt-4"><PlanoContasTab /></TabsContent>
-      </Tabs>
+      {tabs.length === 0 ? (
+        <Card><CardContent className="py-10 text-center text-muted-foreground">Você não tem acesso a nenhuma configuração.</CardContent></Card>
+      ) : (
+        <Tabs defaultValue={tabs[0].key}>
+          <TabsList>
+            {tabs.map((t) => <TabsTrigger key={t.key} value={t.key}>{t.label}</TabsTrigger>)}
+          </TabsList>
+          {tabs.map((t) => <TabsContent key={t.key} value={t.key} className="mt-4">{t.el}</TabsContent>)}
+        </Tabs>
+      )}
     </>
   );
 }
@@ -55,7 +80,7 @@ function IntegracoesTab() {
   const { data: integracoes } = useSuspenseQuery({ queryKey: ["integracoes"], queryFn: () => listIntegracoes() });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       {INTEGRACOES_DEFS.map((def) => {
         const atual = integracoes.find((i) => i.tipo === def.tipo);
         return <IntegracaoCard key={def.tipo} def={def} status={atual?.status ?? "desconectado"} initialConfig={(atual?.config as Record<string, string>) ?? {}} onSaved={() => qc.invalidateQueries({ queryKey: ["integracoes"] })} />;
@@ -101,24 +126,255 @@ function IntegracaoCard({ def, status, initialConfig, onSaved }: { def: typeof I
   );
 }
 
-function UsuariosTab() {
-  const { data: consultores } = useSuspenseQuery({ queryKey: ["consultores"], queryFn: () => listConsultores() });
+// ---------------------------------------------------------------------
+// Usuários (admin)
+// ---------------------------------------------------------------------
+type Usuario = { id: string; user_id: string; nome: string; email: string | null; perfil: "admin" | "consultor" | "assistente"; ativo: boolean; permissoes_custom: string[] | null };
+
+async function invocarAdminUsers(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke("admin-users", { body });
+  if (error) throw new Error(error.message);
+  if (data && data.ok === false) throw new Error(data.error ?? "Falha na operação");
+  return data;
+}
+
+function AcessosChecklist({ selecionados, onToggle, disabled }: { selecionados: string[]; onToggle: (key: string, on: boolean) => void; disabled?: boolean }) {
   return (
-    <Card className="border-border">
-      <Table>
-        <TableHeader><TableRow><TableHead>Nome</TableHead><TableHead>Email</TableHead><TableHead>Perfil</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-        <TableBody>
-          {consultores.map((u) => (
-            <TableRow key={u.id}>
-              <TableCell className="font-medium">{u.nome}</TableCell>
-              <TableCell className="text-sm text-muted-foreground">{u.email ?? "—"}</TableCell>
-              <TableCell><StatusPill variant={u.perfil === "admin" ? "now" : u.perfil === "consultor" ? "doing" : "next"}>{u.perfil}</StatusPill></TableCell>
-              <TableCell><StatusPill variant={u.ativo ? "now" : "neutral"}>{u.ativo ? "Ativo" : "Inativo"}</StatusPill></TableCell>
-            </TableRow>
+    <div className="space-y-2">
+      {ACESSOS.map((a) => (
+        <div key={a.key}>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <Checkbox checked={selecionados.includes(a.key)} disabled={disabled} onCheckedChange={(v) => onToggle(a.key, !!v)} />
+            {a.label}
+          </label>
+          {a.filhos?.map((f) => (
+            <label key={f.key} className="ml-6 flex items-center gap-2 text-sm text-soft-foreground">
+              <Checkbox checked={selecionados.includes(f.key)} disabled={disabled} onCheckedChange={(v) => onToggle(f.key, !!v)} />
+              {f.label}
+            </label>
           ))}
-          {consultores.length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">Nenhum usuário ainda — crie uma conta em /auth.</TableCell></TableRow>}
-        </TableBody>
-      </Table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UsuariosTab() {
+  const qc = useQueryClient();
+  const { data: usuarios } = useSuspenseQuery({ queryKey: ["usuarios"], queryFn: () => listUsuarios() });
+  const invalidate = () => { qc.invalidateQueries({ queryKey: ["usuarios"] }); qc.invalidateQueries({ queryKey: ["consultores"] }); };
+
+  async function mudarPerfil(id: string, perfil: Usuario["perfil"]) {
+    try { await updateUsuario({ data: { id, perfil } }); toast.success("Perfil atualizado."); invalidate(); }
+    catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+  }
+  async function alternarAtivo(id: string, ativo: boolean) {
+    try { await updateUsuario({ data: { id, ativo } }); invalidate(); }
+    catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+  }
+  async function excluir(u: Usuario) {
+    if (!confirm(`Excluir ${u.nome}? Esta ação remove o acesso do usuário.`)) return;
+    try { await invocarAdminUsers({ action: "delete", user_id: u.user_id }); toast.success("Usuário excluído."); invalidate(); }
+    catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-display text-lg">Usuários</h3>
+          <p className="text-sm text-muted-foreground">Crie, exclua e defina o acesso de cada pessoa.</p>
+        </div>
+        <NovoUsuarioDialog onCreated={invalidate} />
+      </div>
+
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow><TableHead>Nome</TableHead><TableHead>Email</TableHead><TableHead>Perfil</TableHead><TableHead>Acesso</TableHead><TableHead>Ativo</TableHead><TableHead></TableHead></TableRow>
+          </TableHeader>
+          <TableBody>
+            {(usuarios as Usuario[]).map((u) => (
+              <TableRow key={u.id}>
+                <TableCell className="font-medium">{u.nome}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">{u.email ?? "—"}</TableCell>
+                <TableCell>
+                  <Select value={u.perfil} onValueChange={(v) => mudarPerfil(u.id, v as Usuario["perfil"])}>
+                    <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">admin</SelectItem>
+                      <SelectItem value="consultor">consultor</SelectItem>
+                      <SelectItem value="assistente">assistente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <PermissoesUsuarioDialog usuario={u} onSaved={invalidate} />
+                </TableCell>
+                <TableCell><Switch checked={u.ativo} onCheckedChange={(v) => alternarAtivo(u.id, v)} /></TableCell>
+                <TableCell>
+                  <div className="flex justify-end">
+                    <Button variant="ghost" size="sm" onClick={() => excluir(u)} title="Excluir usuário"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <PresetsEditor />
+    </div>
+  );
+}
+
+function NovoUsuarioDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ nome: "", email: "", perfil: "assistente" as Usuario["perfil"] });
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await invocarAdminUsers({ action: "create", nome: form.nome, email: form.email, perfil: form.perfil });
+      toast.success("Usuário criado. Um e-mail para definir a senha foi enviado.");
+      onCreated();
+      setOpen(false);
+      setForm({ nome: "", email: "", perfil: "assistente" });
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-1" />Novo usuário</Button></DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle className="font-display text-2xl">Novo usuário</DialogTitle></DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-1.5"><Label>Nome</Label><Input required value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Email</Label><Input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+          <div className="space-y-1.5">
+            <Label>Perfil</Label>
+            <Select value={form.perfil} onValueChange={(v) => setForm({ ...form, perfil: v as Usuario["perfil"] })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">admin</SelectItem>
+                <SelectItem value="consultor">consultor</SelectItem>
+                <SelectItem value="assistente">assistente</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="text-xs text-muted-foreground">O acesso segue o preset do perfil. Ajuste permissões individuais depois, se necessário.</p>
+          <DialogFooter><Button type="submit" disabled={loading}>{loading ? "Criando..." : "Criar usuário"}</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PermissoesUsuarioDialog({ usuario, onSaved }: { usuario: Usuario; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const herdaInicial = usuario.permissoes_custom == null;
+  const [herda, setHerda] = useState(herdaInicial);
+  const [chaves, setChaves] = useState<string[]>(usuario.permissoes_custom ?? []);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { setHerda(usuario.permissoes_custom == null); setChaves(usuario.permissoes_custom ?? []); }, [usuario, open]);
+
+  function toggle(key: string, on: boolean) {
+    setChaves((prev) => on ? [...new Set([...prev, key])] : prev.filter((k) => k !== key));
+  }
+
+  async function salvar() {
+    setLoading(true);
+    try {
+      await updateUsuario({ data: { id: usuario.id, permissoes_custom: herda ? null : chaves } });
+      toast.success("Permissões salvas.");
+      onSaved();
+      setOpen(false);
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setLoading(false); }
+  }
+
+  const ehAdmin = usuario.perfil === "admin";
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          {ehAdmin ? "Acesso total" : usuario.permissoes_custom == null ? "Herda do perfil" : "Personalizado"}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle className="font-display text-2xl">Acesso — {usuario.nome}</DialogTitle></DialogHeader>
+        {ehAdmin ? (
+          <p className="text-sm text-muted-foreground flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" /> Administradores têm acesso total a todos os menus.</p>
+        ) : (
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 text-sm">
+              <Switch checked={herda} onCheckedChange={setHerda} /> Herdar permissões do perfil <span className="text-muted-foreground">({usuario.perfil})</span>
+            </label>
+            <AcessosChecklist selecionados={herda ? [] : chaves} onToggle={toggle} disabled={herda} />
+            <DialogFooter><Button onClick={salvar} disabled={loading}>{loading ? "Salvando..." : "Salvar acesso"}</Button></DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PresetsEditor() {
+  const { data: presets } = useSuspenseQuery({ queryKey: ["presets-permissoes"], queryFn: () => listPresetsPermissoes() });
+  return (
+    <div>
+      <h3 className="font-display text-lg mb-1">Presets por perfil</h3>
+      <p className="text-sm text-muted-foreground mb-3">Acessos padrão de cada perfil (usados quando o usuário herda do perfil).</p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {["admin", "consultor", "assistente"].map((perfil) => {
+          const preset = presets.find((p) => p.perfil === perfil);
+          return <PresetCard key={perfil} perfil={perfil} chaves={preset?.chaves ?? []} />;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PresetCard({ perfil, chaves }: { perfil: string; chaves: string[] }) {
+  const qc = useQueryClient();
+  const [sel, setSel] = useState<string[]>(chaves);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => setSel(chaves), [chaves]);
+  const bloqueado = perfil === "admin";
+
+  function toggle(key: string, on: boolean) {
+    setSel((prev) => on ? [...new Set([...prev, key])] : prev.filter((k) => k !== key));
+  }
+  async function salvar() {
+    setLoading(true);
+    try {
+      await savePresetPermissoes({ data: { perfil: perfil as "admin" | "consultor" | "assistente", chaves: bloqueado ? TODAS_CHAVES : sel } });
+      toast.success(`Preset de ${perfil} salvo.`);
+      qc.invalidateQueries({ queryKey: ["presets-permissoes"] });
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <Card>
+      <CardContent className="pt-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <StatusPill variant={perfil === "admin" ? "now" : perfil === "consultor" ? "doing" : "next"}>{perfil}</StatusPill>
+        </div>
+        {bloqueado ? (
+          <p className="text-sm text-muted-foreground">Acesso total (não editável).</p>
+        ) : (
+          <>
+            <AcessosChecklist selecionados={sel} onToggle={toggle} />
+            <Button size="sm" onClick={salvar} disabled={loading}>{loading ? "Salvando..." : "Salvar preset"}</Button>
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -148,7 +404,7 @@ const PLANO = [
 
 function PlanoContasTab() {
   return (
-    <Card className="border-border">
+    <Card>
       <CardContent className="pt-6 font-mono text-sm">
         <p className="font-sans text-muted-foreground mb-4">Plano de contas padrão LCR (mockup — editável em breve).</p>
         {PLANO.map((g) => (

@@ -19,7 +19,7 @@ export const Route = createFileRoute("/_authenticated")({
 function AuthenticatedLayout() {
   const { data: perfil } = useSuspenseQuery({ queryKey: ["meu-perfil"], queryFn: () => getMeuPerfil() });
   return (
-    <AppShell userName={perfil?.nome}>
+    <AppShell userName={perfil?.nome} acessos={perfil?.acessos}>
       <Outlet />
     </AppShell>
   );
