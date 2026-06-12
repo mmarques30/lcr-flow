@@ -99,9 +99,11 @@ export type Database = {
           created_at: string
           divergencias_count: number
           empresa_id: string
+          extrato_csv_url: string | null
           id: string
           planilha_conciliacao_url: string | null
           razao_csv_url: string | null
+          resultado: Json | null
           status: Database["public"]["Enums"]["conciliacao_status"]
           updated_at: string
         }
@@ -112,9 +114,11 @@ export type Database = {
           created_at?: string
           divergencias_count?: number
           empresa_id: string
+          extrato_csv_url?: string | null
           id?: string
           planilha_conciliacao_url?: string | null
           razao_csv_url?: string | null
+          resultado?: Json | null
           status?: Database["public"]["Enums"]["conciliacao_status"]
           updated_at?: string
         }
@@ -125,9 +129,11 @@ export type Database = {
           created_at?: string
           divergencias_count?: number
           empresa_id?: string
+          extrato_csv_url?: string | null
           id?: string
           planilha_conciliacao_url?: string | null
           razao_csv_url?: string | null
+          resultado?: Json | null
           status?: Database["public"]["Enums"]["conciliacao_status"]
           updated_at?: string
         }
