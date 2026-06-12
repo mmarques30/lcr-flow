@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { PageHeader, DemoFlag } from "@/components/app-shell";
+import { useEffect, useMemo, useState } from "react";
+import { PageHeader, DemoFlag, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,9 +10,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Search } from "lucide-react";
+import { Plus, Trash2, Search, Pencil } from "lucide-react";
 import { StatusPill, variantFor } from "@/components/status-pill";
-import { listEmpresas, listConsultores, createEmpresa } from "@/lib/lcr.functions";
+import { listEmpresas, listConsultores, createEmpresa, updateEmpresa, deleteEmpresa } from "@/lib/lcr.functions";
 import { REGIME_LABEL, EMPRESA_STATUS_LABEL, DOC_TIPO_LABEL, formatCNPJ } from "@/lib/format";
 import { toast } from "sonner";
 import { requireAcesso } from "@/lib/guard";
@@ -31,6 +31,7 @@ export const Route = createFileRoute("/_authenticated/clientes")({
 });
 
 function ClientesPage() {
+  const qc = useQueryClient();
   const { data: empresas } = useSuspenseQuery({ queryKey: ["empresas"], queryFn: () => listEmpresas() });
   const { data: consultores } = useSuspenseQuery({ queryKey: ["consultores"], queryFn: () => listConsultores() });
   const [q, setQ] = useState("");
@@ -46,6 +47,23 @@ function ClientesPage() {
       return true;
     });
   }, [empresas, q, regime, status]);
+
+  const resumo = useMemo(() => {
+    const by = (s: string) => empresas.filter((e) => e.status === s).length;
+    return [
+      { label: "Clientes", value: empresas.length },
+      { label: "Em dia", value: by("em_dia"), tone: "ok" as const },
+      { label: "Em cobrança", value: by("cobranca") },
+      { label: "Atrasados", value: by("atrasado"), tone: "warn" as const },
+      { label: "Entregues", value: by("entregue"), tone: "ok" as const },
+    ];
+  }, [empresas]);
+
+  async function excluir(e: { id: string; razao_social: string }) {
+    if (!confirm(`Excluir ${e.razao_social}? Remove também contas, documentos e tarefas vinculadas.`)) return;
+    try { await deleteEmpresa({ data: { id: e.id } }); toast.success("Cliente excluído."); qc.invalidateQueries({ queryKey: ["empresas"] }); }
+    catch (err) { toast.error(err instanceof Error ? err.message : "Erro ao excluir"); }
+  }
 
   return (
     <>
@@ -64,6 +82,8 @@ function ClientesPage() {
           </>
         }
       />
+
+      <ResumoTela itens={resumo} />
 
       <Card className="border-border">
         <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -96,6 +116,7 @@ function ClientesPage() {
               <TableHead>Consultor</TableHead>
               <TableHead>Status do mês</TableHead>
               <TableHead>Tags</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -118,10 +139,16 @@ function ClientesPage() {
                     ))}
                   </div>
                 </TableCell>
+                <TableCell>
+                  <div className="flex items-center justify-end gap-1">
+                    <EditarClienteDialog empresa={e} consultores={consultores} />
+                    <Button variant="ghost" size="icon" onClick={() => excluir(e)} title="Excluir cliente"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                  </div>
+                </TableCell>
               </TableRow>
             ))}
             {filtered.length === 0 && (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhum cliente encontrado.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum cliente encontrado.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -244,5 +271,104 @@ function NovoClienteDialog({ consultores, onSuccess }: { consultores: { id: stri
         </DialogFooter>
       </form>
     </DialogContent>
+  );
+}
+
+type EmpresaEdit = {
+  id: string; razao_social: string; nome_fantasia: string | null; cnpj: string;
+  regime: "simples" | "presumido" | "real" | "mei"; segmento: string | null;
+  consultor_id: string | null; tags: string[] | null;
+};
+
+function EditarClienteDialog({ empresa, consultores }: { empresa: EmpresaEdit; consultores: { id: string; nome: string }[] }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    razao_social: empresa.razao_social,
+    nome_fantasia: empresa.nome_fantasia ?? "",
+    cnpj: empresa.cnpj,
+    regime: empresa.regime,
+    segmento: empresa.segmento ?? "",
+    consultor_id: empresa.consultor_id ?? "",
+    tags: (empresa.tags ?? []).join(", "),
+  });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setForm({
+      razao_social: empresa.razao_social,
+      nome_fantasia: empresa.nome_fantasia ?? "",
+      cnpj: empresa.cnpj,
+      regime: empresa.regime,
+      segmento: empresa.segmento ?? "",
+      consultor_id: empresa.consultor_id ?? "",
+      tags: (empresa.tags ?? []).join(", "),
+    });
+  }, [open, empresa]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await updateEmpresa({
+        data: {
+          id: empresa.id,
+          razao_social: form.razao_social,
+          nome_fantasia: form.nome_fantasia || null,
+          cnpj: form.cnpj,
+          regime: form.regime,
+          segmento: form.segmento || null,
+          consultor_id: form.consultor_id || null,
+          tags: form.tags.split(",").map((s) => s.trim()).filter(Boolean),
+        },
+      });
+      toast.success("Cliente atualizado.");
+      qc.invalidateQueries({ queryKey: ["empresas"] });
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao salvar");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild><Button variant="ghost" size="icon" title="Editar cliente"><Pencil className="h-4 w-4" /></Button></DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader><DialogTitle className="font-display text-2xl">Editar cliente</DialogTitle></DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5"><Label>Razão social *</Label><Input required value={form.razao_social} onChange={(e) => setForm({ ...form, razao_social: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Nome fantasia</Label><Input value={form.nome_fantasia} onChange={(e) => setForm({ ...form, nome_fantasia: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>CNPJ *</Label><Input required value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: formatCNPJ(e.target.value) })} /></div>
+            <div className="space-y-1.5">
+              <Label>Regime</Label>
+              <Select value={form.regime} onValueChange={(v) => setForm({ ...form, regime: v as typeof form.regime })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{Object.entries(REGIME_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5"><Label>Segmento</Label><Input value={form.segmento} onChange={(e) => setForm({ ...form, segmento: e.target.value })} /></div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Consultor responsável</Label>
+              <Select value={form.consultor_id || "none"} onValueChange={(v) => setForm({ ...form, consultor_id: v === "none" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">—</SelectItem>
+                  {consultores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Tags (separadas por vírgula)</Label>
+              <Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="atípico, baixo volume" />
+            </div>
+          </div>
+          <DialogFooter><Button type="submit" disabled={loading}>{loading ? "Salvando..." : "Salvar alterações"}</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

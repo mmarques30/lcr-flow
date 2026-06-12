@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
-import { PageHeader, DemoFlag } from "@/components/app-shell";
+import { PageHeader, DemoFlag, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -126,6 +126,13 @@ function LancamentosPage() {
   return (
     <>
       <PageHeader title="Lançamentos contábeis" description={`Competência ${formatCompetencia(data.competencia)} — geração e envio de planilhas SCI.`} actions={<DemoFlag />} />
+
+      <ResumoTela itens={[
+        { label: "Clientes", value: linhas.length },
+        { label: "Docs prontos", value: linhas.filter((l) => l.prontos > 0).length },
+        { label: "Com planilha", value: linhas.filter((l) => l.ultima).length, tone: "ok" as const },
+        { label: "Sem planilha", value: linhas.filter((l) => !l.ultima).length, tone: "warn" as const },
+      ]} />
 
       <Card>
         <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-4 gap-3">

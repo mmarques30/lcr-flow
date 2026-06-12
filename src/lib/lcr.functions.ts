@@ -156,6 +156,47 @@ export const createEmpresa = createServerFn({ method: "POST" })
     return emp;
   });
 
+export const updateEmpresa = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      id: z.string().uuid(),
+      razao_social: z.string().min(2).max(200),
+      nome_fantasia: z.string().max(200).optional().nullable(),
+      cnpj: z.string().min(14).max(20),
+      regime: z.enum(["simples", "presumido", "real", "mei"]),
+      segmento: z.string().max(100).optional().nullable(),
+      consultor_id: z.string().uuid().optional().nullable(),
+      tags: z.array(z.string().max(50)).max(20).default([]),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { id, ...patch } = data;
+    const { error } = await context.supabase
+      .from("empresas")
+      .update({
+        razao_social: patch.razao_social,
+        nome_fantasia: patch.nome_fantasia ?? null,
+        cnpj: patch.cnpj,
+        regime: patch.regime,
+        segmento: patch.segmento ?? null,
+        consultor_id: patch.consultor_id ?? null,
+        tags: patch.tags,
+      })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const deleteEmpresa = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { error } = await context.supabase.from("empresas").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
 export const listDocumentos = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

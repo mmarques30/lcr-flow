@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { PageHeader, DemoFlag } from "@/components/app-shell";
+import { PageHeader, DemoFlag, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,6 +97,14 @@ function DocsPage() {
           </>
         }
       />
+
+      <ResumoTela itens={[
+        { label: "Documentos", value: docs.length },
+        { label: "Recebidos", value: docs.filter((d) => d.status === "recebido").length },
+        { label: "Classificados", value: docs.filter((d) => d.status === "classificado").length },
+        { label: "Processados", value: docs.filter((d) => d.status === "processado").length, tone: "ok" as const },
+        { label: "Conciliados", value: docs.filter((d) => d.status === "conciliado").length, tone: "ok" as const },
+      ]} />
 
       <Card className="border-border">
         <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-4 gap-3">

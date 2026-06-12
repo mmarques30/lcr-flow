@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { PageHeader, DemoFlag } from "@/components/app-shell";
+import { PageHeader, DemoFlag, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -86,6 +86,9 @@ function EmpresaRow({ empresa, competencia }: { empresa: EmpRow; competencia: st
 function ConciliacaoPage() {
   const { data } = useSuspenseQuery({ queryKey: ["conciliacoes"], queryFn: () => listConciliacoes() });
 
+  const statusDe = (e: EmpRow) => (e.conciliacoes.find((c) => c.competencia === data.competencia) ?? e.conciliacoes[0])?.status ?? "nao_iniciada";
+  const empresas = data.empresas as EmpRow[];
+
   return (
     <>
       <PageHeader
@@ -93,6 +96,14 @@ function ConciliacaoPage() {
         description={`Status das conciliações da competência ${formatCompetencia(data.competencia)}. Importe a razão CSV por cliente para iniciar.`}
         actions={<DemoFlag />}
       />
+
+      <ResumoTela itens={[
+        { label: "Clientes", value: empresas.length },
+        { label: "Concluídas", value: empresas.filter((e) => statusDe(e) === "concluida").length, tone: "ok" as const },
+        { label: "Em andamento", value: empresas.filter((e) => statusDe(e) === "em_andamento").length },
+        { label: "Divergências", value: empresas.filter((e) => statusDe(e) === "divergencias").length, tone: "warn" as const },
+        { label: "Não iniciadas", value: empresas.filter((e) => statusDe(e) === "nao_iniciada").length },
+      ]} />
 
       <Card>
         <Table>

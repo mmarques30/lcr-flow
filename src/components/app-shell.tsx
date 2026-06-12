@@ -166,3 +166,20 @@ export function DemoFlag() {
     </span>
   );
 }
+
+/** Resumo consolidado no topo da tela — uma linha de mini-cards. */
+export function ResumoTela({ itens }: { itens: { label: string; value: number | string; tone?: "default" | "warn" | "ok" }[] }) {
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {itens.map((it) => (
+        <div key={it.label} className="rounded-xl border border-border/70 bg-card px-4 py-3 shadow-soft">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{it.label}</div>
+          <div className={cn(
+            "mt-1 font-display text-2xl leading-none",
+            it.tone === "warn" ? "text-destructive" : it.tone === "ok" ? "text-primary" : "text-foreground",
+          )}>{it.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
