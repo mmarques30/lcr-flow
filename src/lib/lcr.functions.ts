@@ -314,7 +314,7 @@ export const listConciliacoes = createServerFn({ method: "GET" })
     const competencia = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
     const { data, error } = await context.supabase
       .from("empresas")
-      .select("id, razao_social, conciliacoes(id, competencia, status, divergencias_count, concluido_em, razao_csv_url, planilha_conciliacao_url)")
+      .select("id, razao_social, conciliacoes(id, competencia, status, divergencias_count, concluido_em, razao_csv_url, extrato_csv_url, planilha_conciliacao_url)")
       .order("razao_social");
     if (error) throw new Error(error.message);
     return { competencia, empresas: data ?? [] };
@@ -357,6 +357,45 @@ export const setConciliacaoRazaoCsv = createServerFn({ method: "POST" })
       .eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
+  });
+
+// Vincula o extrato CSV (já enviado ao Storage) a uma conciliação.
+export const setConciliacaoExtratoCsv = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().uuid(), extrato_csv_url: z.string().max(1024) }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { error } = await context.supabase
+      .from("conciliacoes")
+      .update({ extrato_csv_url: data.extrato_csv_url, status: "em_andamento" })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// Detalhe da conciliação de um cliente na competência atual (com resultado do motor).
+export const getConciliacaoDetalhe = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { empresa_id: string }) => z.object({ empresa_id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const competencia = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+    const { data: empresa, error: eErr } = await context.supabase
+      .from("empresas")
+      .select("id, razao_social")
+      .eq("id", data.empresa_id)
+      .maybeSingle();
+    if (eErr) throw new Error(eErr.message);
+    if (!empresa) throw new Error("Empresa não encontrada");
+
+    const { data: conc } = await context.supabase
+      .from("conciliacoes")
+      .select("id, competencia, status, divergencias_count, razao_csv_url, extrato_csv_url, resultado")
+      .eq("empresa_id", data.empresa_id)
+      .eq("competencia", competencia)
+      .maybeSingle();
+
+    return { empresa, competencia, conciliacao: conc ?? null };
   });
 
 export const listTarefas = createServerFn({ method: "GET" })
