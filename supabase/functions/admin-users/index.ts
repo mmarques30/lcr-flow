@@ -101,5 +101,48 @@ Deno.serve(async (req) => {
     return json(200, { ok: true });
   }
 
+  if (action === "update") {
+    const user_id = String(body.user_id ?? "");
+    if (!user_id) return fail("user_id obrigatório");
+    const { data: alvo } = await admin.from("usuarios_perfil").select("email").eq("user_id", user_id).maybeSingle();
+    if (!alvo) return fail("Usuário não encontrado.");
+
+    const patch: Record<string, unknown> = {};
+    if (typeof body.nome === "string" && body.nome.trim()) patch.nome = body.nome.trim();
+    if (typeof body.perfil === "string") {
+      if (!PERFIS.includes(body.perfil)) return fail("Perfil inválido");
+      patch.perfil = body.perfil;
+    }
+    if (body.permissoes_custom !== undefined)
+      patch.permissoes_custom = Array.isArray(body.permissoes_custom) ? body.permissoes_custom : null;
+    if (typeof body.ativo === "boolean") patch.ativo = body.ativo;
+
+    const novoEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    if (novoEmail && novoEmail !== alvo.email) {
+      if (!novoEmail.includes("@")) return fail("E-mail inválido");
+      const { error: aErr } = await admin.auth.admin.updateUserById(user_id, { email: novoEmail, email_confirm: true });
+      if (aErr) return fail(aErr.message);
+      patch.email = novoEmail;
+    }
+
+    if (Object.keys(patch).length > 0) {
+      const { error: upErr } = await admin.from("usuarios_perfil").update(patch).eq("user_id", user_id);
+      if (upErr) return fail(upErr.message);
+    }
+    return json(200, { ok: true });
+  }
+
+  if (action === "reset_password") {
+    const user_id = String(body.user_id ?? "");
+    if (!user_id) return fail("user_id obrigatório");
+    const senhaInformada = typeof body.senha === "string" ? body.senha.trim() : "";
+    if (senhaInformada && senhaInformada.length < 6) return fail("A senha precisa ter ao menos 6 caracteres.");
+    const senha = senhaInformada || gerarSenha();
+    const { data: alvo } = await admin.from("usuarios_perfil").select("email").eq("user_id", user_id).maybeSingle();
+    const { error } = await admin.auth.admin.updateUserById(user_id, { password: senha });
+    if (error) return fail(error.message);
+    return json(200, { ok: true, email: alvo?.email ?? "", senha_temporaria: senha });
+  }
+
   return fail("Ação desconhecida");
 });

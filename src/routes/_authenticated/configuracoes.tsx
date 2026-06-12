@@ -15,11 +15,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { StatusPill } from "@/components/status-pill";
 import {
   listIntegracoes, saveIntegracao, getMeuPerfil,
-  listUsuarios, updateUsuario, listPresetsPermissoes, savePresetPermissoes,
+  listUsuarios, updateUsuario,
 } from "@/lib/lcr.functions";
 import { supabase } from "@/integrations/supabase/client";
-import { ACESSOS, TODAS_CHAVES, temAcesso } from "@/lib/acessos";
-import { Plus, Trash2, ShieldCheck, Copy } from "lucide-react";
+import { ACESSOS, temAcesso } from "@/lib/acessos";
+import { Plus, Trash2, ShieldCheck, Copy, Pencil, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { requireAcesso } from "@/lib/guard";
 
@@ -32,10 +32,7 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
       context.queryClient.ensureQueryData({ queryKey: ["integracoes"], queryFn: () => listIntegracoes() }),
     ]);
     if (perfil?.perfil === "admin") {
-      await Promise.all([
-        context.queryClient.ensureQueryData({ queryKey: ["usuarios"], queryFn: () => listUsuarios() }),
-        context.queryClient.ensureQueryData({ queryKey: ["presets-permissoes"], queryFn: () => listPresetsPermissoes() }),
-      ]);
+      await context.queryClient.ensureQueryData({ queryKey: ["usuarios"], queryFn: () => listUsuarios() });
     }
   },
   component: ConfiguracoesPage,
@@ -166,10 +163,6 @@ function UsuariosTab() {
   const { data: usuarios } = useSuspenseQuery({ queryKey: ["usuarios"], queryFn: () => listUsuarios() });
   const invalidate = () => { qc.invalidateQueries({ queryKey: ["usuarios"] }); qc.invalidateQueries({ queryKey: ["consultores"] }); };
 
-  async function mudarPerfil(id: string, perfil: Usuario["perfil"]) {
-    try { await updateUsuario({ data: { id, perfil } }); toast.success("Perfil atualizado."); invalidate(); }
-    catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
-  }
   async function alternarAtivo(id: string, ativo: boolean) {
     try { await updateUsuario({ data: { id, ativo } }); invalidate(); }
     catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
@@ -185,7 +178,7 @@ function UsuariosTab() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-display text-lg">Usuários</h3>
-          <p className="text-sm text-muted-foreground">Crie, exclua e defina o acesso de cada pessoa.</p>
+          <p className="text-sm text-muted-foreground">Crie, edite os dados e o acesso, redefina a senha ou exclua cada pessoa.</p>
         </div>
         <NovoUsuarioDialog onCreated={invalidate} />
       </div>
@@ -193,30 +186,23 @@ function UsuariosTab() {
       <Card>
         <Table>
           <TableHeader>
-            <TableRow><TableHead>Nome</TableHead><TableHead>Email</TableHead><TableHead>Perfil</TableHead><TableHead>Acesso</TableHead><TableHead>Ativo</TableHead><TableHead></TableHead></TableRow>
+            <TableRow><TableHead>Nome</TableHead><TableHead>Email</TableHead><TableHead>Perfil</TableHead><TableHead>Acesso</TableHead><TableHead>Ativo</TableHead><TableHead className="text-right">Ações</TableHead></TableRow>
           </TableHeader>
           <TableBody>
             {(usuarios as Usuario[]).map((u) => (
               <TableRow key={u.id}>
                 <TableCell className="font-medium">{u.nome}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{u.email ?? "—"}</TableCell>
-                <TableCell>
-                  <Select value={u.perfil} onValueChange={(v) => mudarPerfil(u.id, v as Usuario["perfil"])}>
-                    <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="admin">admin</SelectItem>
-                      <SelectItem value="consultor">consultor</SelectItem>
-                      <SelectItem value="assistente">assistente</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-                <TableCell>
-                  <PermissoesUsuarioDialog usuario={u} onSaved={invalidate} />
+                <TableCell><StatusPill variant={u.perfil === "admin" ? "now" : u.perfil === "consultor" ? "doing" : "next"}>{u.perfil}</StatusPill></TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {u.perfil === "admin" ? "Total" : u.permissoes_custom == null ? "Herda do perfil" : "Personalizado"}
                 </TableCell>
                 <TableCell><Switch checked={u.ativo} onCheckedChange={(v) => alternarAtivo(u.id, v)} /></TableCell>
                 <TableCell>
-                  <div className="flex justify-end">
-                    <Button variant="ghost" size="sm" onClick={() => excluir(u)} title="Excluir usuário"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                  <div className="flex items-center justify-end gap-1">
+                    <EditarUsuarioDialog usuario={u} onSaved={invalidate} />
+                    <ResetarSenhaDialog usuario={u} />
+                    <Button variant="ghost" size="icon" onClick={() => excluir(u)} title="Excluir usuário"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -224,8 +210,6 @@ function UsuariosTab() {
           </TableBody>
         </Table>
       </Card>
-
-      <PresetsEditor />
     </div>
   );
 }
@@ -300,14 +284,20 @@ function NovoUsuarioDialog({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-function PermissoesUsuarioDialog({ usuario, onSaved }: { usuario: Usuario; onSaved: () => void }) {
+function EditarUsuarioDialog({ usuario, onSaved }: { usuario: Usuario; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
-  const herdaInicial = usuario.permissoes_custom == null;
-  const [herda, setHerda] = useState(herdaInicial);
+  const [nome, setNome] = useState(usuario.nome);
+  const [email, setEmail] = useState(usuario.email ?? "");
+  const [perfil, setPerfil] = useState<Usuario["perfil"]>(usuario.perfil);
+  const [herda, setHerda] = useState(usuario.permissoes_custom == null);
   const [chaves, setChaves] = useState<string[]>(usuario.permissoes_custom ?? []);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { setHerda(usuario.permissoes_custom == null); setChaves(usuario.permissoes_custom ?? []); }, [usuario, open]);
+  useEffect(() => {
+    if (!open) return;
+    setNome(usuario.nome); setEmail(usuario.email ?? ""); setPerfil(usuario.perfil);
+    setHerda(usuario.permissoes_custom == null); setChaves(usuario.permissoes_custom ?? []);
+  }, [open, usuario]);
 
   function toggle(key: string, on: boolean) {
     setChaves((prev) => on ? [...new Set([...prev, key])] : prev.filter((k) => k !== key));
@@ -316,93 +306,102 @@ function PermissoesUsuarioDialog({ usuario, onSaved }: { usuario: Usuario; onSav
   async function salvar() {
     setLoading(true);
     try {
-      await updateUsuario({ data: { id: usuario.id, permissoes_custom: herda ? null : chaves } });
-      toast.success("Permissões salvas.");
+      await invocarAdminUsers({ action: "update", user_id: usuario.user_id, nome, email, perfil, permissoes_custom: herda ? null : chaves });
+      toast.success("Usuário atualizado.");
       onSaved();
       setOpen(false);
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setLoading(false); }
   }
 
-  const ehAdmin = usuario.perfil === "admin";
-
+  const ehAdmin = perfil === "admin";
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          {ehAdmin ? "Acesso total" : usuario.permissoes_custom == null ? "Herda do perfil" : "Personalizado"}
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader><DialogTitle className="font-display text-2xl">Acesso — {usuario.nome}</DialogTitle></DialogHeader>
-        {ehAdmin ? (
-          <p className="text-sm text-muted-foreground flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" /> Administradores têm acesso total a todos os menus.</p>
-        ) : (
-          <div className="space-y-4">
-            <label className="flex items-center gap-2 text-sm">
-              <Switch checked={herda} onCheckedChange={setHerda} /> Herdar permissões do perfil <span className="text-muted-foreground">({usuario.perfil})</span>
-            </label>
-            <AcessosChecklist selecionados={herda ? [] : chaves} onToggle={toggle} disabled={herda} />
-            <DialogFooter><Button onClick={salvar} disabled={loading}>{loading ? "Salvando..." : "Salvar acesso"}</Button></DialogFooter>
+      <DialogTrigger asChild><Button variant="ghost" size="icon" title="Editar usuário"><Pencil className="h-4 w-4" /></Button></DialogTrigger>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader><DialogTitle className="font-display text-2xl">Editar — {usuario.nome}</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5"><Label>Nome</Label><Input value={nome} onChange={(e) => setNome(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label>Email (login)</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          <div className="space-y-1.5">
+            <Label>Perfil</Label>
+            <Select value={perfil} onValueChange={(v) => setPerfil(v as Usuario["perfil"])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">admin</SelectItem>
+                <SelectItem value="consultor">consultor</SelectItem>
+                <SelectItem value="assistente">assistente</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        )}
+          <div className="space-y-2">
+            <Label>Acesso por menu</Label>
+            {ehAdmin ? (
+              <p className="text-sm text-muted-foreground flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" /> Administradores têm acesso total a todos os menus.</p>
+            ) : (
+              <>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={herda} onCheckedChange={setHerda} /> Herdar do perfil <span className="text-muted-foreground">({perfil})</span>
+                </label>
+                <AcessosChecklist selecionados={herda ? [] : chaves} onToggle={toggle} disabled={herda} />
+              </>
+            )}
+          </div>
+          <DialogFooter><Button onClick={salvar} disabled={loading}>{loading ? "Salvando..." : "Salvar alterações"}</Button></DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function PresetsEditor() {
-  const { data: presets } = useSuspenseQuery({ queryKey: ["presets-permissoes"], queryFn: () => listPresetsPermissoes() });
-  return (
-    <div>
-      <h3 className="font-display text-lg mb-1">Presets por perfil</h3>
-      <p className="text-sm text-muted-foreground mb-3">Acessos padrão de cada perfil (usados quando o usuário herda do perfil).</p>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {["admin", "consultor", "assistente"].map((perfil) => {
-          const preset = presets.find((p) => p.perfil === perfil);
-          return <PresetCard key={perfil} perfil={perfil} chaves={preset?.chaves ?? []} />;
-        })}
-      </div>
-    </div>
-  );
-}
-
-function PresetCard({ perfil, chaves }: { perfil: string; chaves: string[] }) {
-  const qc = useQueryClient();
-  const [sel, setSel] = useState<string[]>(chaves);
+function ResetarSenhaDialog({ usuario }: { usuario: Usuario }) {
+  const [open, setOpen] = useState(false);
+  const [senha, setSenha] = useState("");
   const [loading, setLoading] = useState(false);
-  useEffect(() => setSel(chaves), [chaves]);
-  const bloqueado = perfil === "admin";
+  const [nova, setNova] = useState<{ email: string; senha: string } | null>(null);
 
-  function toggle(key: string, on: boolean) {
-    setSel((prev) => on ? [...new Set([...prev, key])] : prev.filter((k) => k !== key));
-  }
-  async function salvar() {
+  function reset() { setSenha(""); setNova(null); }
+
+  async function confirmar() {
     setLoading(true);
     try {
-      await savePresetPermissoes({ data: { perfil: perfil as "admin" | "consultor" | "assistente", chaves: bloqueado ? TODAS_CHAVES : sel } });
-      toast.success(`Preset de ${perfil} salvo.`);
-      qc.invalidateQueries({ queryKey: ["presets-permissoes"] });
+      const res = await invocarAdminUsers({ action: "reset_password", user_id: usuario.user_id, senha: senha || undefined });
+      setNova({ email: (res?.email as string) ?? usuario.email ?? "", senha: (res?.senha_temporaria as string) ?? senha });
+      toast.success("Senha redefinida.");
     } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
     finally { setLoading(false); }
   }
 
   return (
-    <Card>
-      <CardContent className="pt-6 space-y-3">
-        <div className="flex items-center justify-between">
-          <StatusPill variant={perfil === "admin" ? "now" : perfil === "consultor" ? "doing" : "next"}>{perfil}</StatusPill>
-        </div>
-        {bloqueado ? (
-          <p className="text-sm text-muted-foreground">Acesso total (não editável).</p>
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <DialogTrigger asChild><Button variant="ghost" size="icon" title="Redefinir senha"><KeyRound className="h-4 w-4" /></Button></DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle className="font-display text-2xl">Redefinir senha — {usuario.nome}</DialogTitle></DialogHeader>
+        {nova ? (
+          <div className="space-y-4">
+            <p className="text-sm text-soft-foreground">Senha redefinida. Repasse as credenciais à pessoa — ela entra com e-mail e a nova senha.</p>
+            <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-2"><span className="text-muted-foreground">E-mail</span><span className="font-mono">{nova.email}</span></div>
+              <div className="flex items-center justify-between gap-2"><span className="text-muted-foreground">Nova senha</span><span className="font-mono font-medium">{nova.senha}</span></div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => { navigator.clipboard?.writeText(`E-mail: ${nova.email}\nSenha: ${nova.senha}`); toast.success("Credenciais copiadas."); }}>
+                <Copy className="h-4 w-4 mr-1" />Copiar
+              </Button>
+              <Button onClick={() => { setOpen(false); reset(); }}>Concluir</Button>
+            </DialogFooter>
+          </div>
         ) : (
-          <>
-            <AcessosChecklist selecionados={sel} onToggle={toggle} />
-            <Button size="sm" onClick={salvar} disabled={loading}>{loading ? "Salvando..." : "Salvar preset"}</Button>
-          </>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nova senha <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+              <Input value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Em branco = gerar automaticamente" />
+            </div>
+            <DialogFooter><Button onClick={confirmar} disabled={loading}>{loading ? "Redefinindo..." : "Redefinir senha"}</Button></DialogFooter>
+          </div>
         )}
-      </CardContent>
-    </Card>
+      </DialogContent>
+    </Dialog>
   );
 }
 
