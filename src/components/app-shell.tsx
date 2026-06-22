@@ -49,7 +49,7 @@ function NavLeafLink({ leaf, collapsed, active }: { leaf: NavLeaf; collapsed: bo
   const inner = (
     <>
       {active && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-sidebar-primary" />}
-      <Icon className={cn("h-[18px] w-[18px] shrink-0 transition-colors", active ? "text-sidebar-primary" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground")} />
+      {collapsed && <Icon className={cn("h-[18px] w-[18px] shrink-0 transition-colors", active ? "text-sidebar-primary" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground")} />}
       {!collapsed && <span className="truncate">{leaf.label}</span>}
     </>
   );
@@ -149,7 +149,6 @@ export function AppShell({ children, userName, acessos }: { children: ReactNode;
             <div className="space-y-1">
               {grupos.map((g) => {
                 const aberto = openGroups[g.label] ?? true;
-                const GIcon = g.icon;
                 const temAtivo = g.itens.some((i) => leafAtiva(i, pathname, tabAtual));
                 return (
                   <div key={g.label}>
@@ -161,7 +160,6 @@ export function AppShell({ children, userName, acessos }: { children: ReactNode;
                       )}
                       aria-expanded={aberto}
                     >
-                      <GIcon className="h-4 w-4 shrink-0 opacity-70" />
                       <span className="flex-1 text-left">{g.label}</span>
                       <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", aberto ? "" : "-rotate-90")} />
                     </button>
