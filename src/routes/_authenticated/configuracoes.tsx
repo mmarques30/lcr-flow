@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { requireAcesso } from "@/lib/guard";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
+  validateSearch: (s: Record<string, unknown>): { tab?: string } => ({ tab: typeof s.tab === "string" ? s.tab : undefined }),
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "configuracoes", "/configuracoes"),
   head: () => ({ meta: [{ title: "Configurações — LCR Contábil" }] }),
   loader: async ({ context }) => {
@@ -50,6 +51,8 @@ const INTEGRACOES_DEFS: { tipo: string; nome: string; campos: { key: string; lab
 function ConfiguracoesPage() {
   const { data: perfil } = useSuspenseQuery({ queryKey: ["meu-perfil"], queryFn: () => getMeuPerfil() });
   const acessos = perfil?.acessos ?? [];
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
 
   const tabs = [
     { key: "integracoes", acesso: "configuracoes:integracoes", label: "Integrações", el: <IntegracoesTab /> },
@@ -57,13 +60,15 @@ function ConfiguracoesPage() {
     { key: "plano", acesso: "configuracoes:plano", label: "Plano de contas", el: <PlanoContasTab /> },
   ].filter((t) => temAcesso(acessos, t.acesso));
 
+  const active = tabs.find((t) => t.key === search.tab)?.key ?? tabs[0]?.key;
+
   return (
     <>
       <PageHeader title="Configurações" description="Integrações externas, equipe LCR e plano de contas." />
       {tabs.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">Você não tem acesso a nenhuma configuração.</CardContent></Card>
       ) : (
-        <Tabs defaultValue={tabs[0].key}>
+        <Tabs value={active} onValueChange={(v) => navigate({ search: { tab: v }, replace: true })}>
           <TabsList>
             {tabs.map((t) => <TabsTrigger key={t.key} value={t.key}>{t.label}</TabsTrigger>)}
           </TabsList>
