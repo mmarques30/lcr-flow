@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2, Search, Pencil } from "lucide-react";
@@ -85,26 +86,27 @@ function ClientesPage() {
       <ResumoTela itens={resumo} />
 
       <Card className="border-border">
-        <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por razão social" className="pl-8" />
+        <div className="space-y-3 border-b border-border p-4">
+          <Tabs value={status} onValueChange={setStatus}>
+            <TabsList className="flex-wrap">
+              <TabsTrigger value="all">Todos</TabsTrigger>
+              {Object.entries(EMPRESA_STATUS_LABEL).map(([k, v]) => <TabsTrigger key={k} value={k}>{v}</TabsTrigger>)}
+            </TabsList>
+          </Tabs>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="relative md:col-span-2">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por razão social" className="pl-8" />
+            </div>
+            <Select value={regime} onValueChange={setRegime}>
+              <SelectTrigger><SelectValue placeholder="Regime" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os regimes</SelectItem>
+                {Object.entries(REGIME_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
-          <Select value={regime} onValueChange={setRegime}>
-            <SelectTrigger><SelectValue placeholder="Regime" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os regimes</SelectItem>
-              {Object.entries(REGIME_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os status</SelectItem>
-              {Object.entries(EMPRESA_STATUS_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <div className="text-sm text-muted-foreground self-center">{filtered.length} cliente(s)</div>
+          <div className="text-sm text-muted-foreground">{filtered.length} cliente(s)</div>
         </div>
         <Table>
           <TableHeader>
