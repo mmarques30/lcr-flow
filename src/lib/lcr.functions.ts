@@ -306,19 +306,63 @@ export const listLancamentosAgrupados = createServerFn({ method: "GET" })
     };
   });
 
+export type SciLinha = { codigo: string; descricao: string; tipo: string; total: number };
+
+// Gera a planilha SCI agregando os lançamentos reais por conta dentro da
+// competência (SUM(valor) GROUP BY conta) — sem dados aleatórios. Os números
+// retornados são os mesmos exportados em CSV e exibidos na conciliação.
 export const gerarPlanilhaSci = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { empresa_id: string; competencia: string }) =>
     z.object({ empresa_id: z.string().uuid(), competencia: z.string().regex(/^\d{4}-\d{2}$/) }).parse(d),
   )
   .handler(async ({ context, data }) => {
+    // Agregação por conta via RPC (mesma query da spec).
+    const rpc = context.supabase.rpc as unknown as (
+      fn: string,
+      args: Record<string, unknown>,
+    ) => Promise<{ data: SciLinha[] | null; error: { message: string } | null }>;
+    const { data: linhasRaw, error: aggError } = await rpc("sci_planilha", {
+      p_empresa_id: data.empresa_id,
+      p_competencia: data.competencia,
+    });
+    if (aggError) throw new Error(aggError.message);
+    const linhas: SciLinha[] = (linhasRaw ?? []).map((r) => ({
+      codigo: r.codigo,
+      descricao: r.descricao,
+      tipo: r.tipo,
+      total: Number(r.total),
+    }));
+    const totalValor = linhas.reduce((s, l) => s + l.total, 0);
+
+    // Quantidade de lançamentos reais agregados (linhas individuais com conta).
+    const { count: totalLancamentos } = await context.supabase
+      .from("lancamentos")
+      .select("id", { count: "exact", head: true })
+      .eq("empresa_id", data.empresa_id)
+      .eq("competencia", data.competencia)
+      .not("conta_id", "is", null);
+
+    // Registra a planilha gerada (resumo) no histórico de lançamentos.
     const { data: doc, error } = await context.supabase
       .from("lancamentos")
-      .insert({ empresa_id: data.empresa_id, competencia: data.competencia, status: "gerada", total_lancamentos: Math.floor(Math.random() * 60) + 20 })
+      .insert({
+        empresa_id: data.empresa_id,
+        competencia: data.competencia,
+        status: "gerada",
+        total_lancamentos: totalLancamentos ?? 0,
+        linhas_count: linhas.length,
+      })
       .select()
       .single();
     if (error) throw new Error(error.message);
-    return doc;
+    return {
+      id: doc.id,
+      competencia: data.competencia,
+      total_lancamentos: totalLancamentos ?? 0,
+      total_valor: totalValor,
+      linhas,
+    };
   });
 
 // Registra uma planilha SCI enviada manualmente ao Storage como um lançamento.

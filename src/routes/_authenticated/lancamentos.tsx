@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusPill, variantFor } from "@/components/status-pill";
-import { listLancamentosAgrupados, gerarPlanilhaSci, registrarPlanilhaSci } from "@/lib/lcr.functions";
+import { listLancamentosAgrupados, gerarPlanilhaSci, registrarPlanilhaSci, type SciLinha } from "@/lib/lcr.functions";
 import { formatCompetencia, LANCAMENTO_STATUS_LABEL } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { Search, Upload, Download, FileSpreadsheet } from "lucide-react";
@@ -31,6 +31,27 @@ async function baixarPlanilha(path: string) {
   const { data, error } = await supabase.storage.from("planilhas-sci").createSignedUrl(path, 60);
   if (error || !data?.signedUrl) return toast.error(error?.message ?? "Não foi possível gerar o link.");
   window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+}
+
+const brl = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Exporta as linhas agregadas como CSV (separador ;, decimal vírgula — abre no Excel pt-BR).
+function exportarCsv(empresa: string, competencia: string, linhas: SciLinha[]) {
+  const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
+  const header = ["Código", "Descrição", "Tipo", "Total"].join(";");
+  const corpo = linhas.map((l) => [esc(l.codigo), esc(l.descricao), esc(l.tipo), brl(l.total)].join(";"));
+  const totalGeral = linhas.reduce((s, l) => s + l.total, 0);
+  const rodape = ["", "", esc("TOTAL"), brl(totalGeral)].join(";");
+  const csv = "﻿" + [header, ...corpo, rodape].join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `SCI_${empresa.replace(/[^\w]+/g, "_")}_${competencia}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function LinhaCliente({ linha, competencia, onGerar }: { linha: Linha; competencia: string; onGerar: (id: string, nome: string) => void }) {
@@ -70,7 +91,7 @@ function LinhaCliente({ linha, competencia, onGerar }: { linha: Linha; competenc
       <TableCell className="text-xs text-muted-foreground">{u ? new Date(u.created_at).toLocaleDateString("pt-BR") : "—"}</TableCell>
       <TableCell>
         <div className="flex items-center justify-end gap-2">
-          <Button size="sm" disabled={linha.prontos === 0} onClick={() => onGerar(linha.id, linha.razao_social)}>
+          <Button size="sm" onClick={() => onGerar(linha.id, linha.razao_social)}>
             <FileSpreadsheet className="h-4 w-4 mr-1" />Gerar SCI
           </Button>
           <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFile} />
@@ -91,7 +112,7 @@ function LinhaCliente({ linha, competencia, onGerar }: { linha: Linha; competenc
 function LancamentosPage() {
   const qc = useQueryClient();
   const { data } = useSuspenseQuery({ queryKey: ["lancamentos"], queryFn: () => listLancamentosAgrupados() });
-  const [preview, setPreview] = useState<{ empresa: string } | null>(null);
+  const [preview, setPreview] = useState<{ empresa: string; competencia: string; linhas: SciLinha[]; totalLancamentos: number; totalValor: number } | null>(null);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
 
@@ -114,10 +135,14 @@ function LancamentosPage() {
 
   async function gerar(empresaId: string, empresaNome: string) {
     try {
-      await gerarPlanilhaSci({ data: { empresa_id: empresaId, competencia: data.competencia } });
+      const res = await gerarPlanilhaSci({ data: { empresa_id: empresaId, competencia: data.competencia } });
       qc.invalidateQueries({ queryKey: ["lancamentos"] });
-      toast.success("Planilha SCI gerada.");
-      setPreview({ empresa: empresaNome });
+      if (res.linhas.length === 0) {
+        toast.warning("Nenhum lançamento encontrado para esta competência.");
+      } else {
+        toast.success(`Planilha SCI gerada — ${res.total_lancamentos} lançamentos em ${res.linhas.length} contas.`);
+      }
+      setPreview({ empresa: empresaNome, competencia: res.competencia, linhas: res.linhas, totalLancamentos: res.total_lancamentos, totalValor: res.total_valor });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     }
@@ -165,22 +190,45 @@ function LancamentosPage() {
 
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
         <DialogContent className="max-w-3xl">
-          <DialogHeader><DialogTitle className="font-display text-2xl">Preview — {preview?.empresa}</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Pré-visualização do conteúdo da planilha SCI gerada (mockup).</p>
-          <Table>
-            <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Histórico</TableHead><TableHead>Débito</TableHead><TableHead>Crédito</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {[
-                ["02/05", "Recebimento cliente A", "1.1.01", "3.1.01", "1.250,00"],
-                ["05/05", "Pagamento fornecedor B", "4.1.02", "1.1.01", "890,40"],
-                ["08/05", "Tarifa bancária", "4.3.01", "1.1.01", "32,50"],
-                ["12/05", "Recebimento cliente C", "1.1.01", "3.1.01", "4.700,00"],
-                ["15/05", "DARF Simples Nacional", "4.4.01", "1.1.01", "612,30"],
-              ].map((row, i) => (
-                <TableRow key={i}>{row.map((c, j) => <TableCell key={j} className={j === 4 ? "text-right font-mono" : ""}>{c}</TableCell>)}</TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DialogHeader><DialogTitle className="font-display text-2xl">Planilha SCI — {preview?.empresa}</DialogTitle></DialogHeader>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {preview && `${formatCompetencia(preview.competencia)} · ${preview.totalLancamentos} lançamentos agregados em ${preview.linhas.length} contas.`}
+            </p>
+            <Button
+              size="sm"
+              disabled={!preview || preview.linhas.length === 0}
+              onClick={() => preview && exportarCsv(preview.empresa, preview.competencia, preview.linhas)}
+            >
+              <Download className="h-4 w-4 mr-1" />Baixar CSV
+            </Button>
+          </div>
+          <div className="max-h-[60vh] overflow-auto">
+            <Table>
+              <TableHeader><TableRow><TableHead>Código</TableHead><TableHead>Conta</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {preview?.linhas.map((l) => (
+                  <TableRow key={l.codigo}>
+                    <TableCell className="font-mono text-sm">{l.codigo}</TableCell>
+                    <TableCell>{l.descricao}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground capitalize">{l.tipo}</TableCell>
+                    <TableCell className="text-right font-mono">{brl(l.total)}</TableCell>
+                  </TableRow>
+                ))}
+                {preview && preview.linhas.length === 0 && (
+                  <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhum lançamento nesta competência.</TableCell></TableRow>
+                )}
+              </TableBody>
+              {preview && preview.linhas.length > 0 && (
+                <tfoot>
+                  <TableRow className="border-t-2 border-border font-semibold">
+                    <TableCell colSpan={3}>Total</TableCell>
+                    <TableCell className="text-right font-mono">{brl(preview.totalValor)}</TableCell>
+                  </TableRow>
+                </tfoot>
+              )}
+            </Table>
+          </div>
         </DialogContent>
       </Dialog>
     </>
