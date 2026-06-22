@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { PageHeader, DemoFlag, ResumoTela } from "@/components/app-shell";
+import { PageHeader, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,7 +72,6 @@ function ClientesPage() {
         description="Empresas atendidas pela LCR e o status do mês corrente."
         actions={
           <>
-            <DemoFlag />
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger asChild>
                 <Button><Plus className="h-4 w-4 mr-1" />Novo cliente</Button>

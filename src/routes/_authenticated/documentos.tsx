@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { PageHeader, DemoFlag, ResumoTela } from "@/components/app-shell";
+import { PageHeader, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,7 +89,6 @@ function DocsPage() {
         description="Documentos recebidos via Gestta ou upload manual."
         actions={
           <>
-            <DemoFlag />
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-1" />Upload manual</Button></DialogTrigger>
               <UploadDialog empresas={empresas} onSuccess={() => setOpen(false)} />

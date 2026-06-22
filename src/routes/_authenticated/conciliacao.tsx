@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { PageHeader, DemoFlag, ResumoTela } from "@/components/app-shell";
+import { PageHeader, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -94,7 +94,6 @@ function ConciliacaoPage() {
       <PageHeader
         title="Conciliação bancária"
         description={`Status das conciliações da competência ${formatCompetencia(data.competencia)}. Importe a razão CSV por cliente para iniciar.`}
-        actions={<DemoFlag />}
       />
 
       <ResumoTela itens={[

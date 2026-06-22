@@ -162,14 +162,6 @@ export function PageHeader({ title, emphasis, description, actions }: { title: s
   );
 }
 
-export function DemoFlag() {
-  return (
-    <span className="inline-flex items-center rounded-full border border-border bg-card px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground shadow-soft">
-      [DEMO]
-    </span>
-  );
-}
-
 /** Resumo consolidado no topo da tela — uma linha de mini-cards. */
 export function ResumoTela({ itens }: { itens: { label: string; value: number | string; tone?: "default" | "warn" | "ok" }[] }) {
   return (

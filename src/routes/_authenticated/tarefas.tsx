@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { PageHeader, DemoFlag } from "@/components/app-shell";
+import { PageHeader } from "@/components/app-shell";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DndContext, useDraggable, useDroppable, type DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
@@ -96,7 +96,6 @@ function TarefasPage() {
         description="Espelho do Gestta — fluxo mensal de cobrança, lançamentos e conciliação."
         actions={
           <>
-            <DemoFlag />
             <Select value={consultorFiltro} onValueChange={setConsultorFiltro}>
               <SelectTrigger className="w-56"><SelectValue placeholder="Consultor" /></SelectTrigger>
               <SelectContent>
