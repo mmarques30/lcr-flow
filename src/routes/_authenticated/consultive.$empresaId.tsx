@@ -11,6 +11,7 @@ import { requireAcesso } from "@/lib/guard";
 import { ArrowLeft, Sparkles, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/consultive/$empresaId")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "consultive", "/consultive"),
@@ -34,6 +35,9 @@ function ConsultiveEmpresaPage() {
   const empresa = data.empresa;
   const ult = data.snapshots[0];
   const nome = empresa?.nome_fantasia ?? empresa?.razao_social ?? "Cliente";
+  const serieMargem = [...data.snapshots]
+    .reverse()
+    .map((s) => ({ periodo: String(s.periodo).slice(0, 7), margem: s.margem_bruta == null ? null : Number(s.margem_bruta) }));
 
   async function gerar(prompt: string) {
     setBusy(true);
@@ -75,6 +79,29 @@ function ConsultiveEmpresaPage() {
         <Card className="p-4"><div className="text-[11px] uppercase text-muted-foreground">Liquidez</div><div className="mt-1 font-display text-xl">{ult?.liquidez_corrente ?? "—"}</div></Card>
         <Card className="p-4"><div className="text-[11px] uppercase text-muted-foreground">Endividamento</div><div className="mt-1 font-display text-xl">{ult?.endividamento ?? "—"}</div></Card>
       </div>
+
+      {serieMargem.length > 1 && (
+        <Card className="mb-6 p-5">
+          <div className="mb-3 font-display text-lg">Margem bruta · evolução</div>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={serieMargem}>
+                <defs>
+                  <linearGradient id="margemFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.28} />
+                    <stop offset="100%" stopColor="var(--color-primary)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                <XAxis dataKey="periodo" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis fontSize={11} tickLine={false} axisLine={false} width={32} unit="%" />
+                <Tooltip formatter={(v: number) => `${Number(v).toFixed(1)}%`} />
+                <Area type="monotone" dataKey="margem" name="Margem bruta" stroke="var(--color-primary)" strokeWidth={2.5} fill="url(#margemFill)" dot={{ r: 3 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
 
       {briefing && (
         <Card className="mb-6 border-primary/40 p-5">

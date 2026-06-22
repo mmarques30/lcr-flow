@@ -2,11 +2,12 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { PageHeader, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getCxCarteira } from "@/lib/lcr.functions";
 import { requireAcesso } from "@/lib/guard";
 import { ArrowRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/cx")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "cx", "/cx"),
@@ -66,38 +67,57 @@ function CxPage() {
           <div className="mb-3 font-display text-lg">NPS da carteira (últimos períodos)</div>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data.npsTrend.map((t) => ({ ...t, periodo: fmtPeriodo(t.periodo) }))}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis dataKey="periodo" fontSize={11} />
-                <YAxis fontSize={11} />
+              <AreaChart data={data.npsTrend.map((t) => ({ ...t, periodo: fmtPeriodo(t.periodo) }))}>
+                <defs>
+                  <linearGradient id="npsFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.28} />
+                    <stop offset="100%" stopColor="var(--color-primary)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                <XAxis dataKey="periodo" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis fontSize={11} tickLine={false} axisLine={false} width={28} />
                 <Tooltip />
-                <Line type="monotone" dataKey="nps" name="NPS" stroke="#2563eb" strokeWidth={2} dot />
-              </LineChart>
+                <Area type="monotone" dataKey="nps" name="NPS" stroke="var(--color-primary)" strokeWidth={2.5} fill="url(#npsFill)" dot={{ r: 3 }} />
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </Card>
       </div>
 
       <h2 className="mb-3 font-display text-xl">Clientes precisando de atenção</h2>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {data.atencao.map((c) => (
-          <Link key={c.id} to="/cx/$empresaId" params={{ empresaId: c.id }}>
-            <Card className="group p-4 transition-colors hover:border-primary/50">
-              <div className="flex items-center justify-between">
-                <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium",
-                  c.classificacao === "risco" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700")}>{c.classificacao}</span>
-                <span className="flex items-center gap-1 text-xs text-muted-foreground"><TendIcon t={c.tendencia} /> {c.tendencia}</span>
-              </div>
-              <div className="mt-2 font-medium">{c.nome}</div>
-              <div className="mt-1 flex items-end justify-between">
-                <span className="font-display text-2xl">{c.score}<span className="text-sm text-muted-foreground">/100</span></span>
-                <span className="flex items-center gap-1 text-xs text-primary opacity-0 transition-opacity group-hover:opacity-100">Ver <ArrowRight className="h-3 w-3" /></span>
-              </div>
-            </Card>
-          </Link>
-        ))}
-        {data.atencao.length === 0 && <div className="text-sm text-muted-foreground">Nenhum cliente em atenção. 🎉</div>}
-      </div>
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Cliente</TableHead>
+              <TableHead className="w-32">Classificação</TableHead>
+              <TableHead className="w-24 text-center">Score</TableHead>
+              <TableHead className="w-32">Tendência</TableHead>
+              <TableHead className="w-24 text-right">Ações</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.atencao.map((c) => (
+              <TableRow key={c.id}>
+                <TableCell className="font-medium">{c.nome}</TableCell>
+                <TableCell>
+                  <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium",
+                    c.classificacao === "risco" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700")}>{c.classificacao}</span>
+                </TableCell>
+                <TableCell className="text-center font-mono text-sm">{c.score}<span className="text-muted-foreground">/100</span></TableCell>
+                <TableCell>
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground"><TendIcon t={c.tendencia} /> {c.tendencia}</span>
+                </TableCell>
+                <TableCell className="text-right">
+                  <Link to="/cx/$empresaId" params={{ empresaId: c.id }} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">Ver <ArrowRight className="h-3 w-3" /></Link>
+                </TableCell>
+              </TableRow>
+            ))}
+            {data.atencao.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Nenhum cliente em atenção. 🎉</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Card>
     </>
   );
 }

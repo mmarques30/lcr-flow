@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { ProgressRing } from "@/components/progress-ring";
 import { getCxEmpresa, registrarTouchpoint } from "@/lib/lcr.functions";
 import { requireAcesso } from "@/lib/guard";
 import { ArrowLeft, Sparkles, Plus, Mail, MessageSquare, Phone, Users, Package } from "lucide-react";
@@ -80,10 +81,13 @@ function CxEmpresaPage() {
       />
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="p-5">
-          <div className="text-[11px] uppercase text-muted-foreground">Health score</div>
-          <div className="mt-1 font-display text-5xl">{hs?.score ?? "—"}<span className="text-lg text-muted-foreground">/100</span></div>
-          <div className="mt-2 flex items-center gap-2">
+        <Card className="flex flex-col items-center justify-center p-5">
+          <div className="mb-3 self-start text-[11px] uppercase text-muted-foreground">Health score</div>
+          <ProgressRing value={hs?.score ?? 0} size={140}>
+            <span className="font-display text-3xl leading-none">{hs?.score ?? "—"}</span>
+            <span className="text-[11px] text-muted-foreground">/100</span>
+          </ProgressRing>
+          <div className="mt-3 flex items-center gap-2">
             <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium",
               hs?.classificacao === "risco" ? "bg-rose-100 text-rose-700" : hs?.classificacao === "atencao" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")}>{hs?.classificacao ?? "—"}</span>
             <span className="text-xs text-muted-foreground">tendência {hs?.tendencia ?? "—"}</span>

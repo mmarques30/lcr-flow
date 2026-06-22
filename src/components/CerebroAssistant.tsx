@@ -3,8 +3,18 @@ import { useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Brain, LineChart, HeartHandshake, Send, X, Sparkles } from "lucide-react";
+import { Brain, LineChart, HeartHandshake, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// Ícone do Cérebro: balão de conversa com play (no lugar do brilho).
+function CerebroIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path d="M12 2.5c-5.25 0-9.5 3.86-9.5 8.62 0 2.64 1.3 4.99 3.34 6.57L5 21.5l3.86-1.48c.98.28 2.03.43 3.14.43 5.25 0 9.5-3.86 9.5-8.62S17.25 2.5 12 2.5Z" fill="currentColor" />
+      <path d="M10 8.3l5.2 3-5.2 3V8.3Z" fill="var(--color-primary)" />
+    </svg>
+  );
+}
 
 type Persona = "mestre" | "consultor" | "cuidador";
 type Msg = { autor: "user" | "ia"; texto: string };
@@ -76,7 +86,7 @@ export function CerebroAssistant() {
         title="Abrir o Cérebro LCR"
         aria-label="Abrir o Cérebro LCR"
       >
-        <Sparkles className="h-6 w-6" />
+        <CerebroIcon className="h-7 w-7" />
       </button>
     );
   }
