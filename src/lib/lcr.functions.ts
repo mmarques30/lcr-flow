@@ -318,11 +318,9 @@ export const gerarPlanilhaSci = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     // Agregação por conta via RPC (mesma query da spec).
-    const rpc = context.supabase.rpc as unknown as (
-      fn: string,
-      args: Record<string, unknown>,
-    ) => Promise<{ data: SciLinha[] | null; error: { message: string } | null }>;
-    const { data: linhasRaw, error: aggError } = await rpc("sci_planilha", {
+    // Chamada direta em context.supabase para preservar o `this` do client
+    // (extrair .rpc para uma variável quebra o binding → erro "reading 'rest'").
+    const { data: linhasRaw, error: aggError } = await context.supabase.rpc("sci_planilha", {
       p_empresa_id: data.empresa_id,
       p_competencia: data.competencia,
     });
