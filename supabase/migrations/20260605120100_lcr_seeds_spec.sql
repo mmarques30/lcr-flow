@@ -149,5 +149,5 @@ WHERE e.is_demo = true
 -- 5. Integração claude_api (faltava na seed original)
 -- ---------------------------------------------------------------------
 INSERT INTO public.integracoes (tipo, config, status)
-VALUES ('claude_api', '{"api_key":"","model":"claude-opus-4-8"}'::jsonb, 'desconectado')
+VALUES ('claude_api', '{"api_key":"","model":"claude-sonnet-4-6"}'::jsonb, 'desconectado')
 ON CONFLICT (tipo) DO NOTHING;
