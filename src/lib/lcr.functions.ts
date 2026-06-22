@@ -540,7 +540,7 @@ export const getMeuPerfil = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data } = await context.supabase
       .from("usuarios_perfil")
-      .select("id, nome, email, perfil, permissoes_custom")
+      .select("id, nome, email, perfil, permissoes_custom, avatar_url")
       .eq("user_id", context.userId)
       .maybeSingle();
     if (!data) return null;
@@ -559,6 +559,25 @@ export const getMeuPerfil = createServerFn({ method: "GET" })
       acessos = preset?.chaves ?? [];
     }
     return { ...data, acessos };
+  });
+
+// Edição do próprio perfil (nome + foto) — via RPC SECURITY DEFINER,
+// que só altera nome/avatar do usuário logado (sem escalonar perfil).
+export const updateMeuPerfil = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      nome: z.string().min(2).max(120),
+      avatar_url: z.string().max(1024).optional().nullable(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { error } = await context.supabase.rpc("update_meu_perfil", {
+      p_nome: data.nome,
+      p_avatar: data.avatar_url ?? null,
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 // ---------------------------------------------------------------------

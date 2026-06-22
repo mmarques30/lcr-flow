@@ -1195,6 +1195,7 @@ export type Database = {
       usuarios_perfil: {
         Row: {
           ativo: boolean
+          avatar_url: string | null
           created_at: string
           email: string | null
           id: string
@@ -1206,6 +1207,7 @@ export type Database = {
         }
         Insert: {
           ativo?: boolean
+          avatar_url?: string | null
           created_at?: string
           email?: string | null
           id?: string
@@ -1217,6 +1219,7 @@ export type Database = {
         }
         Update: {
           ativo?: boolean
+          avatar_url?: string | null
           created_at?: string
           email?: string | null
           id?: string
@@ -1234,6 +1237,7 @@ export type Database = {
     }
     Functions: {
       is_admin: { Args: never; Returns: boolean }
+      update_meu_perfil: { Args: { p_avatar: string | null; p_nome: string }; Returns: undefined }
       sci_planilha: {
         Args: { p_competencia: string; p_empresa_id: string }
         Returns: {
