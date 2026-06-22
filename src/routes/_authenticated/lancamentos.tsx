@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
-import { PageHeader, DemoFlag, ResumoTela } from "@/components/app-shell";
+import { PageHeader, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -150,7 +150,7 @@ function LancamentosPage() {
 
   return (
     <>
-      <PageHeader title="Lançamentos contábeis" description={`Competência ${formatCompetencia(data.competencia)} — geração e envio de planilhas SCI.`} actions={<DemoFlag />} />
+      <PageHeader title="Lançamentos contábeis" description={`Competência ${formatCompetencia(data.competencia)} — geração e envio de planilhas SCI.`} />
 
       <ResumoTela itens={[
         { label: "Clientes", value: linhas.length },

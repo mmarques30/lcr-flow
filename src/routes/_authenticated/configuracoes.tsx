@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { StatusPill } from "@/components/status-pill";
 import {
   listIntegracoes, saveIntegracao, getMeuPerfil,
-  listUsuarios, updateUsuario,
+  listUsuarios, updateUsuario, listPlanoContas,
 } from "@/lib/lcr.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { ACESSOS, temAcesso } from "@/lib/acessos";
@@ -405,45 +405,42 @@ function ResetarSenhaDialog({ usuario }: { usuario: Usuario }) {
   );
 }
 
-const PLANO = [
-  { codigo: "1", nome: "Ativo", filhos: [
-    { codigo: "1.1", nome: "Ativo Circulante", filhos: [
-      { codigo: "1.1.01", nome: "Caixa e Equivalentes" },
-      { codigo: "1.1.02", nome: "Bancos Conta Movimento" },
-      { codigo: "1.1.03", nome: "Clientes a Receber" },
-    ]},
-  ]},
-  { codigo: "3", nome: "Receitas", filhos: [
-    { codigo: "3.1", nome: "Receita Operacional", filhos: [
-      { codigo: "3.1.01", nome: "Vendas de Serviços" },
-      { codigo: "3.1.02", nome: "Vendas de Mercadorias" },
-    ]},
-  ]},
-  { codigo: "4", nome: "Despesas", filhos: [
-    { codigo: "4.1", nome: "Despesas Operacionais", filhos: [
-      { codigo: "4.1.02", nome: "Fornecedores" },
-      { codigo: "4.3.01", nome: "Tarifas Bancárias" },
-      { codigo: "4.4.01", nome: "Impostos e Taxas" },
-    ]},
-  ]},
-];
+const TIPO_LABEL: Record<string, string> = { ativo: "Ativo", passivo: "Passivo", receita: "Receitas", despesa: "Despesas", outros: "Outros" };
 
 function PlanoContasTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["plano-contas"], queryFn: () => listPlanoContas() });
+  const [q, setQ] = useState("");
+  const contas = (data ?? []).filter((c) =>
+    !q || c.codigo.includes(q) || c.descricao.toLowerCase().includes(q.toLowerCase())
+  );
+  const porTipo = contas.reduce<Record<string, typeof contas>>((acc, c) => {
+    const t = c.tipo ?? "outros";
+    (acc[t] ??= []).push(c);
+    return acc;
+  }, {});
+
   return (
     <Card>
-      <CardContent className="pt-6 font-mono text-sm">
-        <p className="font-sans text-muted-foreground mb-4">Plano de contas padrão LCR (mockup — editável em breve).</p>
-        {PLANO.map((g) => (
-          <div key={g.codigo} className="mb-4">
-            <div className="font-bold text-foreground">{g.codigo} — {g.nome}</div>
-            {g.filhos?.map((f) => (
-              <div key={f.codigo} className="ml-4">
-                <div className="text-soft-foreground">{f.codigo} — {f.nome}</div>
-                {f.filhos?.map((c) => <div key={c.codigo} className="ml-4 text-muted-foreground">{c.codigo} — {c.nome}</div>)}
-              </div>
-            ))}
-          </div>
-        ))}
+      <CardContent className="space-y-4 pt-6">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">Plano de contas real da LCR — {data?.length ?? 0} contas.</p>
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar código ou descrição" className="max-w-xs" />
+        </div>
+        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        {!isLoading && contas.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma conta encontrada.</p>}
+        <div className="max-h-[60vh] space-y-5 overflow-y-auto font-mono text-sm">
+          {Object.entries(porTipo).map(([tipo, lista]) => (
+            <div key={tipo}>
+              <div className="mb-1 font-sans text-xs font-semibold uppercase tracking-wide text-muted-foreground">{TIPO_LABEL[tipo] ?? tipo} · {lista.length}</div>
+              {lista.map((c) => (
+                <div key={c.codigo} className="flex gap-3 py-0.5">
+                  <span className="w-14 shrink-0 text-muted-foreground">{c.codigo}</span>
+                  <span className={c.ativo ? "text-foreground" : "text-muted-foreground line-through"}>{c.descricao}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );

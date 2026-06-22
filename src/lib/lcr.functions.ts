@@ -619,10 +619,22 @@ export const savePresetPermissoes = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Plano de contas real (1187 contas) — range alto p/ superar o limite padrão.
+export const listPlanoContas = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("plano_contas")
+      .select("codigo, descricao, tipo, ativo")
+      .order("codigo")
+      .range(0, 4999);
+    if (error) throw new Error(error.message);
+    return (data ?? []).slice().sort((a, b) => (parseInt(a.codigo, 10) || 0) - (parseInt(b.codigo, 10) || 0));
+  });
+
 // ====================================================================
 // Cérebro LCR · leitura dos três pilares
 // ====================================================================
-
 export const getKnowledgeHub = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

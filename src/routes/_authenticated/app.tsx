@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { PageHeader, DemoFlag } from "@/components/app-shell";
+import { PageHeader } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { getDashboardStats } from "@/lib/lcr.functions";
@@ -56,7 +56,6 @@ function Dashboard() {
         title="Visão geral"
         emphasis="para a LCR"
         description={`Ciclo de ${formatCompetencia(data.competencia)} — integração e conciliação bancária dos clientes.`}
-        actions={<DemoFlag />}
       />
 
       {/* KPIs */}
