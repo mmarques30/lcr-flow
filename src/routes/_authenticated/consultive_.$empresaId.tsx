@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { getConsultiveEmpresa } from "@/lib/lcr.functions";
+import { Markdown } from "@/components/markdown";
 import { requireAcesso } from "@/lib/guard";
 import { ArrowLeft, Sparkles, FileText } from "lucide-react";
 import { toast } from "sonner";
@@ -104,9 +105,9 @@ function ConsultiveEmpresaPage() {
       )}
 
       {briefing && (
-        <Card className="mb-6 border-primary/40 p-5">
+        <Card className="mb-6 p-5">
           <div className="mb-2 flex items-center gap-2 font-display text-lg"><Sparkles className="h-5 w-5 text-primary" /> Briefing do Consultor</div>
-          <div className="whitespace-pre-wrap text-sm text-foreground">{briefing}</div>
+          <Markdown className="text-sm text-foreground">{briefing}</Markdown>
         </Card>
       )}
 
@@ -132,11 +133,17 @@ function ConsultiveEmpresaPage() {
           <h2 className="mb-3 font-display text-xl">Histórico de análises</h2>
           <Card className="divide-y divide-border">
             {data.interacoes.map((it) => (
-              <div key={it.id} className="px-4 py-3">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground"><FileText className="h-3 w-3" /> {new Date(it.created_at as string).toLocaleString("pt-BR")}</div>
-                <div className="mt-1 text-sm font-medium">{it.pergunta}</div>
-                <div className="mt-1 line-clamp-3 text-sm text-muted-foreground">{it.resposta}</div>
-              </div>
+              <details key={it.id} className="group px-4 py-3">
+                <summary className="cursor-pointer list-none">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><FileText className="h-3 w-3" /> {new Date(it.created_at as string).toLocaleString("pt-BR")}</span>
+                    <span>· {it.consultor}</span>
+                  </div>
+                  <div className="mt-1 text-sm font-medium">{it.pergunta}</div>
+                  <div className="mt-1 line-clamp-2 text-sm text-muted-foreground group-open:hidden">{it.resposta}</div>
+                </summary>
+                <Markdown className="mt-2 text-sm text-foreground">{it.resposta ?? ""}</Markdown>
+              </details>
             ))}
             {data.interacoes.length === 0 && <div className="px-4 py-6 text-center text-sm text-muted-foreground">Sem análises registradas.</div>}
           </Card>

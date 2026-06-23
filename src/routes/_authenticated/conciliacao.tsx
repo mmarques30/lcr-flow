@@ -75,9 +75,9 @@ function EmpresaRow({ empresa, competencia }: { empresa: EmpRow; competencia: st
               <Download className="h-4 w-4" />
             </Button>
           )}
-          <Link to="/conciliacao/$empresaId" params={{ empresaId: empresa.id }}>
-            <Button variant="outline" size="sm">Conciliar</Button>
-          </Link>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/conciliacao/$empresaId" params={{ empresaId: empresa.id }}>Conciliar</Link>
+          </Button>
         </div>
       </TableCell>
     </TableRow>

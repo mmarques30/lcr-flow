@@ -780,9 +780,16 @@ export const getConsultiveEmpresa = createServerFn({ method: "GET" })
       context.supabase.from("empresas").select("id, razao_social, nome_fantasia, regime, segmento").eq("id", data.empresa_id).maybeSingle(),
       context.supabase.from("consultive_snapshots").select("*").eq("empresa_id", data.empresa_id).order("periodo", { ascending: false }).limit(12),
       context.supabase.from("consultive_insights").select("*").eq("empresa_id", data.empresa_id).order("created_at", { ascending: false }),
-      context.supabase.from("cerebro_interactions").select("id, pergunta, resposta, created_at").eq("empresa_id", data.empresa_id).eq("persona", "consultor").order("created_at", { ascending: false }).limit(10),
+      context.supabase.from("cerebro_interactions").select("id, pergunta, resposta, created_at, usuario_id").eq("empresa_id", data.empresa_id).eq("persona", "consultor").order("created_at", { ascending: false }).limit(20),
     ]);
-    return { empresa, snapshots: snaps ?? [], insights: insights ?? [], interacoes: interacoes ?? [] };
+    // nome do consultor (cerebro_interactions.usuario_id → auth.users; sem FK direta p/ usuarios_perfil)
+    const userIds = [...new Set((interacoes ?? []).map((i) => i.usuario_id).filter(Boolean) as string[])];
+    const { data: perfis } = userIds.length
+      ? await context.supabase.from("usuarios_perfil").select("user_id, nome").in("user_id", userIds)
+      : { data: [] as { user_id: string; nome: string }[] };
+    const nomePorUser = new Map((perfis ?? []).map((p) => [p.user_id, p.nome]));
+    const interacoesComConsultor = (interacoes ?? []).map((i) => ({ ...i, consultor: i.usuario_id ? (nomePorUser.get(i.usuario_id) ?? "—") : "—" }));
+    return { empresa, snapshots: snaps ?? [], insights: insights ?? [], interacoes: interacoesComConsultor };
   });
 
 export const getCxCarteira = createServerFn({ method: "GET" })

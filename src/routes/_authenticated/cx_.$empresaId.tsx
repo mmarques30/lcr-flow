@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { ProgressRing } from "@/components/progress-ring";
 import { getCxEmpresa, registrarTouchpoint } from "@/lib/lcr.functions";
+import { Markdown } from "@/components/markdown";
 import { requireAcesso } from "@/lib/guard";
 import { ArrowLeft, Sparkles, Plus, Mail, MessageSquare, Phone, Users, Package } from "lucide-react";
 import { toast } from "sonner";
@@ -110,7 +111,7 @@ function CxEmpresaPage() {
       {sugestao && (
         <Card className="mb-6 border-primary/40 p-5">
           <div className="mb-2 flex items-center gap-2 font-display text-lg"><Sparkles className="h-5 w-5 text-primary" /> Comunicação sugerida pelo Cuidador</div>
-          <div className="whitespace-pre-wrap text-sm">{sugestao}</div>
+          <Markdown className="text-sm">{sugestao}</Markdown>
         </Card>
       )}
 
