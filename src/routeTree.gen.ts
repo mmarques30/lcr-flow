@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedTarefasRouteImport } from './routes/_authenticated/tarefas'
+import { Route as AuthenticatedMestreRouteImport } from './routes/_authenticated/mestre'
 import { Route as AuthenticatedLancamentosRouteImport } from './routes/_authenticated/lancamentos'
 import { Route as AuthenticatedKnowledgeRouteImport } from './routes/_authenticated/knowledge'
 import { Route as AuthenticatedHistoricoRouteImport } from './routes/_authenticated/historico'
@@ -47,6 +48,11 @@ const IndexRoute = IndexRouteImport.update({
 const AuthenticatedTarefasRoute = AuthenticatedTarefasRouteImport.update({
   id: '/tarefas',
   path: '/tarefas',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedMestreRoute = AuthenticatedMestreRouteImport.update({
+  id: '/mestre',
+  path: '/mestre',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedLancamentosRoute =
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/historico': typeof AuthenticatedHistoricoRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/lancamentos': typeof AuthenticatedLancamentosRoute
+  '/mestre': typeof AuthenticatedMestreRoute
   '/tarefas': typeof AuthenticatedTarefasRoute
   '/clientes/$id': typeof AuthenticatedClientesIdRoute
   '/conciliacao/$empresaId': typeof AuthenticatedConciliacaoEmpresaIdRoute
@@ -172,6 +179,7 @@ export interface FileRoutesByTo {
   '/historico': typeof AuthenticatedHistoricoRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/lancamentos': typeof AuthenticatedLancamentosRoute
+  '/mestre': typeof AuthenticatedMestreRoute
   '/tarefas': typeof AuthenticatedTarefasRoute
   '/clientes/$id': typeof AuthenticatedClientesIdRoute
   '/conciliacao/$empresaId': typeof AuthenticatedConciliacaoEmpresaIdRoute
@@ -195,6 +203,7 @@ export interface FileRoutesById {
   '/_authenticated/historico': typeof AuthenticatedHistoricoRoute
   '/_authenticated/knowledge': typeof AuthenticatedKnowledgeRoute
   '/_authenticated/lancamentos': typeof AuthenticatedLancamentosRoute
+  '/_authenticated/mestre': typeof AuthenticatedMestreRoute
   '/_authenticated/tarefas': typeof AuthenticatedTarefasRoute
   '/_authenticated/clientes_/$id': typeof AuthenticatedClientesIdRoute
   '/_authenticated/conciliacao_/$empresaId': typeof AuthenticatedConciliacaoEmpresaIdRoute
@@ -218,6 +227,7 @@ export interface FileRouteTypes {
     | '/historico'
     | '/knowledge'
     | '/lancamentos'
+    | '/mestre'
     | '/tarefas'
     | '/clientes/$id'
     | '/conciliacao/$empresaId'
@@ -239,6 +249,7 @@ export interface FileRouteTypes {
     | '/historico'
     | '/knowledge'
     | '/lancamentos'
+    | '/mestre'
     | '/tarefas'
     | '/clientes/$id'
     | '/conciliacao/$empresaId'
@@ -261,6 +272,7 @@ export interface FileRouteTypes {
     | '/_authenticated/historico'
     | '/_authenticated/knowledge'
     | '/_authenticated/lancamentos'
+    | '/_authenticated/mestre'
     | '/_authenticated/tarefas'
     | '/_authenticated/clientes_/$id'
     | '/_authenticated/conciliacao_/$empresaId'
@@ -304,6 +316,13 @@ declare module '@tanstack/react-router' {
       path: '/tarefas'
       fullPath: '/tarefas'
       preLoaderRoute: typeof AuthenticatedTarefasRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/mestre': {
+      id: '/_authenticated/mestre'
+      path: '/mestre'
+      fullPath: '/mestre'
+      preLoaderRoute: typeof AuthenticatedMestreRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/lancamentos': {
@@ -432,6 +451,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedHistoricoRoute: typeof AuthenticatedHistoricoRoute
   AuthenticatedKnowledgeRoute: typeof AuthenticatedKnowledgeRoute
   AuthenticatedLancamentosRoute: typeof AuthenticatedLancamentosRoute
+  AuthenticatedMestreRoute: typeof AuthenticatedMestreRoute
   AuthenticatedTarefasRoute: typeof AuthenticatedTarefasRoute
   AuthenticatedClientesIdRoute: typeof AuthenticatedClientesIdRoute
   AuthenticatedConciliacaoEmpresaIdRoute: typeof AuthenticatedConciliacaoEmpresaIdRoute
@@ -452,6 +472,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedHistoricoRoute: AuthenticatedHistoricoRoute,
   AuthenticatedKnowledgeRoute: AuthenticatedKnowledgeRoute,
   AuthenticatedLancamentosRoute: AuthenticatedLancamentosRoute,
+  AuthenticatedMestreRoute: AuthenticatedMestreRoute,
   AuthenticatedTarefasRoute: AuthenticatedTarefasRoute,
   AuthenticatedClientesIdRoute: AuthenticatedClientesIdRoute,
   AuthenticatedConciliacaoEmpresaIdRoute:

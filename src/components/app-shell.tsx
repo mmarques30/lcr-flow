@@ -105,6 +105,7 @@ const NAV: NavItem[] = [
   ] },
   { to: "/tarefas", label: "Tarefas", icon: ListChecks, acesso: "tarefas" },
   { group: "Cérebro LCR", icon: Brain, itens: [
+    { to: "/mestre", label: "Mestre", icon: Brain, acesso: "knowledge" },
     { to: "/knowledge", label: "Base de Conhecimento", icon: Brain, acesso: "knowledge" },
     { to: "/consultive", label: "Consultivo", icon: LineChart, acesso: "consultive" },
     { to: "/cx", label: "CX · Experiência", icon: HeartHandshake, acesso: "cx" },

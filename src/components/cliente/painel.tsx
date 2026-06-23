@@ -14,7 +14,7 @@ import { Markdown } from "@/components/markdown";
 import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, type SciLinha } from "@/lib/lcr.functions";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
-import { Sparkles, Loader2, ClipboardCheck, Download, FileSpreadsheet, X, Plus } from "lucide-react";
+import { Sparkles, Loader2, ClipboardCheck, Download, FileSpreadsheet, X, Plus, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentoRevisaoView } from "@/routes/_authenticated/revisar.$documentoId";
 
@@ -68,11 +68,15 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
                 <TableCell><StatusPill variant={variantFor(d.status)}>{DOC_STATUS_LABEL[d.status]}</StatusPill></TableCell>
                 <TableCell>
                   <div className="flex items-center justify-end gap-2">
-                    {(d.status_processamento === "classificado" || d.status_processamento === "revisado") && (
-                      <Button variant={aberto === d.id ? "default" : "outline"} size="sm" onClick={() => setAberto(aberto === d.id ? null : d.id)} title="Ver documento + análise da IA">
-                        <ClipboardCheck className="mr-1 h-4 w-4" />{aberto === d.id ? "Fechar" : "Revisar"}
-                      </Button>
-                    )}
+                    {d.arquivo_url && (() => {
+                      const classificado = d.status_processamento === "classificado" || d.status_processamento === "revisado";
+                      return (
+                        <Button variant={aberto === d.id ? "default" : "outline"} size="sm" onClick={() => setAberto(aberto === d.id ? null : d.id)} title={classificado ? "Ver documento + análise da IA" : "Ver documento"}>
+                          {classificado ? <ClipboardCheck className="mr-1 h-4 w-4" /> : <Eye className="mr-1 h-4 w-4" />}
+                          {aberto === d.id ? "Fechar" : classificado ? "Revisar" : "Ver"}
+                        </Button>
+                      );
+                    })()}
                     {d.arquivo_url && (
                       <Button variant="ghost" size="sm" disabled={processando === d.id} onClick={() => processarIA(d.id)} title="Processar com IA">
                         {processando === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
