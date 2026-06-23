@@ -73,7 +73,7 @@ function DocsPage() {
 
   async function baixar(path: string) {
     // gera uma URL assinada temporária (60s) para o arquivo no bucket privado
-    const { data, error } = await supabase.storage.from("documentos").createSignedUrl(path, 60);
+    const { data, error } = await supabase.storage.from("documentos-clientes").createSignedUrl(path, 60);
     if (error || !data?.signedUrl) return toast.error(error?.message ?? "Não foi possível gerar o link.");
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
@@ -221,10 +221,10 @@ function UploadDialog({ empresas, onSuccess }: { empresas: { id: string; razao_s
         data: { empresa_id: form.empresa_id, competencia: form.competencia },
       });
 
-      // 2) upload real do arquivo no Storage (bucket privado "documentos")
-      const path = `${form.empresa_id}/${competencia_id}/${crypto.randomUUID()}-${file.name}`;
+      // 2) upload real no bucket "documentos-clientes" · path {empresa}/{ano-mes}/auto/{file}
+      const path = `${form.empresa_id}/${form.competencia}/auto/${crypto.randomUUID()}-${file.name}`;
       const { error: upErr } = await supabase.storage
-        .from("documentos")
+        .from("documentos-clientes")
         .upload(path, file, { upsert: false, cacheControl: "3600" });
       if (upErr) {
         toast.error(upErr.message);
@@ -232,22 +232,33 @@ function UploadDialog({ empresas, onSuccess }: { empresas: { id: string; razao_s
         return;
       }
 
-      // 3) registra o documento apontando para o arquivo enviado
-      await createDocumento({
+      // 3) registra o documento (status_processamento = pendente)
+      const doc = await createDocumento({
         data: {
           empresa_id: form.empresa_id,
           tipo: form.tipo as "extrato",
           competencia: form.competencia,
           competencia_id,
           arquivo_url: path,
+          storage_path: path,
           arquivo_nome: file.name,
           arquivo_tamanho_bytes: file.size,
+          mime_type: file.type || "application/pdf",
         },
       });
 
       qc.invalidateQueries({ queryKey: ["documentos"] });
-      toast.success("Documento enviado.");
+      toast.success("Documento enviado. Processando com IA…");
       onSuccess();
+
+      // 4) dispara o processamento IA (best-effort) e atualiza a UI ao concluir
+      void supabase.functions.invoke("processar-documento", { body: { documento_id: doc.id } }).then(({ data, error }) => {
+        qc.invalidateQueries({ queryKey: ["documentos"] });
+        qc.invalidateQueries({ queryKey: ["lancamentos"] });
+        const r = data as { ok?: boolean; lancamentos_gerados?: number; error?: string } | null;
+        if (error || !r?.ok) toast.error(r?.error ?? "Falha no processamento IA.");
+        else toast.success(`IA classificou — ${r.lancamentos_gerados ?? 0} lançamento(s) gerado(s).`);
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally { setLoading(false); }

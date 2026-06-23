@@ -236,6 +236,8 @@ const createDocSchema = z.object({
   arquivo_nome: z.string().max(255).optional().nullable(),
   arquivo_url: z.string().max(1024).optional().nullable(),
   arquivo_tamanho_bytes: z.number().int().nonnegative().optional().nullable(),
+  storage_path: z.string().max(1024).optional().nullable(),
+  mime_type: z.string().max(120).optional().nullable(),
 });
 
 export const createDocumento = createServerFn({ method: "POST" })
@@ -259,6 +261,9 @@ export const createDocumento = createServerFn({ method: "POST" })
         arquivo_nome: data.arquivo_nome ?? null,
         arquivo_url: data.arquivo_url ?? null,
         arquivo_tamanho_bytes: data.arquivo_tamanho_bytes ?? null,
+        storage_path: data.storage_path ?? null,
+        mime_type: data.mime_type ?? null,
+        status_processamento: "pendente",
         origem: "upload_manual",
         status: "recebido",
         responsavel_id: perfil?.id ?? null,

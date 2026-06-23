@@ -550,6 +550,7 @@ export type Database = {
           arquivo_nome: string | null
           arquivo_tamanho_bytes: number | null
           arquivo_url: string | null
+          classificacao_ia: Json | null
           competencia: string
           competencia_id: string | null
           created_at: string
@@ -557,12 +558,18 @@ export type Database = {
           documento_id: string | null
           empresa_id: string
           gestta_ref: string | null
+          hash_sha256: string | null
           id: string
+          lancamentos_gerados: number | null
+          mime_type: string | null
           origem: Database["public"]["Enums"]["documento_origem"]
           processado_em: string | null
           recebido_em: string
           responsavel_id: string | null
           status: Database["public"]["Enums"]["documento_status"]
+          status_processamento: string | null
+          storage_path: string | null
+          tamanho_bytes: number | null
           tipo: Database["public"]["Enums"]["documento_tipo"]
           updated_at: string
         }
@@ -570,6 +577,7 @@ export type Database = {
           arquivo_nome?: string | null
           arquivo_tamanho_bytes?: number | null
           arquivo_url?: string | null
+          classificacao_ia?: Json | null
           competencia: string
           competencia_id?: string | null
           created_at?: string
@@ -577,12 +585,18 @@ export type Database = {
           documento_id?: string | null
           empresa_id: string
           gestta_ref?: string | null
+          hash_sha256?: string | null
           id?: string
+          lancamentos_gerados?: number | null
+          mime_type?: string | null
           origem?: Database["public"]["Enums"]["documento_origem"]
           processado_em?: string | null
           recebido_em?: string
           responsavel_id?: string | null
           status?: Database["public"]["Enums"]["documento_status"]
+          status_processamento?: string | null
+          storage_path?: string | null
+          tamanho_bytes?: number | null
           tipo: Database["public"]["Enums"]["documento_tipo"]
           updated_at?: string
         }
@@ -590,6 +604,7 @@ export type Database = {
           arquivo_nome?: string | null
           arquivo_tamanho_bytes?: number | null
           arquivo_url?: string | null
+          classificacao_ia?: Json | null
           competencia?: string
           competencia_id?: string | null
           created_at?: string
@@ -597,12 +612,18 @@ export type Database = {
           documento_id?: string | null
           empresa_id?: string
           gestta_ref?: string | null
+          hash_sha256?: string | null
           id?: string
+          lancamentos_gerados?: number | null
+          mime_type?: string | null
           origem?: Database["public"]["Enums"]["documento_origem"]
           processado_em?: string | null
           recebido_em?: string
           responsavel_id?: string | null
           status?: Database["public"]["Enums"]["documento_status"]
+          status_processamento?: string | null
+          storage_path?: string | null
+          tamanho_bytes?: number | null
           tipo?: Database["public"]["Enums"]["documento_tipo"]
           updated_at?: string
         }
@@ -958,6 +979,8 @@ export type Database = {
         Row: {
           competencia: string
           competencia_id: string | null
+          conciliado: boolean
+          confidence: number | null
           conta_id: string | null
           created_at: string
           data_lancamento: string | null
@@ -977,6 +1000,8 @@ export type Database = {
         Insert: {
           competencia: string
           competencia_id?: string | null
+          conciliado?: boolean
+          confidence?: number | null
           conta_id?: string | null
           created_at?: string
           data_lancamento?: string | null
@@ -996,6 +1021,8 @@ export type Database = {
         Update: {
           competencia?: string
           competencia_id?: string | null
+          conciliado?: boolean
+          confidence?: number | null
           conta_id?: string | null
           created_at?: string
           data_lancamento?: string | null

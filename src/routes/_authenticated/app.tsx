@@ -41,7 +41,7 @@ const DOC_BAR_COLORS: Record<string, string> = {
 
 function Dashboard() {
   const [comp, setComp] = useState(competenciaAtual());
-  const { data } = useQuery({ queryKey: ["dashboard", comp], queryFn: () => getDashboardStats({ data: { competencia: comp } }), placeholderData: keepPreviousData });
+  const { data } = useQuery({ queryKey: ["dashboard", comp], queryFn: () => getDashboardStats({ data: { competencia: comp } }), placeholderData: keepPreviousData, refetchInterval: 5000 });
   if (!data) return null;
 
   const stats = [
