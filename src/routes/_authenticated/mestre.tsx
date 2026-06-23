@@ -1,121 +1,124 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { PageHeader } from "@/components/app-shell";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Markdown } from "@/components/markdown";
-import { supabase } from "@/integrations/supabase/client";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useSuspenseQuery } from "@tanstack/react-query";
+import { PageHeader, ResumoTela } from "@/components/app-shell";
+import { Card } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { StatusPill, variantFor } from "@/components/status-pill";
+import { getDashboardStats, listConciliacoes } from "@/lib/lcr.functions";
+import { CONCILIACAO_STATUS_LABEL, formatCompetencia } from "@/lib/format";
 import { requireAcesso } from "@/lib/guard";
-import { Brain, Send, Loader2 } from "lucide-react";
+import { ArrowRight, FileText, GitCompare } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/mestre")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "knowledge", "/mestre"),
-  head: () => ({ meta: [{ title: "Mestre · Cérebro LCR" }] }),
+  head: () => ({ meta: [{ title: "Mestre — LCR Contábil" }] }),
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData({ queryKey: ["dashboard-stats"], queryFn: () => getDashboardStats() }),
+      context.queryClient.ensureQueryData({ queryKey: ["conciliacoes"], queryFn: () => listConciliacoes() }),
+    ]);
+  },
   component: MestrePage,
+  errorComponent: ({ error }) => <div className="p-6 text-destructive">Erro: {error.message}</div>,
 });
 
-type Msg = { autor: "user" | "ia"; texto: string };
+const FASE_COR: Record<string, string> = { Cobrança: "#f59e0b", Lançamento: "#4A9FE0", Conciliação: "#8b5cf6", Entrega: "#10b981" };
 
-const SUGESTOES = [
-  "Qual é o passo a passo da conciliação bancária na LCR?",
-  "Quais documentos cada cliente precisa enviar para a contabilização?",
-  "Como preencher a planilha de importação de lançamentos do SCI?",
-  "Quais são as etapas até o fechamento do balancete?",
-];
+function Barra({ label, total, max, cor }: { label: string; total: number; max: number; cor: string }) {
+  const w = max > 0 ? Math.round((total / max) * 100) : 0;
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-28 shrink-0 text-sm text-soft-foreground">{label}</div>
+      <div className="h-3 flex-1 overflow-hidden rounded-full bg-muted">
+        <div className="h-full rounded-full" style={{ width: `${w}%`, background: cor }} />
+      </div>
+      <div className="w-8 shrink-0 text-right font-mono text-sm">{total}</div>
+    </div>
+  );
+}
+
+type EmpRow = { id: string; razao_social: string; conciliacoes: { competencia: string; status: string; divergencias_count: number }[] };
 
 function MestrePage() {
-  const [pergunta, setPergunta] = useState("");
-  const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [busy, setBusy] = useState(false);
-  const fimRef = useRef<HTMLDivElement>(null);
+  const { data: stats } = useSuspenseQuery({ queryKey: ["dashboard-stats"], queryFn: () => getDashboardStats() });
+  const { data: conc } = useSuspenseQuery({ queryKey: ["conciliacoes"], queryFn: () => listConciliacoes() });
 
-  useEffect(() => { fimRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
-
-  async function enviar(texto?: string) {
-    const q = (texto ?? pergunta).trim();
-    if (!q || busy) return;
-    setPergunta("");
-    setMsgs((m) => [...m, { autor: "user", texto: q }]);
-    setBusy(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("cerebro-mestre", { body: { pergunta: q } });
-      if (error) throw error;
-      const resp = data as { ok?: boolean; resposta?: string; error?: string };
-      setMsgs((m) => [...m, { autor: "ia", texto: resp?.resposta || resp?.error || "Sem resposta." }]);
-    } catch (e) {
-      setMsgs((m) => [...m, { autor: "ia", texto: `Não consegui responder agora: ${e instanceof Error ? e.message : "erro"}.` }]);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const maxFase = Math.max(1, ...stats.fases.map((f) => f.total));
+  const empresas = (conc.empresas as EmpRow[]);
+  const statusDe = (e: EmpRow) => (e.conciliacoes.find((c) => c.competencia === conc.competencia) ?? e.conciliacoes[0])?.status ?? "nao_iniciada";
 
   return (
     <>
       <PageHeader
-        title="Mestre"
-        emphasis="· Cérebro LCR"
-        description="O Mestre conhece os processos, padrões e procedimentos da LCR. Pergunte sobre o fluxo contábil, regras e boas práticas."
+        title="Painel"
+        emphasis="Mestre"
+        description={`Governança do ciclo contábil da carteira — competência ${formatCompetencia(stats.competencia)}. O Mestre conhece os processos e padrões; gere análises com ele no assistente.`}
       />
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-6 py-3">
-            <Brain className="h-4 w-4 text-violet-600" />
-            <h3 className="font-display text-lg">Conversa com o Mestre</h3>
-          </div>
-          <CardContent className="p-0">
-            <div className="flex h-[58vh] flex-col">
-              <div className="flex-1 space-y-3 overflow-y-auto px-6 py-5">
-                {msgs.length === 0 && (
-                  <div className="rounded-xl bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
-                    Sou o Mestre. Pergunte sobre processos, padrões e procedimentos da LCR — ou escolha uma sugestão ao lado.
-                  </div>
-                )}
-                {msgs.map((m, i) => (
-                  <div key={i} className={m.autor === "user" ? "flex justify-end" : "flex justify-start"}>
-                    {m.autor === "user" ? (
-                      <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-primary px-4 py-2 text-sm text-primary-foreground">{m.texto}</div>
-                    ) : (
-                      <div className="max-w-[90%] rounded-2xl bg-muted px-4 py-2 text-sm text-foreground"><Markdown>{m.texto}</Markdown></div>
-                    )}
-                  </div>
-                ))}
-                {busy && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Mestre está pensando…</div>}
-                <div ref={fimRef} />
-              </div>
-              <div className="border-t border-border p-3">
-                <div className="flex items-end gap-2">
-                  <textarea
-                    value={pergunta}
-                    onChange={(e) => setPergunta(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void enviar(); } }}
-                    rows={2}
-                    placeholder="Pergunte ao Mestre…"
-                    className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <Button size="icon" disabled={busy || !pergunta.trim()} onClick={() => void enviar()} aria-label="Enviar"><Send className="h-4 w-4" /></Button>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <ResumoTela itens={[
+        { label: "Clientes", value: stats.clientesAtivos },
+        { label: "Docs aguardando", value: stats.docsAguardando, tone: "warn" as const },
+        { label: "Conciliações pendentes", value: stats.conciliacoesPendentes, tone: "warn" as const },
+        { label: "Lançamentos no mês", value: stats.lancamentosMes },
+        { label: "Tarefas abertas", value: stats.tarefasAbertas },
+      ]} />
 
-        <Card>
-          <div className="border-b border-border bg-muted/40 px-6 py-3"><h3 className="font-display text-lg">Perguntas frequentes</h3></div>
-          <CardContent className="space-y-2 pt-4">
-            {SUGESTOES.map((s) => (
-              <button
-                key={s}
-                disabled={busy}
-                onClick={() => void enviar(s)}
-                className="w-full rounded-lg border border-border bg-card/50 px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50"
-              >
-                {s}
-              </button>
+      <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <Card className="p-5 lg:col-span-2">
+          <div className="mb-4 font-display text-lg">Funil do ciclo contábil</div>
+          <div className="space-y-3">
+            {stats.fases.map((f) => <Barra key={f.fase} label={f.fase} total={f.total} max={maxFase} cor={FASE_COR[f.fase] ?? "#94a3b8"} />)}
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2 font-display text-lg"><FileText className="h-4 w-4 text-primary" /> Documentos por status</div>
+          <ul className="space-y-2">
+            {stats.docsByStatus.map((d) => (
+              <li key={d.key} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-sm">
+                <span className="text-soft-foreground">{d.label}</span><span className="font-semibold">{d.total}</span>
+              </li>
             ))}
-          </CardContent>
+          </ul>
         </Card>
       </div>
+
+      <Card className="mb-6 p-5">
+        <div className="mb-3 flex items-center gap-2 font-display text-lg"><GitCompare className="h-4 w-4 text-primary" /> Conciliações por status</div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {stats.conciliacoesByStatus.map((c) => (
+            <div key={c.key} className="rounded-xl border border-border/70 bg-card/50 p-4">
+              <div className="text-xs text-muted-foreground">{c.label}</div>
+              <div className="mt-1 font-display text-2xl">{c.total}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <div className="border-b border-border px-6 py-3"><h3 className="font-display text-lg">Status por cliente</h3></div>
+        <Table>
+          <TableHeader>
+            <TableRow><TableHead>Cliente</TableHead><TableHead>Conciliação ({formatCompetencia(conc.competencia)})</TableHead><TableHead>Divergências</TableHead><TableHead className="text-right">Ações</TableHead></TableRow>
+          </TableHeader>
+          <TableBody>
+            {empresas.map((e) => {
+              const st = statusDe(e);
+              const cc = e.conciliacoes.find((c) => c.competencia === conc.competencia) ?? e.conciliacoes[0];
+              return (
+                <TableRow key={e.id}>
+                  <TableCell className="font-medium">{e.razao_social}</TableCell>
+                  <TableCell><StatusPill variant={variantFor(st)}>{CONCILIACAO_STATUS_LABEL[st as keyof typeof CONCILIACAO_STATUS_LABEL]}</StatusPill></TableCell>
+                  <TableCell>{cc?.divergencias_count ? <span className="font-mono text-sm text-destructive">{cc.divergencias_count}</span> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
+                  <TableCell className="text-right">
+                    <Link to="/clientes/$id" params={{ id: e.id }} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">Abrir cliente <ArrowRight className="h-3 w-3" /></Link>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {empresas.length === 0 && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">Nenhum cliente.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Card>
     </>
   );
 }

@@ -105,11 +105,11 @@ const NAV: NavItem[] = [
   ] },
   { to: "/tarefas", label: "Tarefas", icon: ListChecks, acesso: "tarefas" },
   { group: "Cérebro LCR", icon: Brain, itens: [
+    { to: "/cx", label: "CX", icon: HeartHandshake, acesso: "cx" },
     { to: "/mestre", label: "Mestre", icon: Brain, acesso: "knowledge" },
-    { to: "/knowledge", label: "Base de Conhecimento", icon: Brain, acesso: "knowledge" },
     { to: "/consultive", label: "Consultivo", icon: LineChart, acesso: "consultive" },
-    { to: "/cx", label: "CX · Experiência", icon: HeartHandshake, acesso: "cx" },
-    { to: "/historico", label: "Histórico", icon: History, acesso: "historico" },
+    { to: "/historico", label: "Histórico Geral", icon: History, acesso: "historico" },
+    { to: "/knowledge", label: "Base de Conhecimento", icon: ListTree, acesso: "knowledge" },
   ] },
   { group: "Configurações", icon: Settings, itens: [
     { to: "/configuracoes", tab: "integracoes", label: "Integrações", icon: Plug, acesso: "configuracoes:integracoes" },
