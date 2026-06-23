@@ -1,5 +1,5 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Building2, FileText, BookOpen, GitCompare, ListChecks, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Brain, LineChart, HeartHandshake, Plug, Users, ListTree, ChevronDown, Bell, UserPen, Camera, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Building2, FileText, BookOpen, GitCompare, ListChecks, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Brain, LineChart, HeartHandshake, Plug, Users, ListTree, ChevronDown, Bell, UserPen, Camera, History, type LucideIcon } from "lucide-react";
 import { LcrLogo } from "./brand";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -110,6 +110,7 @@ const NAV_GROUPS: NavGroup[] = [
     { to: "/knowledge", label: "Base de Conhecimento", icon: Brain, acesso: "knowledge" },
     { to: "/consultive", label: "Consultivo", icon: LineChart, acesso: "consultive" },
     { to: "/cx", label: "CX · Experiência", icon: HeartHandshake, acesso: "cx" },
+    { to: "/historico", label: "Histórico", icon: History, acesso: "historico" },
   ] },
   { label: "Configurações", icon: Settings, itens: [
     { to: "/configuracoes", tab: "integracoes", label: "Integrações", icon: Plug, acesso: "configuracoes:integracoes" },

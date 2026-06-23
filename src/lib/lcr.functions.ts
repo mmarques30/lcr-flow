@@ -792,6 +792,53 @@ export const getConsultiveEmpresa = createServerFn({ method: "GET" })
     return { empresa, snapshots: snaps ?? [], insights: insights ?? [], interacoes: interacoesComConsultor };
   });
 
+// Histórico global do Cérebro — todas as interações (insights/análises), com
+// nome do cliente e do consultor; filtrável por persona e cliente.
+export const getHistoricoCerebro = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      persona: z.enum(["mestre", "consultor", "cuidador"]).optional().nullable(),
+      empresa_id: z.string().uuid().optional().nullable(),
+    }).optional().parse(d ?? {}),
+  )
+  .handler(async ({ context, data }) => {
+    let q = context.supabase
+      .from("cerebro_interactions")
+      .select("id, persona, pergunta, resposta, created_at, usuario_id, empresa_id, empresas:empresa_id(razao_social, nome_fantasia)")
+      .order("created_at", { ascending: false })
+      .limit(300);
+    if (data?.persona) q = q.eq("persona", data.persona);
+    if (data?.empresa_id) q = q.eq("empresa_id", data.empresa_id);
+    const { data: rows, error } = await q;
+    if (error) throw new Error(error.message);
+
+    const userIds = [...new Set((rows ?? []).map((r) => r.usuario_id).filter(Boolean) as string[])];
+    const { data: perfis } = userIds.length
+      ? await context.supabase.from("usuarios_perfil").select("user_id, nome").in("user_id", userIds)
+      : { data: [] as { user_id: string; nome: string }[] };
+    const nomePorUser = new Map((perfis ?? []).map((p) => [p.user_id, p.nome]));
+
+    const items = (rows ?? []).map((r) => {
+      const e = r.empresas as { razao_social?: string; nome_fantasia?: string } | null;
+      return {
+        id: r.id,
+        persona: r.persona,
+        pergunta: r.pergunta,
+        resposta: r.resposta,
+        created_at: r.created_at,
+        cliente: e?.nome_fantasia ?? e?.razao_social ?? null,
+        consultor: r.usuario_id ? (nomePorUser.get(r.usuario_id) ?? "—") : "—",
+      };
+    });
+    // opções de filtro derivadas
+    const clientes = Array.from(new Map((rows ?? []).filter((r) => r.empresa_id).map((r) => {
+      const e = r.empresas as { razao_social?: string; nome_fantasia?: string } | null;
+      return [r.empresa_id as string, e?.nome_fantasia ?? e?.razao_social ?? "—"] as const;
+    })).entries()).map(([id, nome]) => ({ id, nome }));
+    return { items, clientes };
+  });
+
 export const getCxCarteira = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

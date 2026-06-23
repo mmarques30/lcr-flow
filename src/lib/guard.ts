@@ -13,6 +13,7 @@ const ORDER: { key: string; to: string }[] = [
   { key: "knowledge", to: "/knowledge" },
   { key: "consultive", to: "/consultive" },
   { key: "cx", to: "/cx" },
+  { key: "historico", to: "/historico" },
   { key: "configuracoes", to: "/configuracoes" },
 ];
 

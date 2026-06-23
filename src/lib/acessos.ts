@@ -11,6 +11,7 @@ export const ACESSOS: AcessoNode[] = [
   { key: "knowledge", label: "Base de Conhecimento" },
   { key: "consultive", label: "Consultivo" },
   { key: "cx", label: "CX · Experiência" },
+  { key: "historico", label: "Histórico do Cérebro" },
   {
     key: "configuracoes",
     label: "Configurações",

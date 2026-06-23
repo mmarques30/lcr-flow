@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedTarefasRouteImport } from './routes/_authenticated/tarefas'
 import { Route as AuthenticatedLancamentosRouteImport } from './routes/_authenticated/lancamentos'
 import { Route as AuthenticatedKnowledgeRouteImport } from './routes/_authenticated/knowledge'
+import { Route as AuthenticatedHistoricoRouteImport } from './routes/_authenticated/historico'
 import { Route as AuthenticatedDocumentosRouteImport } from './routes/_authenticated/documentos'
 import { Route as AuthenticatedCxRouteImport } from './routes/_authenticated/cx'
 import { Route as AuthenticatedConsultiveRouteImport } from './routes/_authenticated/consultive'
@@ -56,6 +57,11 @@ const AuthenticatedLancamentosRoute =
 const AuthenticatedKnowledgeRoute = AuthenticatedKnowledgeRouteImport.update({
   id: '/knowledge',
   path: '/knowledge',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedHistoricoRoute = AuthenticatedHistoricoRouteImport.update({
+  id: '/historico',
+  path: '/historico',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDocumentosRoute = AuthenticatedDocumentosRouteImport.update({
@@ -135,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/consultive': typeof AuthenticatedConsultiveRoute
   '/cx': typeof AuthenticatedCxRoute
   '/documentos': typeof AuthenticatedDocumentosRoute
+  '/historico': typeof AuthenticatedHistoricoRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/lancamentos': typeof AuthenticatedLancamentosRoute
   '/tarefas': typeof AuthenticatedTarefasRoute
@@ -154,6 +161,7 @@ export interface FileRoutesByTo {
   '/consultive': typeof AuthenticatedConsultiveRoute
   '/cx': typeof AuthenticatedCxRoute
   '/documentos': typeof AuthenticatedDocumentosRoute
+  '/historico': typeof AuthenticatedHistoricoRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/lancamentos': typeof AuthenticatedLancamentosRoute
   '/tarefas': typeof AuthenticatedTarefasRoute
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/_authenticated/consultive': typeof AuthenticatedConsultiveRoute
   '/_authenticated/cx': typeof AuthenticatedCxRoute
   '/_authenticated/documentos': typeof AuthenticatedDocumentosRoute
+  '/_authenticated/historico': typeof AuthenticatedHistoricoRoute
   '/_authenticated/knowledge': typeof AuthenticatedKnowledgeRoute
   '/_authenticated/lancamentos': typeof AuthenticatedLancamentosRoute
   '/_authenticated/tarefas': typeof AuthenticatedTarefasRoute
@@ -196,6 +205,7 @@ export interface FileRouteTypes {
     | '/consultive'
     | '/cx'
     | '/documentos'
+    | '/historico'
     | '/knowledge'
     | '/lancamentos'
     | '/tarefas'
@@ -215,6 +225,7 @@ export interface FileRouteTypes {
     | '/consultive'
     | '/cx'
     | '/documentos'
+    | '/historico'
     | '/knowledge'
     | '/lancamentos'
     | '/tarefas'
@@ -235,6 +246,7 @@ export interface FileRouteTypes {
     | '/_authenticated/consultive'
     | '/_authenticated/cx'
     | '/_authenticated/documentos'
+    | '/_authenticated/historico'
     | '/_authenticated/knowledge'
     | '/_authenticated/lancamentos'
     | '/_authenticated/tarefas'
@@ -293,6 +305,13 @@ declare module '@tanstack/react-router' {
       path: '/knowledge'
       fullPath: '/knowledge'
       preLoaderRoute: typeof AuthenticatedKnowledgeRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/historico': {
+      id: '/_authenticated/historico'
+      path: '/historico'
+      fullPath: '/historico'
+      preLoaderRoute: typeof AuthenticatedHistoricoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/documentos': {
@@ -390,6 +409,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedConsultiveRoute: typeof AuthenticatedConsultiveRoute
   AuthenticatedCxRoute: typeof AuthenticatedCxRoute
   AuthenticatedDocumentosRoute: typeof AuthenticatedDocumentosRoute
+  AuthenticatedHistoricoRoute: typeof AuthenticatedHistoricoRoute
   AuthenticatedKnowledgeRoute: typeof AuthenticatedKnowledgeRoute
   AuthenticatedLancamentosRoute: typeof AuthenticatedLancamentosRoute
   AuthenticatedTarefasRoute: typeof AuthenticatedTarefasRoute
@@ -408,6 +428,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedConsultiveRoute: AuthenticatedConsultiveRoute,
   AuthenticatedCxRoute: AuthenticatedCxRoute,
   AuthenticatedDocumentosRoute: AuthenticatedDocumentosRoute,
+  AuthenticatedHistoricoRoute: AuthenticatedHistoricoRoute,
   AuthenticatedKnowledgeRoute: AuthenticatedKnowledgeRoute,
   AuthenticatedLancamentosRoute: AuthenticatedLancamentosRoute,
   AuthenticatedTarefasRoute: AuthenticatedTarefasRoute,
