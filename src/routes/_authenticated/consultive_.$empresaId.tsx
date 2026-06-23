@@ -26,12 +26,34 @@ const brl = (v: number | null) => (v == null ? "—" : `R$ ${Number(v).toLocaleS
 const pct = (v: number | null) => (v == null ? "—" : `${Number(v).toFixed(1)}%`);
 const sevTone: Record<string, string> = { baixa: "bg-slate-100 text-slate-700", media: "bg-amber-100 text-amber-700", alta: "bg-orange-100 text-orange-700", critica: "bg-rose-100 text-rose-700" };
 
+// Faixas de referência típicas p/ Serviços/Consultoria (interino até benchmarks reais da Onda 3)
+const REFS = [
+  { key: "margem_bruta", label: "Margem bruta", min: 0, max: 60, low: 30, high: 45, suf: "%", melhorAlto: true },
+  { key: "liquidez_corrente", label: "Liquidez corrente", min: 0, max: 4, low: 1.5, high: 2.5, suf: "", melhorAlto: true },
+  { key: "endividamento", label: "Endividamento", min: 0, max: 1, low: 0.2, high: 0.5, suf: "", melhorAlto: false },
+] as const;
+
+function RangeBar({ value, min, max, low, high }: { value: number; min: number; max: number; low: number; high: number }) {
+  const clamp = (n: number) => Math.max(0, Math.min(1, n));
+  const pos = clamp((value - min) / (max - min)) * 100;
+  const bandL = clamp((low - min) / (max - min)) * 100;
+  const bandW = clamp((high - low) / (max - min)) * 100;
+  const dentro = value >= low && value <= high;
+  return (
+    <div className="relative h-2.5 rounded-full bg-muted">
+      <div className="absolute top-0 h-full rounded-full bg-emerald-300/70" style={{ left: `${bandL}%`, width: `${bandW}%` }} />
+      <div className={cn("absolute top-1/2 h-4 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full", dentro ? "bg-foreground" : "bg-rose-500")} style={{ left: `${pos}%` }} />
+    </div>
+  );
+}
+
 function ConsultiveEmpresaPage() {
   const { empresaId } = Route.useParams();
   const qc = useQueryClient();
   const { data } = useSuspenseQuery({ queryKey: ["consultive-empresa", empresaId], queryFn: () => getConsultiveEmpresa({ data: { empresa_id: empresaId } }) });
   const [busy, setBusy] = useState(false);
   const [briefing, setBriefing] = useState<string | null>(null);
+  const [comp, setComp] = useState(false);
 
   const empresa = data.empresa;
   const ult = data.snapshots[0];
@@ -68,7 +90,7 @@ function ConsultiveEmpresaPage() {
             <Button disabled={busy} onClick={() => gerar("Gere um briefing executivo da situação financeira deste cliente, com ações concretas.")}>
               <Sparkles className="mr-1 h-4 w-4" /> {busy ? "Gerando…" : "Gerar resumo executivo"}
             </Button>
-            <Button variant="outline" disabled title="Comparação setorial chega na Onda 3">Comparar com setor</Button>
+            <Button variant="outline" onClick={() => setComp((v) => !v)}>{comp ? "Ocultar comparação" : "Comparar com setor"}</Button>
           </div>
         }
       />
@@ -80,6 +102,35 @@ function ConsultiveEmpresaPage() {
         <Card className="p-4"><div className="text-[11px] uppercase text-muted-foreground">Liquidez</div><div className="mt-1 font-display text-xl">{ult?.liquidez_corrente ?? "—"}</div></Card>
         <Card className="p-4"><div className="text-[11px] uppercase text-muted-foreground">Endividamento</div><div className="mt-1 font-display text-xl">{ult?.endividamento ?? "—"}</div></Card>
       </div>
+
+      {comp && (
+        <Card className="mb-6 p-5">
+          <div className="mb-1 font-display text-lg">Comparação com referência do setor</div>
+          <p className="mb-4 text-xs text-muted-foreground">Faixas típicas para Serviços/Consultoria. Benchmarks setoriais reais chegam na Onda 3.</p>
+          <div className="space-y-5">
+            {REFS.map((r) => {
+              const v = ult ? Number((ult as unknown as Record<string, number | null>)[r.key]) : null;
+              const has = v != null && !Number.isNaN(v);
+              const dentro = has && v >= r.low && v <= r.high;
+              const verdict = !has ? "—" : dentro ? "na faixa" : v < r.low ? (r.melhorAlto ? "abaixo da referência" : "abaixo (bom)") : (r.melhorAlto ? "acima (ótimo)" : "acima da referência");
+              const tone = !has ? "text-muted-foreground" : dentro ? "text-emerald-600" : (v < r.low ? (r.melhorAlto ? "text-rose-600" : "text-emerald-600") : (r.melhorAlto ? "text-emerald-600" : "text-rose-600"));
+              return (
+                <div key={r.key}>
+                  <div className="mb-1.5 flex items-center justify-between text-sm">
+                    <span className="font-medium">{r.label}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="font-mono">{has ? `${r.suf === "%" ? v.toFixed(1) : v.toFixed(2)}${r.suf}` : "—"}</span>
+                      <span className={cn("text-xs", tone)}>· {verdict}</span>
+                    </span>
+                  </div>
+                  {has && <RangeBar value={v} min={r.min} max={r.max} low={r.low} high={r.high} />}
+                  <div className="mt-1 text-[11px] text-muted-foreground">referência: {r.suf === "%" ? `${r.low}–${r.high}%` : `${r.low}–${r.high}`}</div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       {serieMargem.length > 1 && (
         <Card className="mb-6 p-5">
