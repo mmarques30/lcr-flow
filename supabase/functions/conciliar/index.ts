@@ -68,18 +68,27 @@ function parseCsv(texto: string, anoFallback: number): Linha[] {
   const delim = (linhas[0].match(/;/g)?.length ?? 0) >= (linhas[0].match(/,/g)?.length ?? 0) ? ";" : ",";
   const head = splitCsvLine(linhas[0], delim).map((h) => h.toLowerCase());
   const hasHeader = idx(head, ["data", "date", "dt"]) >= 0 || idx(head, ["valor", "value", "amount", "montante"]) >= 0;
-  let ciData = 0, ciDesc = 1, ciValor = 2, ciCred = -1, ciDeb = -1, start = 0;
+  let ciData = 0, ciDesc = 1, ciValor = 2, ciCred = -1, ciDeb = -1, ciTipo = -1, start = 0;
   if (hasHeader) {
     ciData = idx(head, ["data", "date", "dt"]);
-    ciDesc = idx(head, ["hist", "descr", "descrição", "description", "memo", "lançamento", "lancamento"]);
+    // Prioriza coluna "descricao/descrição/description" sobre "historico_codigo" pra
+    // não exibir códigos crípticos como descrição na UI.
+    const ciDescricao = idx(head, ["descrição", "descricao", "description", "memo"]);
+    const ciHistorico = idx(head, ["hist", "lançamento", "lancamento"]);
+    ciDesc = ciDescricao >= 0 ? ciDescricao : ciHistorico;
     ciValor = idx(head, ["valor", "value", "amount", "montante"]);
     ciCred = idx(head, ["crédito", "credito", "credit", "entrada"]);
     ciDeb = idx(head, ["débito", "debito", "debit", "saída", "saida"]);
+    ciTipo = idx(head, ["tipo", "type"]);
     start = 1;
   }
   const out: Linha[] = [];
   for (let i = start; i < linhas.length; i++) {
     const cols = splitCsvLine(linhas[i], delim);
+    // Ignora linhas de saldo (inicial/final/anterior) que aparecem em alguns extratos
+    // bancários e não representam transações.
+    if (ciTipo >= 0 && /saldo/i.test(cols[ciTipo] ?? "")) continue;
+    if (/^\s*saldo\b/i.test(cols[ciDesc] ?? "")) continue;
     let valor = NaN;
     if (ciValor >= 0 && cols[ciValor] != null) valor = parseValor(cols[ciValor]);
     if (isNaN(valor) && (ciCred >= 0 || ciDeb >= 0)) {

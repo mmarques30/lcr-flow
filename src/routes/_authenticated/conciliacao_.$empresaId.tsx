@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusPill, variantFor } from "@/components/status-pill";
-import { getConciliacaoDetalhe, ensureConciliacao, setConciliacaoRazaoCsv, setConciliacaoExtratoCsv, listLancamentosConciliacao, toggleLancamentoConciliado } from "@/lib/lcr.functions";
+import { getConciliacaoDetalhe, ensureConciliacao, setConciliacaoRazaoCsv, setConciliacaoExtratoCsv, listLancamentosConciliacao, toggleLancamentoConciliado, bulkConciliarLancamentos } from "@/lib/lcr.functions";
 import { CONCILIACAO_STATUS_LABEL, formatCompetencia } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
@@ -190,6 +190,8 @@ function LancamentosConciliacao({ empresaId, competencia }: { empresaId: string;
   const precisaRevisao = (l: LancConc) => (l.confidence != null && l.confidence < 0.7) || !l.conta;
   const aRever = lancs.filter(precisaRevisao).length;
   const conciliados = lancs.filter((l) => l.conciliado).length;
+  const todosConciliados = lancs.length > 0 && conciliados === lancs.length;
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   async function toggle(id: string, conciliado: boolean) {
     setBusyId(id);
@@ -201,9 +203,28 @@ function LancamentosConciliacao({ empresaId, competencia }: { empresaId: string;
     } finally { setBusyId(null); }
   }
 
-  function aplicarRegraIA() {
-    if (aRever === 0) toast.success("Regra IA: nenhum lançamento com confiança baixa ou sem conta. 🎉");
-    else toast.warning(`Regra IA: ${aRever} lançamento(s) precisam de revisão (confiança < 0,7 ou sem conta sugerida) — destacados em amarelo.`);
+  async function toggleTodos(marcar: boolean) {
+    setBulkBusy(true);
+    try {
+      const res = await bulkConciliarLancamentos({ data: { empresa_id: empresaId, competencia, conciliado: marcar } });
+      await qc.invalidateQueries({ queryKey: key });
+      toast.success(`${res.atualizados} lançamento(s) ${marcar ? "marcado(s)" : "desmarcado(s)"}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally { setBulkBusy(false); }
+  }
+
+  async function aplicarRegraIA() {
+    setBulkBusy(true);
+    try {
+      const res = await bulkConciliarLancamentos({ data: { empresa_id: empresaId, competencia, conciliado: true, apenasAlta: true } });
+      await qc.invalidateQueries({ queryKey: key });
+      if (res.atualizados === 0 && aRever === 0) toast.success("Regra IA: tudo já está conciliado. 🎉");
+      else if (aRever > 0) toast.warning(`Regra IA: ${res.atualizados} conciliado(s) automaticamente. ${aRever} lançamento(s) ainda precisam de revisão (confiança < 70% ou sem conta) — destacados em amarelo.`);
+      else toast.success(`Regra IA: ${res.atualizados} lançamento(s) conciliados automaticamente.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally { setBulkBusy(false); }
   }
 
   return (
@@ -216,7 +237,9 @@ function LancamentosConciliacao({ empresaId, competencia }: { empresaId: string;
         </div>
         <div className="flex items-center gap-2">
           {aRever > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"><AlertTriangle className="h-3 w-3" /> {aRever} a revisar</span>}
-          <Button variant="outline" size="sm" onClick={aplicarRegraIA}><Sparkles className="mr-1 h-4 w-4" /> Aplicar regra IA</Button>
+          <Button variant="outline" size="sm" disabled={bulkBusy || lancs.length === 0} onClick={aplicarRegraIA} title="Concilia automaticamente os lançamentos com conta sugerida e confiança alta (≥70%).">
+            <Sparkles className="mr-1 h-4 w-4" /> Aplicar regra IA
+          </Button>
         </div>
       </div>
       <CardContent className="p-0">
@@ -229,7 +252,19 @@ function LancamentosConciliacao({ empresaId, competencia }: { empresaId: string;
                 <TableHead>Histórico</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
-                <TableHead className="w-28 text-center">Conciliado</TableHead>
+                <TableHead className="w-28 text-center">
+                  <div className="inline-flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={todosConciliados}
+                      disabled={bulkBusy || lancs.length === 0}
+                      onChange={(e) => toggleTodos(e.target.checked)}
+                      className="h-4 w-4 cursor-pointer accent-[var(--color-primary)]"
+                      title={todosConciliados ? "Desmarcar todos" : "Marcar todos"}
+                    />
+                    <span>Conciliado</span>
+                  </div>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

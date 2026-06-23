@@ -457,6 +457,31 @@ export const toggleLancamentoConciliado = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Marca/desmarca em lote. Se `apenasAlta` for true, marca só os lançamentos com
+// conta sugerida e confiança >= 0.7 (ou confiança nula — vindas do seed/legado).
+export const bulkConciliarLancamentos = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      empresa_id: z.string().uuid(),
+      competencia: z.string().regex(/^\d{4}-\d{2}$/),
+      conciliado: z.boolean(),
+      apenasAlta: z.boolean().optional(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    let q = context.supabase
+      .from("lancamentos")
+      .update({ conciliado: data.conciliado })
+      .eq("empresa_id", data.empresa_id)
+      .eq("competencia", data.competencia)
+      .not("valor", "is", null);
+    if (data.apenasAlta) q = q.not("conta_id", "is", null).or("confidence.is.null,confidence.gte.0.7");
+    const { data: rows, error } = await q.select("id");
+    if (error) throw new Error(error.message);
+    return { ok: true, atualizados: rows?.length ?? 0 };
+  });
+
 // Revisão de classificação (TO-BE · Tarefa 5)
 export const getDocumentoRevisao = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
