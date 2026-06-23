@@ -12,7 +12,7 @@ import { requireAcesso } from "@/lib/guard";
 import { ChevronLeft, Upload, Download, AlertCircle, CheckCircle2, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_authenticated/conciliacao/$empresaId")({
+export const Route = createFileRoute("/_authenticated/conciliacao_/$empresaId")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "conciliacao", "/conciliacao"),
   head: () => ({ meta: [{ title: "Conciliação cliente — LCR" }] }),
   loader: ({ context, params }) =>
