@@ -96,6 +96,24 @@ export const listEmpresas = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
+// Notificações reais para o sino da topbar: docs pendentes, conciliações com
+// divergência, tarefas em atraso.
+export const getNotificacoes = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const [docs, diverg, tarefas] = await Promise.all([
+      context.supabase.from("documentos").select("id", { count: "exact", head: true }).in("status", ["recebido", "classificado"]),
+      context.supabase.from("conciliacoes").select("id", { count: "exact", head: true }).eq("status", "divergencias"),
+      context.supabase.from("tarefas").select("id", { count: "exact", head: true }).lt("prazo", hoje).not("status", "in", "(done,concluida)"),
+    ]);
+    const items: { tipo: string; titulo: string; to: string }[] = [];
+    if (docs.count) items.push({ tipo: "documentos", titulo: `${docs.count} documento(s) aguardando classificação`, to: "/documentos" });
+    if (diverg.count) items.push({ tipo: "conciliacao", titulo: `${diverg.count} conciliação(ões) com divergências`, to: "/conciliacao" });
+    if (tarefas.count) items.push({ tipo: "tarefas", titulo: `${tarefas.count} tarefa(s) em atraso`, to: "/tarefas" });
+    return { items, total: items.length };
+  });
+
 export const getEmpresa = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))

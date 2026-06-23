@@ -2,14 +2,14 @@ import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { LayoutDashboard, Building2, FileText, BookOpen, GitCompare, ListChecks, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Brain, LineChart, HeartHandshake, Plug, Users, ListTree, ChevronDown, Bell, UserPen, Camera, type LucideIcon } from "lucide-react";
 import { LcrLogo } from "./brand";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { updateMeuPerfil } from "@/lib/lcr.functions";
+import { updateMeuPerfil, getNotificacoes } from "@/lib/lcr.functions";
 import { toast } from "sonner";
 
 function Avatar({ url, nome, size = 36, className }: { url?: string | null; nome?: string; size?: number; className?: string }) {
@@ -153,6 +153,8 @@ function TopBar({ userName, userRole, userAvatar, collapsed, onToggle, onSignOut
 }) {
   const [hidden, setHidden] = useState(false);
   const [perfilOpen, setPerfilOpen] = useState(false);
+  const { data: notif } = useQuery({ queryKey: ["notificacoes"], queryFn: () => getNotificacoes(), staleTime: 60_000 });
+  const notifItems = notif?.items ?? [];
   useEffect(() => {
     let last = window.scrollY;
     const onScroll = () => {
@@ -185,13 +187,24 @@ function TopBar({ userName, userRole, userAvatar, collapsed, onToggle, onSignOut
           <DropdownMenuTrigger asChild>
             <button className="relative flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-card hover:text-foreground" aria-label="Notificações">
               <Bell className="h-5 w-5" />
-              <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-primary" />
+              {notifItems.length > 0 && <span className="absolute right-2 top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">{notifItems.length}</span>}
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-72">
+          <DropdownMenuContent align="end" className="w-80">
             <DropdownMenuLabel>Notificações</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <div className="px-2 py-6 text-center text-sm text-muted-foreground">Sem novas notificações.</div>
+            {notifItems.length === 0 ? (
+              <div className="px-2 py-6 text-center text-sm text-muted-foreground">Sem novas notificações.</div>
+            ) : (
+              notifItems.map((n) => (
+                <DropdownMenuItem key={n.tipo} asChild>
+                  <Link to={n.to as "/documentos"} className="flex items-start gap-2">
+                    <Bell className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <span className="text-sm">{n.titulo}</span>
+                  </Link>
+                </DropdownMenuItem>
+              ))
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
