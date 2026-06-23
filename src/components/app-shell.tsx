@@ -1,5 +1,5 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Building2, ListChecks, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Bell, UserPen, Camera, Check, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Building2, ListChecks, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Brain, LineChart, HeartHandshake, Plug, Users, ListTree, ChevronDown, Bell, UserPen, Camera, History, Check, type LucideIcon } from "lucide-react";
 import { LcrLogo } from "./brand";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -93,33 +93,48 @@ function MeuPerfilDialog({ open, onOpenChange, nomeInicial, avatarInicial }: { o
 }
 
 type NavLeaf = { to: string; label: string; icon: LucideIcon; acesso: string; tab?: string };
+type NavItem = NavLeaf | { group: string; icon: LucideIcon; itens: NavLeaf[] };
 
-// Menu lateral enxuto (4 itens). O ciclo contábil vive dentro do Painel do
-// Cliente (Carteira → cliente → abas), não mais como itens soltos.
-const NAV: NavLeaf[] = [
-  { to: "/app", label: "Início", icon: LayoutDashboard, acesso: "dashboard" },
-  { to: "/clientes", label: "Carteira", icon: Building2, acesso: "clientes" },
+// O ciclo contábil (Documentos/Lançamentos/Conciliação) vive DENTRO do Painel
+// do Cliente (Carteira → cliente → abas), então não aparece aqui como item
+// solto. Os demais grupos (Cérebro LCR, Configurações) mantêm sub-itens.
+const NAV: NavItem[] = [
+  { group: "Visão geral", icon: LayoutDashboard, itens: [
+    { to: "/app", label: "Início", icon: LayoutDashboard, acesso: "dashboard" },
+    { to: "/clientes", label: "Carteira", icon: Building2, acesso: "clientes" },
+  ] },
   { to: "/tarefas", label: "Tarefas", icon: ListChecks, acesso: "tarefas" },
-  { to: "/configuracoes", tab: "integracoes", label: "Configurações", icon: Settings, acesso: "configuracoes:integracoes" },
+  { group: "Cérebro LCR", icon: Brain, itens: [
+    { to: "/knowledge", label: "Base de Conhecimento", icon: Brain, acesso: "knowledge" },
+    { to: "/consultive", label: "Consultivo", icon: LineChart, acesso: "consultive" },
+    { to: "/cx", label: "CX · Experiência", icon: HeartHandshake, acesso: "cx" },
+    { to: "/historico", label: "Histórico", icon: History, acesso: "historico" },
+  ] },
+  { group: "Configurações", icon: Settings, itens: [
+    { to: "/configuracoes", tab: "integracoes", label: "Integrações", icon: Plug, acesso: "configuracoes:integracoes" },
+    { to: "/configuracoes", tab: "usuarios", label: "Usuários", icon: Users, acesso: "configuracoes:usuarios" },
+    { to: "/configuracoes", tab: "plano", label: "Plano de contas", icon: ListTree, acesso: "configuracoes:plano" },
+  ] },
 ];
 
-function leafAtiva(leaf: NavLeaf, pathname: string): boolean {
-  if (leaf.to === "/configuracoes") return pathname.startsWith("/configuracoes");
+function leafAtiva(leaf: NavLeaf, pathname: string, tabAtual: string | undefined): boolean {
+  if (leaf.to === "/configuracoes") return pathname.startsWith("/configuracoes") && tabAtual === leaf.tab;
   if (leaf.to === "/clientes") return pathname.startsWith("/clientes");
   return pathname === leaf.to || (leaf.to !== "/app" && pathname.startsWith(leaf.to));
 }
 
-function NavLeafLink({ leaf, active }: { leaf: NavLeaf; active: boolean }) {
+function NavLeafLink({ leaf, active, indented = false }: { leaf: NavLeaf; active: boolean; indented?: boolean }) {
   const Icon = leaf.icon;
   const className = cn(
-    "group relative flex items-center gap-3 rounded-[16px] px-3 py-2.5 text-sm transition-all duration-200 ease-out",
+    "group relative flex items-center gap-3 rounded-[16px] py-2.5 pr-3 text-sm transition-all duration-200 ease-out",
+    indented ? "pl-9" : "pl-3",
     active
       ? "bg-sidebar-primary text-sidebar-primary-foreground font-semibold shadow-soft"
       : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
   );
   const inner = (
     <>
-      <Icon className={cn("h-[18px] w-[18px] shrink-0 transition-colors", active ? "" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground")} />
+      {!indented && <Icon className={cn("h-[18px] w-[18px] shrink-0 transition-colors", active ? "" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground")} />}
       <span className="truncate">{leaf.label}</span>
     </>
   );
@@ -238,10 +253,20 @@ export function AppShell({ children, userName, userRole, userAvatar, acessos }: 
   const router = useRouter();
   const qc = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const tabAtual = useRouterState({ select: (s) => (s.location.search as { tab?: string }).tab });
   const [collapsed, setCollapsed] = useState(false);
 
-  // itens visíveis conforme os acessos do usuário
-  const itens = acessos ? NAV.filter((i) => acessos.includes(i.acesso)) : NAV;
+  // filtra itens conforme acessos; grupos somem se não sobrar sub-item
+  const itens: NavItem[] = NAV.flatMap<NavItem>((it) => {
+    if ("group" in it) {
+      const sub = acessos ? it.itens.filter((leaf) => acessos.includes(leaf.acesso)) : it.itens;
+      return sub.length > 0 ? [{ ...it, itens: sub }] : [];
+    }
+    return !acessos || acessos.includes(it.acesso) ? [it] : [];
+  });
+
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const toggleGroup = (label: string) => setOpenGroups((p) => ({ ...p, [label]: !p[label] }));
 
   // lê a preferência do usuário após montar (evita mismatch de hidratação)
   useEffect(() => {
@@ -276,10 +301,38 @@ export function AppShell({ children, userName, userRole, userAvatar, acessos }: 
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-3">
-          <div className="space-y-1">
-            {itens.map((leaf) => (
-              <NavLeafLink key={leaf.label} leaf={leaf} active={leafAtiva(leaf, pathname)} />
-            ))}
+          <div className="space-y-2">
+            {itens.map((it) => {
+              if (!("group" in it)) {
+                return <NavLeafLink key={it.label} leaf={it} active={leafAtiva(it, pathname, tabAtual)} />;
+              }
+              const aberto = openGroups[it.group] ?? false;
+              const temAtivo = it.itens.some((sub) => leafAtiva(sub, pathname, tabAtual));
+              return (
+                <div key={it.group}>
+                  <button
+                    onClick={() => toggleGroup(it.group)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-[14px] px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider shadow-soft transition-all duration-200",
+                      temAtivo
+                        ? "bg-sidebar-primary/20 text-sidebar-foreground"
+                        : "bg-sidebar-accent/50 text-sidebar-foreground/75 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
+                    )}
+                    aria-expanded={aberto}
+                  >
+                    <span className="flex-1 text-left">{it.group}</span>
+                    <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-200", aberto ? "" : "-rotate-90")} />
+                  </button>
+                  {aberto && (
+                    <div className="mt-0.5 space-y-0.5">
+                      {it.itens.map((sub) => (
+                        <NavLeafLink key={sub.label} leaf={sub} active={leafAtiva(sub, pathname, tabAtual)} indented />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </nav>
 
