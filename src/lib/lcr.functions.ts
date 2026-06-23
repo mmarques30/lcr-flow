@@ -630,12 +630,12 @@ export const setConciliacaoExtratoCsv = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// Detalhe da conciliação de um cliente na competência atual (com resultado do motor).
+// Detalhe da conciliação de um cliente numa competência (com resultado do motor).
 export const getConciliacaoDetalhe = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { empresa_id: string }) => z.object({ empresa_id: z.string().uuid() }).parse(d))
+  .inputValidator((d: { empresa_id: string; competencia?: string }) => z.object({ empresa_id: z.string().uuid(), competencia: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(d))
   .handler(async ({ context, data }) => {
-    const competencia = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+    const competencia = data.competencia ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
     const { data: empresa, error: eErr } = await context.supabase
       .from("empresas")
       .select("id, razao_social")

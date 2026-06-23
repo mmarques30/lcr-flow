@@ -165,8 +165,8 @@ export function RazaoContabil({ empresaId, competencia }: { empresaId: string; c
 // TAB "Conciliação bancária": cruza os lançamentos (razão) com o extrato importado.
 export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: string; competencia: string }) {
   const qc = useQueryClient();
-  const key = ["conciliacao-detalhe", empresaId];
-  const { data } = useQuery({ queryKey: key, queryFn: () => getConciliacaoDetalhe({ data: { empresa_id: empresaId } }) });
+  const key = ["conciliacao-detalhe", empresaId, competencia];
+  const { data } = useQuery({ queryKey: key, queryFn: () => getConciliacaoDetalhe({ data: { empresa_id: empresaId, competencia } }) });
   const extratoRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<"extrato" | "conciliar" | null>(null);
 

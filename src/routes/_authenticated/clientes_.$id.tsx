@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { getEmpresa } from "@/lib/lcr.functions";
-import { EMPRESA_STATUS_LABEL, REGIME_LABEL, DOC_TIPO_LABEL, competenciaAtual, formatCompetencia } from "@/lib/format";
+import { EMPRESA_STATUS_LABEL, REGIME_LABEL, DOC_TIPO_LABEL, competenciaAtual, ultimasCompetencias, formatCompetencia } from "@/lib/format";
 import { ChevronLeft } from "lucide-react";
 import { requireAcesso } from "@/lib/guard";
 import { RazaoContabil, ConciliacaoBancaria } from "./conciliacao_.$empresaId";
@@ -23,7 +25,7 @@ export const Route = createFileRoute("/_authenticated/clientes_/$id")({
 function ClienteDetalhe() {
   const { id } = Route.useParams();
   const { data: empresa } = useSuspenseQuery({ queryKey: ["empresa", id], queryFn: () => getEmpresa({ data: { id } }) });
-  const competencia = competenciaAtual();
+  const [competencia, setCompetencia] = useState(competenciaAtual());
 
   return (
     <>
@@ -35,14 +37,20 @@ function ClienteDetalhe() {
           <h1 className="font-display text-3xl text-foreground">{empresa.razao_social}</h1>
           <div className="mt-2 flex items-center gap-2 flex-wrap">
             <StatusPill variant={variantFor(empresa.status)}>{EMPRESA_STATUS_LABEL[empresa.status]}</StatusPill>
+            <span className="font-mono text-xs text-muted-foreground">{empresa.cnpj}</span>
             {(empresa.tags ?? []).map((t) => (
               <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-soft-foreground">#{t}</span>
             ))}
           </div>
         </div>
-        <div className="text-right text-sm text-muted-foreground">
-          <div className="font-mono">{empresa.cnpj}</div>
-          <div>{REGIME_LABEL[empresa.regime]} · Competência {formatCompetencia(competencia)}</div>
+        <div className="flex flex-col items-end gap-1">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Competência</span>
+          <Select value={competencia} onValueChange={setCompetencia}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {ultimasCompetencias(12).map((c) => <SelectItem key={c} value={c}>{formatCompetencia(c)}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
