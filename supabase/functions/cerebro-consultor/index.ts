@@ -29,7 +29,15 @@ Sempre que apontar uma análise:
 - Proponha uma ação concreta (não só observação)
 - Sinalize severidade: 'baixa', 'media', 'alta', 'critica'
 Tom: estratégico mas prático. Português brasileiro corporativo. Direto ao ponto, sem jargão acadêmico.
+NUNCA use emojis, ícones ou caracteres decorativos — apenas texto e números.
 Quando o cliente perguntar algo específico, foque na análise do cliente em questão. Quando o analista pedir resumo, gere um briefing executivo de até 4 parágrafos.`;
+
+// Remove emojis e símbolos decorativos da resposta (garantia além do prompt).
+const stripEmojis = (s: string) =>
+  s.replace(/[\u{1F000}-\u{1FAFF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200D}]/gu, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/^[ \t]+$/gm, "")
+    .trim();
 
 const n = (v: unknown) => (v == null ? "—" : Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
@@ -96,7 +104,7 @@ Deno.serve(async (req) => {
     });
     if (!apiResp.ok) return fail(`IA retornou ${apiResp.status}: ${(await apiResp.text()).slice(0, 200)}`);
     const dataApi = await apiResp.json();
-    resposta = (dataApi.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").trim();
+    resposta = stripEmojis((dataApi.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").trim());
     tokens = (dataApi.usage?.input_tokens ?? 0) + (dataApi.usage?.output_tokens ?? 0);
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Falha ao chamar a IA.");
