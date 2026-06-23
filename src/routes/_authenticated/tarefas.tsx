@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DndContext, useDraggable, useDroppable, type DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { listTarefas, listConsultores, moverTarefa } from "@/lib/lcr.functions";
-import { TAREFA_TIPO_LABEL } from "@/lib/format";
+import { TAREFA_TIPO_LABEL, formatCompetencia } from "@/lib/format";
 import { StatusPill } from "@/components/status-pill";
 import { Calendar, User, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -15,7 +15,7 @@ import { requireAcesso } from "@/lib/guard";
 type TarefaStatus = "now" | "doing" | "next" | "back" | "done";
 type TipoGrupo = "cobranca" | "lancamentos" | "conciliacao";
 type Tarefa = {
-  id: string; tipo: string; status: string; titulo: string; prazo: string | null;
+  id: string; tipo: string; status: string; titulo: string; prazo: string | null; competencia: string | null;
   empresa: { razao_social: string } | null; consultor: { id: string; nome: string } | null;
 };
 
@@ -63,16 +63,20 @@ function TarefasPage() {
   const { data: tarefas } = useSuspenseQuery({ queryKey: ["tarefas"], queryFn: () => listTarefas() });
   const { data: consultores } = useSuspenseQuery({ queryKey: ["consultores"], queryFn: () => listConsultores() });
   const [consultorFiltro, setConsultorFiltro] = useState("all");
+  const [compFiltro, setCompFiltro] = useState("all");
   const [tipoAba, setTipoAba] = useState<"all" | TipoGrupo>("all");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  const competencias = useMemo(() => [...new Set((tarefas as Tarefa[]).map((t) => t.competencia).filter(Boolean) as string[])].sort().reverse(), [tarefas]);
 
   const filtered = useMemo(
     () => (tarefas as Tarefa[]).filter((t) => {
       if (consultorFiltro !== "all" && t.consultor?.id !== consultorFiltro) return false;
+      if (compFiltro !== "all" && t.competencia !== compFiltro) return false;
       if (tipoAba !== "all" && TIPO_GROUP[t.tipo] !== tipoAba) return false;
       return true;
     }),
-    [tarefas, consultorFiltro, tipoAba],
+    [tarefas, consultorFiltro, compFiltro, tipoAba],
   );
 
   async function handleDragEnd(e: DragEndEvent) {
@@ -96,6 +100,15 @@ function TarefasPage() {
         description="Espelho do Gestta — fluxo mensal de cobrança, lançamentos e conciliação."
         actions={
           <>
+            {competencias.length > 0 && (
+              <Select value={compFiltro} onValueChange={setCompFiltro}>
+                <SelectTrigger className="w-44"><SelectValue placeholder="Competência" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as competências</SelectItem>
+                  {competencias.map((c) => <SelectItem key={c} value={c}>{formatCompetencia(c)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
             <Select value={consultorFiltro} onValueChange={setConsultorFiltro}>
               <SelectTrigger className="w-56"><SelectValue placeholder="Consultor" /></SelectTrigger>
               <SelectContent>

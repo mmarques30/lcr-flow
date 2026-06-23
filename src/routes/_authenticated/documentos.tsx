@@ -38,7 +38,9 @@ function DocsPage() {
   const [empresa, setEmpresa] = useState("all");
   const [tipo, setTipo] = useState("all");
   const [status, setStatus] = useState("all");
+  const [competencia, setCompetencia] = useState("all");
   const [open, setOpen] = useState(false);
+  const competencias = useMemo(() => [...new Set(docs.map((d) => d.competencia).filter(Boolean))].sort().reverse(), [docs]);
   const [processando, setProcessando] = useState<string | null>(null);
   const [verDados, setVerDados] = useState<{ nome: string; dados: Record<string, unknown> } | null>(null);
 
@@ -65,8 +67,9 @@ function DocsPage() {
     if (empresa !== "all" && d.empresa?.id !== empresa) return false;
     if (tipo !== "all" && d.tipo !== tipo) return false;
     if (status !== "all" && d.status !== status) return false;
+    if (competencia !== "all" && d.competencia !== competencia) return false;
     return true;
-  }), [docs, empresa, tipo, status]);
+  }), [docs, empresa, tipo, status, competencia]);
 
   async function baixar(path: string) {
     // gera uma URL assinada temporária (60s) para o arquivo no bucket privado
@@ -114,7 +117,14 @@ function DocsPage() {
               {Object.entries(DOC_STATUS_LABEL).map(([k, v]) => <TabsTrigger key={k} value={k}>{v}</TabsTrigger>)}
             </TabsList>
           </Tabs>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <Select value={competencia} onValueChange={setCompetencia}>
+              <SelectTrigger><SelectValue placeholder="Competência" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as competências</SelectItem>
+                {competencias.map((c) => <SelectItem key={c} value={c}>{formatCompetencia(c)}</SelectItem>)}
+              </SelectContent>
+            </Select>
             <Select value={empresa} onValueChange={setEmpresa}>
               <SelectTrigger><SelectValue placeholder="Cliente" /></SelectTrigger>
               <SelectContent>

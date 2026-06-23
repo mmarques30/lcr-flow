@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PageHeader, ResumoTela } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { listConciliacoes, ensureConciliacao, setConciliacaoRazaoCsv } from "@/lib/lcr.functions";
 import { CONCILIACAO_STATUS_LABEL, formatCompetencia } from "@/lib/format";
@@ -88,9 +89,16 @@ function EmpresaRow({ empresa, competencia }: { empresa: EmpRow; competencia: st
 function ConciliacaoPage() {
   const { data } = useSuspenseQuery({ queryKey: ["conciliacoes"], queryFn: () => listConciliacoes() });
   const [status, setStatus] = useState("all");
+  const [comp, setComp] = useState(data.competencia);
 
-  const statusDe = (e: EmpRow) => (e.conciliacoes.find((c) => c.competencia === data.competencia) ?? e.conciliacoes[0])?.status ?? "nao_iniciada";
   const empresas = data.empresas as EmpRow[];
+  const competencias = useMemo(() => {
+    const set = new Set<string>([data.competencia]);
+    empresas.forEach((e) => e.conciliacoes.forEach((c) => set.add(c.competencia)));
+    return [...set].sort().reverse();
+  }, [empresas, data.competencia]);
+
+  const statusDe = (e: EmpRow) => (e.conciliacoes.find((c) => c.competencia === comp) ?? e.conciliacoes[0])?.status ?? "nao_iniciada";
   const filtradas = status === "all" ? empresas : empresas.filter((e) => statusDe(e) === status);
   const serieConc = serieUltimosDias(empresas.flatMap((e) => e.conciliacoes.map((c) => c.created_at)));
 
@@ -125,7 +133,15 @@ function ConciliacaoPage() {
               {Object.entries(CONCILIACAO_STATUS_LABEL).map(([k, v]) => <TabsTrigger key={k} value={k}>{v}</TabsTrigger>)}
             </TabsList>
           </Tabs>
-          <span className="text-sm text-muted-foreground">{filtradas.length} cliente(s)</span>
+          <div className="flex items-center gap-3">
+            <Select value={comp} onValueChange={setComp}>
+              <SelectTrigger className="w-44"><SelectValue placeholder="Competência" /></SelectTrigger>
+              <SelectContent>
+                {competencias.map((c) => <SelectItem key={c} value={c}>{formatCompetencia(c)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-muted-foreground">{filtradas.length} cliente(s)</span>
+          </div>
         </div>
         <Table>
           <TableHeader>
@@ -133,7 +149,7 @@ function ConciliacaoPage() {
           </TableHeader>
           <TableBody>
             {filtradas.map((e) => (
-              <EmpresaRow key={e.id} empresa={e} competencia={data.competencia} />
+              <EmpresaRow key={e.id} empresa={e} competencia={comp} />
             ))}
             {filtradas.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Nenhuma conciliação neste status.</TableCell></TableRow>}
           </TableBody>

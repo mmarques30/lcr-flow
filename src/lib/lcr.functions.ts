@@ -504,7 +504,7 @@ export const listTarefas = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("tarefas")
-      .select("id, tipo, status, titulo, prazo, ordem, empresa:empresa_id(id, razao_social), consultor:consultor_id(id, nome)")
+      .select("id, tipo, status, titulo, prazo, ordem, competencia, empresa:empresa_id(id, razao_social), consultor:consultor_id(id, nome)")
       .order("ordem");
     if (error) throw new Error(error.message);
     return data ?? [];

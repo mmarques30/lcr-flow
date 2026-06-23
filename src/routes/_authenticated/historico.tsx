@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Markdown } from "@/components/markdown";
 import { getHistoricoCerebro } from "@/lib/lcr.functions";
+import { formatCompetencia } from "@/lib/format";
 import { requireAcesso } from "@/lib/guard";
 import { Search, Brain, LineChart, HeartHandshake } from "lucide-react";
 
@@ -40,10 +41,14 @@ function HistoricoPage() {
   // opções de cliente: do primeiro carregamento (sem filtro) para o select não esvaziar
   const { data: base } = useSuspenseQuery({ queryKey: ["historico-cerebro", "all", "all"], queryFn: () => getHistoricoCerebro({ data: {} }) });
   const itens = data?.items ?? base.items;
+  const [periodo, setPeriodo] = useState("all");
+  const periodos = useMemo(() => [...new Set(base.items.map((i) => (i.created_at ? String(i.created_at).slice(0, 7) : null)).filter(Boolean) as string[])].sort().reverse(), [base.items]);
 
-  const filtrados = useMemo(() => itens.filter((i) =>
-    !q || `${i.cliente ?? ""} ${i.consultor} ${i.pergunta} ${i.resposta ?? ""}`.toLowerCase().includes(q.toLowerCase())
-  ), [itens, q]);
+  const filtrados = useMemo(() => itens.filter((i) => {
+    if (periodo !== "all" && String(i.created_at ?? "").slice(0, 7) !== periodo) return false;
+    if (q && !`${i.cliente ?? ""} ${i.consultor} ${i.pergunta} ${i.resposta ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  }), [itens, q, periodo]);
 
   const porPersona = (p: string) => base.items.filter((i) => i.persona === p).length;
 
@@ -68,11 +73,18 @@ function HistoricoPage() {
               <TabsTrigger value="cuidador">Cuidador</TabsTrigger>
             </TabsList>
           </Tabs>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="relative md:col-span-2">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por cliente, consultor ou conteúdo" className="pl-8" />
             </div>
+            <Select value={periodo} onValueChange={setPeriodo}>
+              <SelectTrigger><SelectValue placeholder="Período" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os períodos</SelectItem>
+                {periodos.map((p) => <SelectItem key={p} value={p}>{formatCompetencia(p)}</SelectItem>)}
+              </SelectContent>
+            </Select>
             <Select value={empresaId} onValueChange={setEmpresaId}>
               <SelectTrigger><SelectValue placeholder="Cliente" /></SelectTrigger>
               <SelectContent>
