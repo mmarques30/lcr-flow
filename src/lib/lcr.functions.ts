@@ -315,18 +315,19 @@ export const listLancamentosAgrupados = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) => z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/).optional() }).optional().parse(d ?? {}))
   .handler(async ({ context, data }) => {
     const competencia = data?.competencia ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
-    const [{ data: empresas }, { data: docs }, { data: lanc }] = await Promise.all([
+    const [{ data: empresas }, { data: itens }, { data: lanc }] = await Promise.all([
       context.supabase.from("empresas").select("id, razao_social"),
-      context.supabase.from("documentos").select("empresa_id, status").eq("competencia", competencia),
+      // Lançamentos individuais gerados na competência (valor não-nulo = lançamento real,
+      // exclui as linhas-resumo de planilha). Independe do status do documento, então o
+      // contador continua certo mesmo depois de "Avançar" o documento.
+      context.supabase.from("lancamentos").select("empresa_id").eq("competencia", competencia).not("valor", "is", null),
       context.supabase.from("lancamentos").select("id, empresa_id, competencia, status, total_lancamentos, planilha_url, importado_em, created_at").order("created_at", { ascending: false }).limit(50),
     ]);
-    const docsByEmpresa = new Map<string, number>();
-    (docs ?? []).forEach((d) => {
-      if (d.status === "processado" || d.status === "classificado") docsByEmpresa.set(d.empresa_id, (docsByEmpresa.get(d.empresa_id) ?? 0) + 1);
-    });
+    const prontosByEmpresa = new Map<string, number>();
+    (itens ?? []).forEach((l) => prontosByEmpresa.set(l.empresa_id, (prontosByEmpresa.get(l.empresa_id) ?? 0) + 1));
     return {
       competencia,
-      grupos: (empresas ?? []).map((e) => ({ ...e, prontos: docsByEmpresa.get(e.id) ?? 0 })),
+      grupos: (empresas ?? []).map((e) => ({ ...e, prontos: prontosByEmpresa.get(e.id) ?? 0 })),
       historico: lanc ?? [],
     };
   });
