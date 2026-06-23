@@ -131,14 +131,13 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return fail("JSON inválido"); }
 
   // localiza a conciliação
-  let q = admin.from("conciliacoes").select("id, competencia, razao_csv_url, extrato_csv_url");
+  let q = admin.from("conciliacoes").select("id, empresa_id, competencia, extrato_csv_url");
   q = body.conciliacao_id
     ? q.eq("id", body.conciliacao_id)
     : q.eq("empresa_id", body.empresa_id ?? "").eq("competencia", body.competencia ?? "");
   const { data: conc, error: cErr } = await q.maybeSingle();
   if (cErr) return fail(cErr.message);
   if (!conc) return fail("Conciliação não encontrada.");
-  if (!conc.razao_csv_url) return fail("Importe a razão (CSV) antes de conciliar.");
   if (!conc.extrato_csv_url) return fail("Importe o extrato bancário (CSV) antes de conciliar.");
 
   const anoFallback = parseInt((conc.competencia ?? "2026-01").slice(0, 4), 10) || 2026;
@@ -148,14 +147,30 @@ Deno.serve(async (req) => {
     return new TextDecoder().decode(new Uint8Array(await data.arrayBuffer()));
   };
 
-  let razao: Linha[], extrato: Linha[];
+  // Razão = lançamentos da competência (gerados pela IA), direto do banco.
+  // Não há mais upload de "razão SCI": a razão é a tabela de lançamentos da tela.
+  const { data: lancRows, error: lErr } = await admin
+    .from("lancamentos")
+    .select("data_lancamento, valor, descricao")
+    .eq("empresa_id", conc.empresa_id)
+    .eq("competencia", conc.competencia)
+    .not("valor", "is", null)
+    .range(0, 4999);
+  if (lErr) return fail(lErr.message);
+  const razao: Linha[] = (lancRows ?? []).map((r) => ({
+    data: r.data_lancamento ?? null,
+    descricao: (r.descricao ?? "").slice(0, 200),
+    valor: Number(r.valor) || 0,
+  }));
+
+  let extrato: Linha[];
   try {
-    razao = parseCsv(await dl(conc.razao_csv_url), anoFallback);
     extrato = parseCsv(await dl(conc.extrato_csv_url), anoFallback);
   } catch (e) {
-    return fail(e instanceof Error ? e.message : "Falha ao ler os CSVs.");
+    return fail(e instanceof Error ? e.message : "Falha ao ler o extrato.");
   }
-  if (razao.length === 0 || extrato.length === 0) return fail("Razão ou extrato sem linhas válidas (verifique o CSV).");
+  if (razao.length === 0) return fail("Não há lançamentos na razão desta competência. Processe um documento com IA antes de conciliar.");
+  if (extrato.length === 0) return fail("Extrato sem linhas válidas (verifique o CSV).");
 
   const usadoR = new Array(razao.length).fill(false);
   const usadoE = new Array(extrato.length).fill(false);
