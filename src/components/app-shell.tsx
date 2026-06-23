@@ -304,7 +304,21 @@ export function AppShell({ children, userName, userRole, userAvatar, acessos }: 
           <div className="space-y-2">
             {itens.map((it) => {
               if (!("group" in it)) {
-                return <NavLeafLink key={it.label} leaf={it} active={leafAtiva(it, pathname, tabAtual)} />;
+                const active = leafAtiva(it, pathname, tabAtual);
+                return (
+                  <Link
+                    key={it.label}
+                    to={it.to as "/app"}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-[14px] px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider shadow-soft transition-all duration-200",
+                      active
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                        : "bg-sidebar-accent/50 text-sidebar-foreground/75 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
+                    )}
+                  >
+                    {it.label}
+                  </Link>
+                );
               }
               const aberto = openGroups[it.group] ?? false;
               const temAtivo = it.itens.some((sub) => leafAtiva(sub, pathname, tabAtual));
