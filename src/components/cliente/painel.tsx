@@ -1,6 +1,5 @@
 // Componentes das abas do Painel do Cliente. Reorganizam telas existentes
 // reaproveitando as MESMAS server functions — sem reescrever a lógica de negócio.
-import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,8 +10,9 @@ import { Markdown } from "@/components/markdown";
 import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, type SciLinha } from "@/lib/lcr.functions";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
-import { Sparkles, Eye, Loader2, ClipboardCheck, Download, FileSpreadsheet } from "lucide-react";
+import { Sparkles, Loader2, ClipboardCheck, Download, FileSpreadsheet, X } from "lucide-react";
 import { toast } from "sonner";
+import { DocumentoRevisaoView } from "@/routes/_authenticated/revisar.$documentoId";
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -22,6 +22,7 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
   const { data, isLoading } = useQuery({ queryKey: ["documentos"], queryFn: () => listDocumentos() });
   const docs = (data ?? []).filter((d) => d.empresa?.id === empresaId);
   const [processando, setProcessando] = useState<string | null>(null);
+  const [aberto, setAberto] = useState<string | null>(null);
 
   async function processarIA(id: string) {
     setProcessando(id);
@@ -43,6 +44,7 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
   }
 
   return (
+    <div className="space-y-5">
     <Card>
       <CardContent className="p-0">
         <Table>
@@ -59,8 +61,8 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
                 <TableCell>
                   <div className="flex items-center justify-end gap-2">
                     {(d.status_processamento === "classificado" || d.status_processamento === "revisado") && (
-                      <Button variant="ghost" size="sm" asChild title="Revisar classificação da IA">
-                        <Link to="/revisar/$documentoId" params={{ documentoId: d.id }}><ClipboardCheck className="h-4 w-4" /></Link>
+                      <Button variant={aberto === d.id ? "default" : "outline"} size="sm" onClick={() => setAberto(aberto === d.id ? null : d.id)} title="Ver documento + análise da IA">
+                        <ClipboardCheck className="mr-1 h-4 w-4" />{aberto === d.id ? "Fechar" : "Revisar"}
                       </Button>
                     )}
                     {d.arquivo_url && (
@@ -70,9 +72,6 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
                     )}
                     {d.arquivo_url && (
                       <Button variant="ghost" size="sm" onClick={() => baixar(d.arquivo_url!)} title="Baixar arquivo"><Download className="h-4 w-4" /></Button>
-                    )}
-                    {d.dados_extraidos != null && typeof d.dados_extraidos === "object" && (
-                      <Button variant="ghost" size="sm" asChild title="Revisar"><Link to="/revisar/$documentoId" params={{ documentoId: d.id }}><Eye className="h-4 w-4" /></Link></Button>
                     )}
                   </div>
                 </TableCell>
@@ -84,6 +83,17 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
         </Table>
       </CardContent>
     </Card>
+
+      {aberto && (
+        <div className="rounded-xl border border-border bg-card/40 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="font-display text-lg">Revisão do documento</h3>
+            <Button variant="ghost" size="sm" onClick={() => setAberto(null)}><X className="mr-1 h-4 w-4" />Fechar</Button>
+          </div>
+          <DocumentoRevisaoView documentoId={aberto} onAprovado={() => setAberto(null)} />
+        </div>
+      )}
+    </div>
   );
 }
 

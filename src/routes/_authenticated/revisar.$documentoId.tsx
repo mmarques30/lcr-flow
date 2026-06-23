@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,16 +34,35 @@ type Classificacao = {
   lancamentos_sugeridos?: Sugestao[]; error?: string;
 };
 
+// Rota standalone: voltar + cabeçalho + a visão reutilizável.
 function RevisaoDocumento() {
   const { documentoId } = Route.useParams();
+  const { data: doc } = useSuspenseQuery({ queryKey: ["doc-revisao", documentoId], queryFn: () => getDocumentoRevisao({ data: { id: documentoId } }) });
+  const empresa = (doc?.empresa as { razao_social?: string } | null);
+
+  return (
+    <>
+      <Link to="/documentos" className="inline-flex items-center text-sm text-soft-foreground hover:text-primary mb-4">
+        <ChevronLeft className="h-4 w-4 mr-1" />Documentos
+      </Link>
+      <div className="mb-6">
+        <h1 className="font-display text-3xl">{empresa?.razao_social ?? "Documento"}</h1>
+      </div>
+      <DocumentoRevisaoView documentoId={documentoId} />
+    </>
+  );
+}
+
+// Visão da Revisão (PDF + classificação da IA + lançamentos sugeridos), embutível
+// em qualquer lugar (rota standalone ou aba do Painel do Cliente). Usa useQuery
+// (não-suspense) para não exigir boundary externo.
+export function DocumentoRevisaoView({ documentoId, onAprovado }: { documentoId: string; onAprovado?: () => void }) {
   const qc = useQueryClient();
   const router = useRouter();
   const key = ["doc-revisao", documentoId];
-  const { data: doc } = useSuspenseQuery({ queryKey: key, queryFn: () => getDocumentoRevisao({ data: { id: documentoId } }) });
+  const { data: doc, isLoading } = useQuery({ queryKey: key, queryFn: () => getDocumentoRevisao({ data: { id: documentoId } }) });
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<"aprovar" | "reclassificar" | null>(null);
-  // Throttle do "Reclassificar com IA": 60s entre chamadas para evitar o
-  // rate limit de tokens/minuto da Claude API (erro 429).
   const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => {
@@ -55,7 +74,7 @@ function RevisaoDocumento() {
   const storagePath = (doc as { storage_path?: string | null } | null)?.storage_path ?? (doc as { arquivo_url?: string | null } | null)?.arquivo_url ?? null;
 
   useEffect(() => {
-    if (!storagePath) return;
+    if (!storagePath) { setUrl(null); return; }
     let active = true;
     supabase.storage.from("documentos-clientes").createSignedUrl(storagePath, 600).then(({ data }) => {
       if (active) setUrl(data?.signedUrl ?? null);
@@ -63,28 +82,16 @@ function RevisaoDocumento() {
     return () => { active = false; };
   }, [storagePath]);
 
-  if (!doc) return <div className="p-6 text-muted-foreground">Documento não encontrado.</div>;
-
-  const empresa = (doc.empresa as { razao_social?: string; nome_fantasia?: string; cnpj?: string } | null);
-  const classificacao = (doc.classificacao_ia ?? {}) as Classificacao;
-  const sugestoes = classificacao.lancamentos_sugeridos ?? [];
-  const dados = classificacao.dados_extraidos;
-  const dadosTexto = typeof dados === "string" ? dados : dados ? JSON.stringify(dados, null, 2) : null;
-  const revisado = doc.status_processamento === "revisado";
-  const conf = typeof classificacao.confidence_geral === "number" ? classificacao.confidence_geral : null;
-  const ext = (storagePath ?? "").split(".").pop()?.toLowerCase() ?? "";
-  const isPdf = ext === "pdf";
-  const isImg = ["png", "jpg", "jpeg", "webp", "gif"].includes(ext);
-
   async function aprovar() {
     setBusy("aprovar");
     try {
       await aprovarDocumento({ data: { id: documentoId } });
       await qc.invalidateQueries({ queryKey: key });
       await qc.invalidateQueries({ queryKey: ["documentos"] });
-      await qc.invalidateQueries({ queryKey: ["lancamentos"] });
+      await qc.invalidateQueries({ queryKey: ["lanc-conc"] });
       router.invalidate();
       toast.success("Documento aprovado — lançamentos confirmados.");
+      onAprovado?.();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally { setBusy(null); }
@@ -100,7 +107,7 @@ function RevisaoDocumento() {
       if (!r?.ok) throw new Error(r?.error ?? "Falha ao reclassificar");
       await qc.invalidateQueries({ queryKey: key });
       await qc.invalidateQueries({ queryKey: ["documentos"] });
-      await qc.invalidateQueries({ queryKey: ["lancamentos"] });
+      await qc.invalidateQueries({ queryKey: ["lanc-conc"] });
       router.invalidate();
       toast.success(`Reclassificado — ${r.lancamentos_gerados ?? 0} lançamento(s) gerado(s).`);
     } catch (err) {
@@ -108,19 +115,26 @@ function RevisaoDocumento() {
     } finally { setBusy(null); setCooldown(60); }
   }
 
+  if (isLoading) return <div className="flex h-40 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Carregando…</div>;
+  if (!doc) return <div className="p-6 text-muted-foreground">Documento não encontrado.</div>;
+
+  const classificacao = (doc.classificacao_ia ?? {}) as Classificacao;
+  const sugestoes = classificacao.lancamentos_sugeridos ?? [];
+  const dados = classificacao.dados_extraidos;
+  const dadosTexto = typeof dados === "string" ? dados : dados ? JSON.stringify(dados, null, 2) : null;
+  const revisado = doc.status_processamento === "revisado";
+  const conf = typeof classificacao.confidence_geral === "number" ? classificacao.confidence_geral : null;
+  const ext = (storagePath ?? "").split(".").pop()?.toLowerCase() ?? "";
+  const isPdf = ext === "pdf";
+  const isImg = ["png", "jpg", "jpeg", "webp", "gif"].includes(ext);
+
   return (
     <>
-      <Link to="/documentos" className="inline-flex items-center text-sm text-soft-foreground hover:text-primary mb-4">
-        <ChevronLeft className="h-4 w-4 mr-1" />Documentos
-      </Link>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-display text-3xl">{empresa?.razao_social ?? "Documento"}</h1>
-          <p className="mt-1 text-sm text-soft-foreground">
-            {DOC_TIPO_LABEL[doc.tipo as keyof typeof DOC_TIPO_LABEL] ?? doc.tipo} · Competência {formatCompetencia(doc.competencia)}
-            {doc.arquivo_nome ? ` · ${doc.arquivo_nome}` : ""}
-          </p>
-        </div>
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <p className="text-sm text-soft-foreground">
+          {DOC_TIPO_LABEL[doc.tipo as keyof typeof DOC_TIPO_LABEL] ?? doc.tipo} · Competência {formatCompetencia(doc.competencia)}
+          {doc.arquivo_nome ? ` · ${doc.arquivo_nome}` : ""}
+        </p>
         <StatusPill variant={revisado ? "now" : "next"}>{revisado ? "Revisado" : "Aguardando revisão"}</StatusPill>
       </div>
 
