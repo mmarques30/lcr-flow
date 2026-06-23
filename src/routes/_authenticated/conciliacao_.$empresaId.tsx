@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusPill, variantFor } from "@/components/status-pill";
-import { getConciliacaoDetalhe, ensureConciliacao, setConciliacaoRazaoCsv, setConciliacaoExtratoCsv, listLancamentosConciliacao, toggleLancamentoConciliado, bulkConciliarLancamentos } from "@/lib/lcr.functions";
+import { getConciliacaoDetalhe, ensureConciliacao, setConciliacaoExtratoCsv, listLancamentosConciliacao, toggleLancamentoConciliado, bulkConciliarLancamentos } from "@/lib/lcr.functions";
 import { CONCILIACAO_STATUS_LABEL, formatCompetencia } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
@@ -42,32 +42,28 @@ function ConciliacaoCliente() {
   const qc = useQueryClient();
   const key = ["conciliacao-detalhe", empresaId];
   const { data } = useSuspenseQuery({ queryKey: key, queryFn: () => getConciliacaoDetalhe({ data: { empresa_id: empresaId } }) });
-  const razaoRef = useRef<HTMLInputElement>(null);
   const extratoRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<"razao" | "extrato" | "conciliar" | null>(null);
+  const [busy, setBusy] = useState<"extrato" | "conciliar" | null>(null);
 
   const conc = data.conciliacao;
   const competencia = data.competencia;
   const resultado = (conc?.resultado ?? null) as Resultado;
-  const temRazao = !!conc?.razao_csv_url;
   const temExtrato = !!conc?.extrato_csv_url;
 
-  async function enviar(tipo: "razao" | "extrato", file: File) {
-    setBusy(tipo);
+  async function enviar(_tipo: "extrato", file: File) {
+    setBusy("extrato");
     try {
       const { id } = await ensureConciliacao({ data: { empresa_id: empresaId, competencia } });
-      const path = `${empresaId}/${competencia}/${tipo}-${crypto.randomUUID()}-${file.name}`;
+      const path = `${empresaId}/${competencia}/extrato-${crypto.randomUUID()}-${file.name}`;
       const { error } = await supabase.storage.from("conciliacoes").upload(path, file, { upsert: false, cacheControl: "3600" });
       if (error) { toast.error(error.message); return; }
-      if (tipo === "razao") await setConciliacaoRazaoCsv({ data: { id, razao_csv_url: path } });
-      else await setConciliacaoExtratoCsv({ data: { id, extrato_csv_url: path } });
+      await setConciliacaoExtratoCsv({ data: { id, extrato_csv_url: path } });
       await qc.invalidateQueries({ queryKey: key });
-      toast.success(tipo === "razao" ? "Razão importada." : "Extrato importado.");
+      toast.success("Extrato importado.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao importar");
     } finally {
       setBusy(null);
-      if (razaoRef.current) razaoRef.current.value = "";
       if (extratoRef.current) extratoRef.current.value = "";
     }
   }
@@ -108,13 +104,9 @@ function ConciliacaoCliente() {
         <LancamentosConciliacao empresaId={empresaId} competencia={competencia} />
       </div>
 
-      <h2 className="mb-3 font-display text-xl">Conciliação razão × extrato (CSV)</h2>
+      <h2 className="mb-1 font-display text-xl">Conciliar com extrato bancário (CSV)</h2>
+      <p className="mb-3 text-sm text-soft-foreground">A razão é a tabela de lançamentos acima (gerada pela IA). Importe só o extrato bancário para cruzar.</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-        <FonteCard
-          titulo="Razão (SCI)" enviado={temRazao} busy={busy === "razao"}
-          inputRef={razaoRef} onFile={(f) => enviar("razao", f)}
-          onBaixar={() => conc?.razao_csv_url && baixar(conc.razao_csv_url)}
-        />
         <FonteCard
           titulo="Extrato bancário" enviado={temExtrato} busy={busy === "extrato"}
           inputRef={extratoRef} onFile={(f) => enviar("extrato", f)}
@@ -123,15 +115,15 @@ function ConciliacaoCliente() {
       </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <Button onClick={conciliar} disabled={!temRazao || !temExtrato || busy === "conciliar"}>
+        <Button onClick={conciliar} disabled={!temExtrato || busy === "conciliar"}>
           <Wand2 className="h-4 w-4 mr-1.5" />{busy === "conciliar" ? "Conciliando..." : "Conciliar agora"}
         </Button>
-        <span className="text-xs text-muted-foreground">Pareamento por regras (valor + data ±3 dias) e, no que sobrar, por IA.</span>
+        <span className="text-xs text-muted-foreground">Cruza os lançamentos da razão (acima) com o extrato — por regras (valor + data ±3 dias) e, no que sobrar, por IA.</span>
       </div>
 
       {!resultado ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
-          {temRazao && temExtrato ? "Pronto para conciliar — clique em “Conciliar agora”." : "Importe a razão (SCI) e o extrato bancário em CSV para iniciar."}
+          {temExtrato ? "Pronto para conciliar — clique em “Conciliar agora”." : "Importe o extrato bancário em CSV para iniciar."}
         </CardContent></Card>
       ) : (
         <div className="space-y-5">
@@ -192,6 +184,8 @@ function LancamentosConciliacao({ empresaId, competencia }: { empresaId: string;
   const conciliados = lancs.filter((l) => l.conciliado).length;
   const todosConciliados = lancs.length > 0 && conciliados === lancs.length;
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [soNaoConciliados, setSoNaoConciliados] = useState(false);
+  const visiveis = soNaoConciliados ? lancs.filter((l) => !l.conciliado) : lancs;
 
   async function toggle(id: string, conciliado: boolean) {
     setBusyId(id);
@@ -232,10 +226,14 @@ function LancamentosConciliacao({ empresaId, competencia }: { empresaId: string;
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-3">
         <div className="flex items-center gap-2">
           <ListChecks className="h-4 w-4 text-primary" />
-          <h3 className="font-display text-lg">Lançamentos do mês</h3>
+          <h3 className="font-display text-lg">Razão contábil · lançamentos da competência</h3>
           <span className="text-xs text-muted-foreground">· {lancs.length} lançamento(s) · {conciliados} conciliado(s)</span>
         </div>
         <div className="flex items-center gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+            <input type="checkbox" checked={soNaoConciliados} onChange={(e) => setSoNaoConciliados(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer accent-[var(--color-primary)]" />
+            Mostrar só não conciliados
+          </label>
           {aRever > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"><AlertTriangle className="h-3 w-3" /> {aRever} a revisar</span>}
           <Button variant="outline" size="sm" disabled={bulkBusy || lancs.length === 0} onClick={aplicarRegraIA} title="Concilia automaticamente os lançamentos com conta sugerida e confiança alta (≥70%).">
             <Sparkles className="mr-1 h-4 w-4" /> Aplicar regra IA
@@ -268,7 +266,7 @@ function LancamentosConciliacao({ empresaId, competencia }: { empresaId: string;
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lancs.map((l) => {
+              {visiveis.map((l) => {
                 const alerta = precisaRevisao(l);
                 return (
                   <TableRow key={l.id} className={cn(alerta && "bg-amber-50")}>
@@ -289,6 +287,7 @@ function LancamentosConciliacao({ empresaId, competencia }: { empresaId: string;
                   </TableRow>
                 );
               })}
+              {!isLoading && visiveis.length === 0 && lancs.length > 0 && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Todos os lançamentos já estão conciliados.</TableCell></TableRow>}
               {!isLoading && lancs.length === 0 && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nenhum lançamento nesta competência. Faça upload de um documento para gerar lançamentos.</TableCell></TableRow>}
               {isLoading && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
             </TableBody>

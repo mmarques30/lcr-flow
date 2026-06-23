@@ -42,6 +42,15 @@ function RevisaoDocumento() {
   const { data: doc } = useSuspenseQuery({ queryKey: key, queryFn: () => getDocumentoRevisao({ data: { id: documentoId } }) });
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<"aprovar" | "reclassificar" | null>(null);
+  // Throttle do "Reclassificar com IA": 60s entre chamadas para evitar o
+  // rate limit de tokens/minuto da Claude API (erro 429).
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown((s) => (s <= 1 ? 0 : s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
 
   const storagePath = (doc as { storage_path?: string | null } | null)?.storage_path ?? (doc as { arquivo_url?: string | null } | null)?.arquivo_url ?? null;
 
@@ -96,7 +105,7 @@ function RevisaoDocumento() {
       toast.success(`Reclassificado — ${r.lancamentos_gerados ?? 0} lançamento(s) gerado(s).`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
-    } finally { setBusy(null); }
+    } finally { setBusy(null); setCooldown(60); }
   }
 
   return (
@@ -216,9 +225,14 @@ function RevisaoDocumento() {
               {busy === "aprovar" ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-4 w-4" />}
               Aprovar e confirmar lançamentos
             </Button>
-            <Button variant="outline" onClick={reclassificar} disabled={busy !== null}>
+            <Button
+              variant="outline"
+              onClick={reclassificar}
+              disabled={busy !== null || cooldown > 0}
+              title={cooldown > 0 ? `Aguarde ${cooldown}s para evitar o limite da API` : undefined}
+            >
               {busy === "reclassificar" ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Sparkles className="mr-1.5 h-4 w-4" />}
-              Reclassificar com IA
+              {cooldown > 0 ? `Reclassificar com IA (${cooldown}s)` : "Reclassificar com IA"}
             </Button>
           </div>
         </div>
