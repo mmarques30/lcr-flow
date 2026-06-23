@@ -9,6 +9,9 @@ import { getConsultiveCarteira } from "@/lib/lcr.functions";
 import { requireAcesso } from "@/lib/guard";
 import { Search, ArrowRight, TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+
+const SAUDE_CORES = { s: "#10b981", a: "#f59e0b", r: "#f43f5e" };
 
 export const Route = createFileRoute("/_authenticated/consultive")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "consultive", "/consultive"),
@@ -32,6 +35,24 @@ function ConsultivePage() {
   const [q, setQ] = useState("");
   const clientes = useMemo(() => data.clientes.filter((c) => !q || c.nome.toLowerCase().includes(q.toLowerCase())), [data.clientes, q]);
 
+  const { dist, margemMedia } = useMemo(() => {
+    let s = 0, a = 0, r = 0, soma = 0, n = 0;
+    data.clientes.forEach((c) => {
+      const m = c.margem_bruta == null ? null : Number(c.margem_bruta);
+      if (m == null) return;
+      soma += m; n++;
+      if (m >= 25) s++; else if (m >= 15) a++; else r++;
+    });
+    return {
+      dist: [
+        { name: "Saudável", key: "s", value: s },
+        { name: "Atenção", key: "a", value: a },
+        { name: "Risco", key: "r", value: r },
+      ],
+      margemMedia: n ? soma / n : null,
+    };
+  }, [data.clientes]);
+
   return (
     <>
       <PageHeader title="Painel" emphasis="Consultivo" description="Saúde financeira da carteira e insights estratégicos. Gere análises com o Consultor no assistente." />
@@ -41,6 +62,37 @@ function ConsultivePage() {
         { label: "Insights abertos", value: data.totais.insights_abertos, tone: "ok" as const },
         { label: "Insights críticos", value: data.totais.insights_criticos, tone: "warn" as const },
       ]} />
+
+      <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <Card className="p-5 lg:col-span-2">
+          <div className="mb-3 font-display text-lg">Saúde financeira da carteira</div>
+          <div className="flex flex-col items-center gap-6 sm:flex-row">
+            <div className="h-44 w-44 shrink-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={dist} dataKey="value" nameKey="name" innerRadius={48} outerRadius={70} paddingAngle={2} strokeWidth={0}>
+                    {dist.map((d) => <Cell key={d.key} fill={SAUDE_CORES[d.key as keyof typeof SAUDE_CORES]} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <ul className="flex-1 space-y-2 self-stretch">
+              {dist.map((d) => (
+                <li key={d.key} className="flex items-center justify-between rounded-xl bg-muted/60 px-4 py-2.5 text-sm">
+                  <span className="flex items-center gap-2 text-soft-foreground"><span className="h-2.5 w-2.5 rounded-full" style={{ background: SAUDE_CORES[d.key as keyof typeof SAUDE_CORES] }} /> {d.name}</span>
+                  <span className="font-semibold text-foreground">{d.value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Card>
+        <Card className="flex flex-col justify-center p-5">
+          <div className="label-cat">Margem bruta média</div>
+          <div className="mt-2 font-display text-4xl">{margemMedia == null ? "—" : `${margemMedia.toFixed(1)}%`}</div>
+          <div className="mt-1 text-xs text-muted-foreground">média da carteira no período</div>
+        </Card>
+      </div>
 
       <div className="relative mb-6 max-w-xl">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
