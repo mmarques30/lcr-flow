@@ -8,7 +8,7 @@ import { getProcesso } from "@/lib/lcr.functions";
 import { requireAcesso } from "@/lib/guard";
 import { ArrowLeft, ExternalLink, Video, FileText } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/knowledge/processo/$codigo")({
+export const Route = createFileRoute("/_authenticated/knowledge_/processo/$codigo")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "knowledge", "/knowledge"),
   head: () => ({ meta: [{ title: "Processo — LCR Contábil" }] }),
   loader: ({ context, params }) => context.queryClient.ensureQueryData({ queryKey: ["kb-processo", params.codigo], queryFn: () => getProcesso({ data: { codigo: params.codigo } }) }),

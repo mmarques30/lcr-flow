@@ -22,11 +22,11 @@ import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authen
 import { Route as AuthenticatedConciliacaoRouteImport } from './routes/_authenticated/conciliacao'
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
 import { Route as AuthenticatedAppRouteImport } from './routes/_authenticated/app'
-import { Route as AuthenticatedCxEmpresaIdRouteImport } from './routes/_authenticated/cx.$empresaId'
-import { Route as AuthenticatedConsultiveEmpresaIdRouteImport } from './routes/_authenticated/consultive.$empresaId'
-import { Route as AuthenticatedConciliacaoEmpresaIdRouteImport } from './routes/_authenticated/conciliacao.$empresaId'
-import { Route as AuthenticatedClientesIdRouteImport } from './routes/_authenticated/clientes.$id'
-import { Route as AuthenticatedKnowledgeProcessoCodigoRouteImport } from './routes/_authenticated/knowledge.processo.$codigo'
+import { Route as AuthenticatedCxEmpresaIdRouteImport } from './routes/_authenticated/cx_.$empresaId'
+import { Route as AuthenticatedConsultiveEmpresaIdRouteImport } from './routes/_authenticated/consultive_.$empresaId'
+import { Route as AuthenticatedConciliacaoEmpresaIdRouteImport } from './routes/_authenticated/conciliacao_.$empresaId'
+import { Route as AuthenticatedClientesIdRouteImport } from './routes/_authenticated/clientes_.$id'
+import { Route as AuthenticatedKnowledgeProcessoCodigoRouteImport } from './routes/_authenticated/knowledge_.processo.$codigo'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -97,45 +97,45 @@ const AuthenticatedAppRoute = AuthenticatedAppRouteImport.update({
 } as any)
 const AuthenticatedCxEmpresaIdRoute =
   AuthenticatedCxEmpresaIdRouteImport.update({
-    id: '/$empresaId',
-    path: '/$empresaId',
-    getParentRoute: () => AuthenticatedCxRoute,
+    id: '/cx_/$empresaId',
+    path: '/cx/$empresaId',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedConsultiveEmpresaIdRoute =
   AuthenticatedConsultiveEmpresaIdRouteImport.update({
-    id: '/$empresaId',
-    path: '/$empresaId',
-    getParentRoute: () => AuthenticatedConsultiveRoute,
+    id: '/consultive_/$empresaId',
+    path: '/consultive/$empresaId',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedConciliacaoEmpresaIdRoute =
   AuthenticatedConciliacaoEmpresaIdRouteImport.update({
-    id: '/$empresaId',
-    path: '/$empresaId',
-    getParentRoute: () => AuthenticatedConciliacaoRoute,
+    id: '/conciliacao_/$empresaId',
+    path: '/conciliacao/$empresaId',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedClientesIdRoute = AuthenticatedClientesIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => AuthenticatedClientesRoute,
+  id: '/clientes_/$id',
+  path: '/clientes/$id',
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedKnowledgeProcessoCodigoRoute =
   AuthenticatedKnowledgeProcessoCodigoRouteImport.update({
-    id: '/processo/$codigo',
-    path: '/processo/$codigo',
-    getParentRoute: () => AuthenticatedKnowledgeRoute,
+    id: '/knowledge_/processo/$codigo',
+    path: '/knowledge/processo/$codigo',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/app': typeof AuthenticatedAppRoute
-  '/clientes': typeof AuthenticatedClientesRouteWithChildren
-  '/conciliacao': typeof AuthenticatedConciliacaoRouteWithChildren
+  '/clientes': typeof AuthenticatedClientesRoute
+  '/conciliacao': typeof AuthenticatedConciliacaoRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
-  '/consultive': typeof AuthenticatedConsultiveRouteWithChildren
-  '/cx': typeof AuthenticatedCxRouteWithChildren
+  '/consultive': typeof AuthenticatedConsultiveRoute
+  '/cx': typeof AuthenticatedCxRoute
   '/documentos': typeof AuthenticatedDocumentosRoute
-  '/knowledge': typeof AuthenticatedKnowledgeRouteWithChildren
+  '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/lancamentos': typeof AuthenticatedLancamentosRoute
   '/tarefas': typeof AuthenticatedTarefasRoute
   '/clientes/$id': typeof AuthenticatedClientesIdRoute
@@ -148,13 +148,13 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/app': typeof AuthenticatedAppRoute
-  '/clientes': typeof AuthenticatedClientesRouteWithChildren
-  '/conciliacao': typeof AuthenticatedConciliacaoRouteWithChildren
+  '/clientes': typeof AuthenticatedClientesRoute
+  '/conciliacao': typeof AuthenticatedConciliacaoRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
-  '/consultive': typeof AuthenticatedConsultiveRouteWithChildren
-  '/cx': typeof AuthenticatedCxRouteWithChildren
+  '/consultive': typeof AuthenticatedConsultiveRoute
+  '/cx': typeof AuthenticatedCxRoute
   '/documentos': typeof AuthenticatedDocumentosRoute
-  '/knowledge': typeof AuthenticatedKnowledgeRouteWithChildren
+  '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/lancamentos': typeof AuthenticatedLancamentosRoute
   '/tarefas': typeof AuthenticatedTarefasRoute
   '/clientes/$id': typeof AuthenticatedClientesIdRoute
@@ -169,20 +169,20 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/app': typeof AuthenticatedAppRoute
-  '/_authenticated/clientes': typeof AuthenticatedClientesRouteWithChildren
-  '/_authenticated/conciliacao': typeof AuthenticatedConciliacaoRouteWithChildren
+  '/_authenticated/clientes': typeof AuthenticatedClientesRoute
+  '/_authenticated/conciliacao': typeof AuthenticatedConciliacaoRoute
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
-  '/_authenticated/consultive': typeof AuthenticatedConsultiveRouteWithChildren
-  '/_authenticated/cx': typeof AuthenticatedCxRouteWithChildren
+  '/_authenticated/consultive': typeof AuthenticatedConsultiveRoute
+  '/_authenticated/cx': typeof AuthenticatedCxRoute
   '/_authenticated/documentos': typeof AuthenticatedDocumentosRoute
-  '/_authenticated/knowledge': typeof AuthenticatedKnowledgeRouteWithChildren
+  '/_authenticated/knowledge': typeof AuthenticatedKnowledgeRoute
   '/_authenticated/lancamentos': typeof AuthenticatedLancamentosRoute
   '/_authenticated/tarefas': typeof AuthenticatedTarefasRoute
-  '/_authenticated/clientes/$id': typeof AuthenticatedClientesIdRoute
-  '/_authenticated/conciliacao/$empresaId': typeof AuthenticatedConciliacaoEmpresaIdRoute
-  '/_authenticated/consultive/$empresaId': typeof AuthenticatedConsultiveEmpresaIdRoute
-  '/_authenticated/cx/$empresaId': typeof AuthenticatedCxEmpresaIdRoute
-  '/_authenticated/knowledge/processo/$codigo': typeof AuthenticatedKnowledgeProcessoCodigoRoute
+  '/_authenticated/clientes_/$id': typeof AuthenticatedClientesIdRoute
+  '/_authenticated/conciliacao_/$empresaId': typeof AuthenticatedConciliacaoEmpresaIdRoute
+  '/_authenticated/consultive_/$empresaId': typeof AuthenticatedConsultiveEmpresaIdRoute
+  '/_authenticated/cx_/$empresaId': typeof AuthenticatedCxEmpresaIdRoute
+  '/_authenticated/knowledge_/processo/$codigo': typeof AuthenticatedKnowledgeProcessoCodigoRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -238,11 +238,11 @@ export interface FileRouteTypes {
     | '/_authenticated/knowledge'
     | '/_authenticated/lancamentos'
     | '/_authenticated/tarefas'
-    | '/_authenticated/clientes/$id'
-    | '/_authenticated/conciliacao/$empresaId'
-    | '/_authenticated/consultive/$empresaId'
-    | '/_authenticated/cx/$empresaId'
-    | '/_authenticated/knowledge/processo/$codigo'
+    | '/_authenticated/clientes_/$id'
+    | '/_authenticated/conciliacao_/$empresaId'
+    | '/_authenticated/consultive_/$empresaId'
+    | '/_authenticated/cx_/$empresaId'
+    | '/_authenticated/knowledge_/processo/$codigo'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -344,138 +344,80 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/cx/$empresaId': {
-      id: '/_authenticated/cx/$empresaId'
-      path: '/$empresaId'
+    '/_authenticated/cx_/$empresaId': {
+      id: '/_authenticated/cx_/$empresaId'
+      path: '/cx/$empresaId'
       fullPath: '/cx/$empresaId'
       preLoaderRoute: typeof AuthenticatedCxEmpresaIdRouteImport
-      parentRoute: typeof AuthenticatedCxRoute
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/consultive/$empresaId': {
-      id: '/_authenticated/consultive/$empresaId'
-      path: '/$empresaId'
+    '/_authenticated/consultive_/$empresaId': {
+      id: '/_authenticated/consultive_/$empresaId'
+      path: '/consultive/$empresaId'
       fullPath: '/consultive/$empresaId'
       preLoaderRoute: typeof AuthenticatedConsultiveEmpresaIdRouteImport
-      parentRoute: typeof AuthenticatedConsultiveRoute
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/conciliacao/$empresaId': {
-      id: '/_authenticated/conciliacao/$empresaId'
-      path: '/$empresaId'
+    '/_authenticated/conciliacao_/$empresaId': {
+      id: '/_authenticated/conciliacao_/$empresaId'
+      path: '/conciliacao/$empresaId'
       fullPath: '/conciliacao/$empresaId'
       preLoaderRoute: typeof AuthenticatedConciliacaoEmpresaIdRouteImport
-      parentRoute: typeof AuthenticatedConciliacaoRoute
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/clientes/$id': {
-      id: '/_authenticated/clientes/$id'
-      path: '/$id'
+    '/_authenticated/clientes_/$id': {
+      id: '/_authenticated/clientes_/$id'
+      path: '/clientes/$id'
       fullPath: '/clientes/$id'
       preLoaderRoute: typeof AuthenticatedClientesIdRouteImport
-      parentRoute: typeof AuthenticatedClientesRoute
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/knowledge/processo/$codigo': {
-      id: '/_authenticated/knowledge/processo/$codigo'
-      path: '/processo/$codigo'
+    '/_authenticated/knowledge_/processo/$codigo': {
+      id: '/_authenticated/knowledge_/processo/$codigo'
+      path: '/knowledge/processo/$codigo'
       fullPath: '/knowledge/processo/$codigo'
       preLoaderRoute: typeof AuthenticatedKnowledgeProcessoCodigoRouteImport
-      parentRoute: typeof AuthenticatedKnowledgeRoute
+      parentRoute: typeof AuthenticatedRouteRoute
     }
   }
 }
-
-interface AuthenticatedClientesRouteChildren {
-  AuthenticatedClientesIdRoute: typeof AuthenticatedClientesIdRoute
-}
-
-const AuthenticatedClientesRouteChildren: AuthenticatedClientesRouteChildren = {
-  AuthenticatedClientesIdRoute: AuthenticatedClientesIdRoute,
-}
-
-const AuthenticatedClientesRouteWithChildren =
-  AuthenticatedClientesRoute._addFileChildren(
-    AuthenticatedClientesRouteChildren,
-  )
-
-interface AuthenticatedConciliacaoRouteChildren {
-  AuthenticatedConciliacaoEmpresaIdRoute: typeof AuthenticatedConciliacaoEmpresaIdRoute
-}
-
-const AuthenticatedConciliacaoRouteChildren: AuthenticatedConciliacaoRouteChildren =
-  {
-    AuthenticatedConciliacaoEmpresaIdRoute:
-      AuthenticatedConciliacaoEmpresaIdRoute,
-  }
-
-const AuthenticatedConciliacaoRouteWithChildren =
-  AuthenticatedConciliacaoRoute._addFileChildren(
-    AuthenticatedConciliacaoRouteChildren,
-  )
-
-interface AuthenticatedConsultiveRouteChildren {
-  AuthenticatedConsultiveEmpresaIdRoute: typeof AuthenticatedConsultiveEmpresaIdRoute
-}
-
-const AuthenticatedConsultiveRouteChildren: AuthenticatedConsultiveRouteChildren =
-  {
-    AuthenticatedConsultiveEmpresaIdRoute:
-      AuthenticatedConsultiveEmpresaIdRoute,
-  }
-
-const AuthenticatedConsultiveRouteWithChildren =
-  AuthenticatedConsultiveRoute._addFileChildren(
-    AuthenticatedConsultiveRouteChildren,
-  )
-
-interface AuthenticatedCxRouteChildren {
-  AuthenticatedCxEmpresaIdRoute: typeof AuthenticatedCxEmpresaIdRoute
-}
-
-const AuthenticatedCxRouteChildren: AuthenticatedCxRouteChildren = {
-  AuthenticatedCxEmpresaIdRoute: AuthenticatedCxEmpresaIdRoute,
-}
-
-const AuthenticatedCxRouteWithChildren = AuthenticatedCxRoute._addFileChildren(
-  AuthenticatedCxRouteChildren,
-)
-
-interface AuthenticatedKnowledgeRouteChildren {
-  AuthenticatedKnowledgeProcessoCodigoRoute: typeof AuthenticatedKnowledgeProcessoCodigoRoute
-}
-
-const AuthenticatedKnowledgeRouteChildren: AuthenticatedKnowledgeRouteChildren =
-  {
-    AuthenticatedKnowledgeProcessoCodigoRoute:
-      AuthenticatedKnowledgeProcessoCodigoRoute,
-  }
-
-const AuthenticatedKnowledgeRouteWithChildren =
-  AuthenticatedKnowledgeRoute._addFileChildren(
-    AuthenticatedKnowledgeRouteChildren,
-  )
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppRoute: typeof AuthenticatedAppRoute
-  AuthenticatedClientesRoute: typeof AuthenticatedClientesRouteWithChildren
-  AuthenticatedConciliacaoRoute: typeof AuthenticatedConciliacaoRouteWithChildren
+  AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
+  AuthenticatedConciliacaoRoute: typeof AuthenticatedConciliacaoRoute
   AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
-  AuthenticatedConsultiveRoute: typeof AuthenticatedConsultiveRouteWithChildren
-  AuthenticatedCxRoute: typeof AuthenticatedCxRouteWithChildren
+  AuthenticatedConsultiveRoute: typeof AuthenticatedConsultiveRoute
+  AuthenticatedCxRoute: typeof AuthenticatedCxRoute
   AuthenticatedDocumentosRoute: typeof AuthenticatedDocumentosRoute
-  AuthenticatedKnowledgeRoute: typeof AuthenticatedKnowledgeRouteWithChildren
+  AuthenticatedKnowledgeRoute: typeof AuthenticatedKnowledgeRoute
   AuthenticatedLancamentosRoute: typeof AuthenticatedLancamentosRoute
   AuthenticatedTarefasRoute: typeof AuthenticatedTarefasRoute
+  AuthenticatedClientesIdRoute: typeof AuthenticatedClientesIdRoute
+  AuthenticatedConciliacaoEmpresaIdRoute: typeof AuthenticatedConciliacaoEmpresaIdRoute
+  AuthenticatedConsultiveEmpresaIdRoute: typeof AuthenticatedConsultiveEmpresaIdRoute
+  AuthenticatedCxEmpresaIdRoute: typeof AuthenticatedCxEmpresaIdRoute
+  AuthenticatedKnowledgeProcessoCodigoRoute: typeof AuthenticatedKnowledgeProcessoCodigoRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppRoute: AuthenticatedAppRoute,
-  AuthenticatedClientesRoute: AuthenticatedClientesRouteWithChildren,
-  AuthenticatedConciliacaoRoute: AuthenticatedConciliacaoRouteWithChildren,
+  AuthenticatedClientesRoute: AuthenticatedClientesRoute,
+  AuthenticatedConciliacaoRoute: AuthenticatedConciliacaoRoute,
   AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
-  AuthenticatedConsultiveRoute: AuthenticatedConsultiveRouteWithChildren,
-  AuthenticatedCxRoute: AuthenticatedCxRouteWithChildren,
+  AuthenticatedConsultiveRoute: AuthenticatedConsultiveRoute,
+  AuthenticatedCxRoute: AuthenticatedCxRoute,
   AuthenticatedDocumentosRoute: AuthenticatedDocumentosRoute,
-  AuthenticatedKnowledgeRoute: AuthenticatedKnowledgeRouteWithChildren,
+  AuthenticatedKnowledgeRoute: AuthenticatedKnowledgeRoute,
   AuthenticatedLancamentosRoute: AuthenticatedLancamentosRoute,
   AuthenticatedTarefasRoute: AuthenticatedTarefasRoute,
+  AuthenticatedClientesIdRoute: AuthenticatedClientesIdRoute,
+  AuthenticatedConciliacaoEmpresaIdRoute:
+    AuthenticatedConciliacaoEmpresaIdRoute,
+  AuthenticatedConsultiveEmpresaIdRoute: AuthenticatedConsultiveEmpresaIdRoute,
+  AuthenticatedCxEmpresaIdRoute: AuthenticatedCxEmpresaIdRoute,
+  AuthenticatedKnowledgeProcessoCodigoRoute:
+    AuthenticatedKnowledgeProcessoCodigoRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

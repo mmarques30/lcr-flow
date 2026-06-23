@@ -8,7 +8,7 @@ import { EMPRESA_STATUS_LABEL, REGIME_LABEL, DOC_TIPO_LABEL } from "@/lib/format
 import { ChevronLeft } from "lucide-react";
 import { requireAcesso } from "@/lib/guard";
 
-export const Route = createFileRoute("/_authenticated/clientes/$id")({
+export const Route = createFileRoute("/_authenticated/clientes_/$id")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "clientes", "/clientes"),
   head: ({ params }) => ({ meta: [{ title: `Cliente — LCR Contábil` }, { name: "cliente-id", content: params.id }] }),
   loader: ({ context, params }) =>

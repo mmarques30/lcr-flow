@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 
-export const Route = createFileRoute("/_authenticated/consultive/$empresaId")({
+export const Route = createFileRoute("/_authenticated/consultive_/$empresaId")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "consultive", "/consultive"),
   head: () => ({ meta: [{ title: "Análise consultiva — LCR Contábil" }] }),
   loader: ({ context, params }) => context.queryClient.ensureQueryData({ queryKey: ["consultive-empresa", params.empresaId], queryFn: () => getConsultiveEmpresa({ data: { empresa_id: params.empresaId } }) }),

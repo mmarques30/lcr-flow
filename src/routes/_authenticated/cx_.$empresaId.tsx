@@ -16,7 +16,7 @@ import { ArrowLeft, Sparkles, Plus, Mail, MessageSquare, Phone, Users, Package }
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/_authenticated/cx/$empresaId")({
+export const Route = createFileRoute("/_authenticated/cx_/$empresaId")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "cx", "/cx"),
   head: () => ({ meta: [{ title: "Cliente · CX — LCR Contábil" }] }),
   loader: ({ context, params }) => context.queryClient.ensureQueryData({ queryKey: ["cx-empresa", params.empresaId], queryFn: () => getCxEmpresa({ data: { empresa_id: params.empresaId } }) }),
