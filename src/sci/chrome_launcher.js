@@ -52,6 +52,7 @@ async function launchChrome(url) {
     '--start-maximized',
     '--no-first-run',
     '--no-default-browser-check',
+    '--disable-popup-blocking',
     url || 'about:blank',
   ], { stdio: 'ignore', detached: true });
   proc.unref();

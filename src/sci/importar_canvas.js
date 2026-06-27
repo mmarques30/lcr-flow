@@ -105,42 +105,45 @@ async function fazerLogin(portalPage) {
 // ─── Detecta aba com canvas ───────────────────────────────────────────────────
 
 async function esperarCanvas(context) {
-  // Aguarda até 120s (60 × 2s) — login Citrix + carregamento HTML5 pode ser lento
-  for (let t = 0; t < 60; t++) {
+  // Aguarda até 180s (90 × 2s) — popup html5.html pode demorar após StoreFront
+  for (let t = 0; t < 90; t++) {
     const pages = context.pages();
-    // Log resumido a cada 5 tentativas
-    if (t === 0 || t % 5 === 0) {
-      const urls = pages.map(p => {
-        const u = p.url();
-        return u.length > 60 ? u.slice(-60) : u;
-      }).join(' | ');
-      console.log(`    [${String(t + 1).padStart(2)}s/${120}s] ${pages.length} aba(s): ${urls || '(nenhuma)'}`);
-    }
-    // 1ª prioridade: aba com 'html5' na URL
+    const urls = pages.map(p => {
+      const u = p.url();
+      return u.length > 70 ? u.slice(-70) : u;
+    }).join(' | ');
+    console.log(`    [${String((t + 1) * 2).padStart(3)}s/180s] ${pages.length} aba(s): ${urls || '(nenhuma)'}`);
+
+    // 1ª prioridade: aba com 'html5' na URL (popup ou redirect)
     for (const aba of pages) {
       try {
         const c = await aba.$('canvas');
         if (!c || !aba.url().includes('html5')) continue;
         const box = await c.boundingBox();
-        if (box && box.width > 400 && box.height > 200) return aba;
-      } catch {}
-    }
-    // Fallback: qualquer aba com canvas grande (html5 client pode estar no portal URL)
-    for (const aba of pages) {
-      try {
-        if (aba.url() === 'about:blank') continue;
-        const c = await aba.$('canvas');
-        if (!c) continue;
-        const box = await c.boundingBox();
         if (box && box.width > 400 && box.height > 200) {
-          console.log(`    Canvas ${Math.round(box.width)}×${Math.round(box.height)} em: ...${aba.url().slice(-50)}`);
+          console.log(`    ✅ Canvas html5 ${Math.round(box.width)}×${Math.round(box.height)}`);
           return aba;
         }
       } catch {}
     }
+    // Fallback: qualquer canvas grande (só após 30s para popup ter tempo de abrir)
+    if (t >= 15) {
+      for (const aba of pages) {
+        try {
+          if (aba.url() === 'about:blank') continue;
+          const c = await aba.$('canvas');
+          if (!c) continue;
+          const box = await c.boundingBox();
+          if (box && box.width > 400 && box.height > 200) {
+            console.log(`    Canvas fallback ${Math.round(box.width)}×${Math.round(box.height)} em: ...${aba.url().slice(-50)}`);
+            return aba;
+          }
+        } catch {}
+      }
+    }
     await ms(2000);
   }
-  throw new Error('Canvas não encontrado após 120s.');
+  throw new Error('Canvas não encontrado após 180s.');
 }
 
 // ─── 2° Login dentro do canvas (mariana.marques@lcr) ─────────────────────────
@@ -344,14 +347,43 @@ async function importarPlanilhaSCI({ nomeArquivo, empresaCodigo, competencia }) 
     console.log('[1] Fazendo 1° login (level40)...');
     await fazerLogin(portalPage);
 
-    console.log('[2] Detectando canvas HTML5...');
+    // Aguarda StoreFront carregar após redirecionamento do login
+    console.log('[1b] Aguardando StoreFront...');
+    await ms(6000);
+    await shot(portalPage, 'storefront').catch(() => {});
+    const urlStoreFront = await portalPage.url().catch ? portalPage.url() : '(inacessível)';
+    console.log(`    URL pós-login: ${urlStoreFront}`);
+
+    // Tenta clicar no app SCI via DOM (StoreFront é HTML, não canvas)
+    if (!urlStoreFront.includes('html5')) {
+      const sciLancado = await portalPage.evaluate(() => {
+        for (const el of document.querySelectorAll('a, button, [role="button"], [data-appid], li')) {
+          const txt   = (el.textContent || '').trim();
+          const attrs = [el.getAttribute('title'), el.getAttribute('data-appid'), el.getAttribute('data-name')]
+                          .filter(Boolean).join(' ');
+          if ((txt + ' ' + attrs).match(/\bSCI\b/i) && el.offsetWidth > 0) {
+            el.click();
+            return txt || attrs;
+          }
+        }
+        return null;
+      }).catch(() => null);
+
+      if (sciLancado) {
+        console.log(`    ✅ App SCI clicado no StoreFront: "${sciLancado}"`);
+      } else {
+        console.log('    ⚠️  SCI não encontrado via DOM — verifique sci-storefront-*.png');
+      }
+    }
+
+    console.log('[2] Detectando canvas HTML5 (aguarda popup)...');
     let cp = await esperarCanvas(context);
     await cp.bringToFront();
     await shot(cp, 'canvas-detectado');
-    console.log('    Canvas encontrado. Aguardando 2° tela de login SCI (15s)...');
+    console.log('    Canvas html5 encontrado. Aguardando login SCI (15s)...');
     await ms(15000);
 
-    // Portal fecha/navega durante o wait — sempre re-adquire a página canvas
+    // Portal/canvas pode reabrir em nova aba — re-adquire
     cp = await refreshCp(cp, context);
     await cp.bringToFront();
     await shot(cp, 'canvas-login2');
