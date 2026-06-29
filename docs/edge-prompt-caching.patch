@@ -1,0 +1,44 @@
+commit 8d977cbf6ce4c89b75360f638fbe3f0ccaaceabb
+Author: Maria Cunha <mcarolinacunha13@gmail.com>
+Date:   Mon Jun 29 20:38:38 2026 -0300
+
+    perf(edge): prompt caching no contexto do processar-documento
+    
+    Plano de contas (1187) + históricos (559) são idênticos em toda chamada → agora
+    vão num bloco com cache_control:ephemeral (header anthropic-beta prompt-caching).
+    Corta ~90% dos tokens de input nas chamadas subsequentes e alivia o rate limit
+    (10k tokens/min) que estava barrando a classificação de vários documentos.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/supabase/functions/processar-documento/index.ts b/supabase/functions/processar-documento/index.ts
+index 8f0c470..7b5f2fb 100644
+--- a/supabase/functions/processar-documento/index.ts
++++ b/supabase/functions/processar-documento/index.ts
+@@ -186,7 +186,12 @@ Deno.serve(async (req) => {
+   try {
+     const apiResp = await fetch("https://api.anthropic.com/v1/messages", {
+       method: "POST",
+-      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
++      headers: {
++        "x-api-key": apiKey,
++        "anthropic-version": "2023-06-01",
++        "anthropic-beta": "prompt-caching-2024-07-31",
++        "content-type": "application/json",
++      },
+       body: JSON.stringify({
+         model: MODEL,
+         max_tokens: 4096,
+@@ -194,8 +199,11 @@ Deno.serve(async (req) => {
+         messages: [{
+           role: "user",
+           content: [
++            // Plano de contas + históricos: idêntico em toda chamada → cacheado
++            // (prompt caching) p/ cortar ~90% dos tokens de input e aliviar o rate limit.
++            { type: "text", text: ctx, cache_control: { type: "ephemeral" } },
+             contentBlock,
+-            { type: "text", text: `Empresa atual: ${empresa?.razao_social ?? "?"} (CNPJ ${empresa?.cnpj ?? "?"}).\n\n${ctx}\n\nClassifique este documento e sugira os lançamentos.` },
++            { type: "text", text: `Empresa atual: ${empresa?.razao_social ?? "?"} (CNPJ ${empresa?.cnpj ?? "?"}). Classifique este documento e sugira os lançamentos.` },
+           ],
+         }],
+         output_config: { format: { type: "json_schema", schema: SCHEMA } },
