@@ -13,7 +13,9 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const fail = (error: string) => json(200, { ok: false, error });
 
-const MODEL = "claude-sonnet-4-6";
+// Haiku 4.5: limite de tokens/min bem maior que o Sonnet no mesmo tier (evita o
+// rate_limit_error de 10k tokens/min) + mais barato e rápido p/ classificar docs.
+const MODEL = "claude-haiku-4-5";
 
 const SYSTEM_PROMPT = `Você é o classificador de documentos contábeis da LCR Contadores.
 Analise o documento enviado por um cliente e:
