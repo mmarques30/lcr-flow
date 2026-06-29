@@ -3,5 +3,8 @@
   "menu_lancamentos":   { "rx": 0.5219, "ry": 0.5784 },
   "form_data_fim":      { "rx": 0.2651, "ry": 0.3708 },
   "form_arquivo_icone": { "rx": 0.3917, "ry": 0.4513 },
-  "btn_importar":       { "rx": 0.6266, "ry": 0.4894 }
+  "btn_importar":       { "rx": 0.6266, "ry": 0.4894 },
+  "form_empresa":       { "rx": 0.156,  "ry": 0.205  },
+  "grid_contabil":      { "rx": 0.619,  "ry": 0.253  },
+  "popup_fechar":       { "rx": 0.732,  "ry": 0.272  }
 }

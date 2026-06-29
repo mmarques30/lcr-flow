@@ -198,6 +198,31 @@ async function refreshCp(cp, context) {
   return await esperarCanvas(context);
 }
 
+// ─── Garante módulo CONTÁBIL ──────────────────────────────────────────────────
+// A sessão Citrix reaproveitada pode estar parada no módulo errado (ex.: "Único
+// LALUR") exibindo a GRADE DE MÓDULOS modal (Folha/Fiscal/Contábil/...), que engole
+// todo o teclado/mouse e faz a navegação de menu cair na tela errada.
+// O fluxo correto (vide gravação manual) roda no módulo "Único CONTÁBIL".
+// Clicar no tile "Contábil" entra/troca para o módulo contábil. Se a grade não
+// estiver visível (já estamos no Contábil), o clique cai em área vazia da home
+// (inofensivo). Em seguida fecha o popup de aviso "Atenção!" (novidades/live).
+
+async function entrarModuloContabil(cp, c) {
+  console.log('\n[2c] Garantindo módulo CONTÁBIL...');
+  await shot(cp, 'pre-contabil');
+
+  // Tile "Contábil" na grade de módulos.
+  await clicarRel(cp, c.grid_contabil.rx, c.grid_contabil.ry, 'tile Contábil');
+  await ms(5000); // módulo carrega + popup "Atenção!" pode aparecer
+  await shot(cp, 'modulo-contabil');
+
+  // Fecha o popup de aviso (X vermelho). Clique em área vazia se não houver popup.
+  await clicarRel(cp, c.popup_fechar.rx, c.popup_fechar.ry, 'fecha popup Atenção (X)');
+  await ms(1200);
+  await shot(cp, 'contabil-pronto');
+  console.log('    ✅ Módulo Contábil pronto');
+}
+
 // ─── Navegação via menu (Integrações → Importações → Lançamentos) ─────────────
 
 async function navegarParaImportacao(cp, c) {
@@ -208,19 +233,19 @@ async function navegarParaImportacao(cp, c) {
   await ms(800);
   await shot(cp, 'nav-integracoes');
 
-  // Navega com teclado para Importações
-  await digitar(cp, 'i', 'jump Importações');
-  await ms(600);
+  // Navega com teclado para Importações.
+  // 'i' no dropdown de Integrações seleciona o item "Importações". Em menu Windows
+  // padrão, digitar o mnemônico de um item-pai abre o submenu e foca o 1° item.
+  await digitar(cp, 'i', 'jump Importações → submenu abre com via TXT focado');
+  await ms(1000);
   await shot(cp, 'nav-importacoes');
-  await tecla(cp, 'Enter', 'abre Importações');
-  await ms(800);
 
-  // Submenu Importações abre com TXT (1° item) focado — ArrowDown vai para planilha (2°)
-  await tecla(cp, 'ArrowDown', 'planilha = 2° item');
-  await ms(400);
+  // via TXT já focado (1° item) — ArrowDown desce para "via Planilha" (2° item).
+  await tecla(cp, 'ArrowDown', 'via Planilha = 2° item');
+  await ms(600);
   await shot(cp, 'nav-lancamentos');
-  await tecla(cp, 'Enter', 'abre formulário planilha');
-  await ms(2000);
+  await tecla(cp, 'Enter', 'abre formulário Lançamentos contábeis via Planilha');
+  await ms(2500);
   await shot(cp, 'form-aberto');
   console.log('    ✅ Formulário aberto');
 }
@@ -229,7 +254,12 @@ async function navegarParaImportacao(cp, c) {
 
 async function preencherFormulario(cp, c, { empresaCodigo, dataInicial, dataFinal, gerador = '1' }) {
   console.log('\n[4] Preenchendo formulário...');
-  // O dialog abre com foco no campo Empresa (padrão Windows) — não clicamos.
+
+  // Clica no campo Empresa para garantir foco no form planilha.
+  // Se Razão e livro caixa foi fechado no cleanup, este click cai no campo certo.
+  // Se ainda estiver aberto, o click cai nele (não piora — o problema de foco já existe).
+  await clicarRel(cp, c.form_empresa.rx, c.form_empresa.ry, 'campo Empresa — foco no form planilha');
+  await ms(400);
 
   // ── Empresa ──────────────────────────────────────────────────────────────
   await cp.keyboard.press('Control+a');
@@ -249,20 +279,15 @@ async function preencherFormulario(cp, c, { empresaCodigo, dataInicial, dataFina
   await cp.keyboard.press('Control+a');
   await digitar(cp, dataFinal, 'data final (DDMMAAAA)');
   await ms(400);
+  // ── Gerador — Tab direto, sem clique de coordenada ─────────────────────────
+  // Clique estimado causava foco em form antigo do SCI (Razão e livro caixa).
   await tecla(cp, 'Tab', 'Tab → gerador');
   await ms(400);
-
-  // ── Gerador: clica diretamente para garantir foco certo ──────────────────
-  // Calcula coordenada do campo Gerador = abaixo de data_fim, mesma coluna x
-  // Como não temos coord mapeada, clicamos em data_fim + offset de ~1.5 linha
-  const geradRx = c.form_data_fim.rx;
-  const geradRy = c.form_data_fim.ry + 0.045; // ~1.5 linha abaixo do data_fim
-  await clicarRel(cp, geradRx, geradRy, 'Gerador (estimado)');
   await cp.keyboard.press('Control+a');
   await digitar(cp, gerador, 'gerador');
   await tecla(cp, 'Tab', 'Tab → plano troca');
 
-  // ── Plano de troca (pular, vai para campo Arquivo) ────────────────────────
+  // ── Plano de troca (pular) ────────────────────────────────────────────────
   await tecla(cp, 'Tab', 'Tab → arquivo');
 
   await shot(cp, 'form-preenchido');
@@ -272,27 +297,29 @@ async function preencherFormulario(cp, c, { empresaCodigo, dataInicial, dataFina
 // ─── Seleciona arquivo via diálogo Windows ────────────────────────────────────
 
 async function selecionarArquivo(cp, c, nomeArquivo) {
-  console.log('\n[5] Abrindo seletor de arquivo...');
+  console.log('\n[5] Selecionando arquivo (teclado)...');
   const caminhoCompleto = SERVIDOR_BASE + nomeArquivo;
+  console.log(`    Caminho: ${caminhoCompleto}`);
 
-  // Clica no ícone de pasta
-  await clicarRel(cp, c.form_arquivo_icone.rx, c.form_arquivo_icone.ry, 'ícone pasta');
-  await ms(3000); // aguarda diálogo Windows abrir
+  // Estado do foco após preencherFormulario(): campo Arquivo (text field).
+  // Não usamos coordenada (foi calibrada pro form TXT, crashava no planilha).
+  // Tab → botão de pasta (browse button do Delphi) → Space → abre diálogo Windows.
+  await shot(cp, 'pre-selecao-arquivo');
+  await tecla(cp, 'Tab', 'Tab para botão pasta');
+  await ms(400);
+  await tecla(cp, 'Space', 'abre diálogo arquivo');
+  await ms(3000);
   await shot(cp, 'dialogo-arquivo');
 
-  // Alt+N foca o campo "Nome:" no diálogo Windows padrão
+  // Diálogo Windows Open File: Alt+N foca o campo "Nome do arquivo:"
   await cp.keyboard.press('Alt+n');
-  await ms(500);
+  await ms(400);
   await cp.keyboard.press('Control+a');
   await ms(200);
-
-  // Digita caminho completo
-  console.log(`    Caminho: ${caminhoCompleto}`);
   await cp.keyboard.type(caminhoCompleto, { delay: 30 });
   await ms(500);
   await shot(cp, 'dialogo-caminho');
 
-  // Enter = Abrir
   await cp.keyboard.press('Enter');
   await ms(2000);
   await shot(cp, 'dialogo-confirmado');
@@ -352,18 +379,26 @@ async function importarPlanilhaSCI({ nomeArquivo, empresaCodigo, competencia }) 
     await cp.bringToFront();
     await shot(cp, 'canvas-detectado');
 
-    // Mantém sessão Citrix viva com mouse movement enquanto SCI carrega (15s)
-    // Sem interação o popup fecha por idle timeout antes de mostrar o formulário
-    console.log('    Canvas html5 detectado. Keep-alive 15s enquanto SCI inicia...');
-    for (let i = 0; i < 5; i++) {
+    // Mantém sessão Citrix viva durante inicialização (30s).
+    // O canvas some brevemente ao transitar da tela de loading Level para a sessão RDP real.
+    // Não saímos do loop se canvas é null — só saímos se a página fechar (exceção stale).
+    console.log('    Canvas html5 detectado. Keep-alive 30s enquanto Citrix inicializa...');
+    for (let i = 0; i < 10; i++) {
       await ms(3000);
       try {
         const c = await cp.$('canvas');
-        if (!c) break;
-        const box = await c.boundingBox();
-        if (box) await cp.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
-        console.log(`    keep-alive ${(i + 1) * 3}s/15s`);
-      } catch { break; }
+        const box = c ? await c.boundingBox() : null;
+        if (box && box.width > 0) {
+          await cp.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+          console.log(`    keep-alive ${(i + 1) * 3}s/30s ✓`);
+        } else {
+          console.log(`    keep-alive ${(i + 1) * 3}s/30s — canvas transitioning...`);
+        }
+      } catch {
+        // Página fechou (Citrix encerrou sessão antes de conectar)
+        console.log(`    keep-alive ${(i + 1) * 3}s/30s — sessão encerrada pelo servidor`);
+        break;
+      }
     }
     await shot(cp, 'canvas-prekeepend');
 
@@ -377,6 +412,9 @@ async function importarPlanilhaSCI({ nomeArquivo, empresaCodigo, competencia }) 
     cp = await refreshCp(cp, context);
     await cp.bringToFront();
     await shot(cp, 'canvas-pronto');
+
+    // Garante que estamos no módulo CONTÁBIL antes de navegar o menu.
+    await entrarModuloContabil(cp, c);
 
     await navegarParaImportacao(cp, c);
     await preencherFormulario(cp, c, { empresaCodigo, dataInicial, dataFinal });
