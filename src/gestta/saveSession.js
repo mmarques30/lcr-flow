@@ -40,26 +40,37 @@ async function saveSession() {
   console.log(`URL: ${URL}`);
   console.log(`Login: ${process.env.GESTTA_EMAIL}`);
   console.log('\n👉 Faça login manualmente no browser que abriu.');
-  console.log('   Depois que estiver logado e ver a tela principal,');
-  console.log('   volte aqui e pressione ENTER para salvar a sessão.\n');
+  console.log('   A sessão será salva AUTOMATICAMENTE assim que o login for detectado.\n');
 
-  await waitForEnter();
+  // Detecção automática de login (sem precisar de ENTER — funciona em background).
+  // Logado = URL não está mais na rota de login/auth do Gestta, estável por 2 checagens.
+  const ehLogado = () => {
+    const u = page.url() || '';
+    return u.includes('gestta') && !u.includes('login') && !u.includes('auth');
+  };
+
+  const inicioEspera = Date.now();
+  const TIMEOUT_MS = 300000; // 5 min para o login manual
+  let estaveis = 0;
+  while (Date.now() - inicioEspera < TIMEOUT_MS) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (ehLogado()) {
+      estaveis += 1;
+      if (estaveis >= 2) break; // ~6s logado de forma estável
+    } else {
+      estaveis = 0;
+    }
+  }
+
+  if (!ehLogado()) {
+    console.error('\n⚠️  Login não detectado dentro do tempo limite. Salvando estado atual mesmo assim.');
+  }
 
   await context.storageState({ path: SESSION_PATH });
   console.log(`\n✅ Sessão salva em: ${SESSION_PATH}`);
 
   await browser.close();
   process.exit(0);
-}
-
-function waitForEnter() {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question('Pressione ENTER após fazer login... ', () => {
-      rl.close();
-      resolve();
-    });
-  });
 }
 
 saveSession().catch((err) => {

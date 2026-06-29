@@ -72,7 +72,7 @@ function urlListaCobranca(ano, mes) {
   const end   = new Date(ano, mes,     1, 2, 59, 59).toISOString();
   const qs = [
     'type=SERVICE_ORDER', 'type=RECURRENT', 'type=ACCOUNTING',
-    `company_user=${COMPANY_USER}`, 'company_user=NO_OWNER',
+    // sem filtro company_user → Todos os Usuários (todos os colaboradores)
     `start_date=${encodeURIComponent(start)}`,
     `end_date=${encodeURIComponent(end)}`,
     'status=OPEN',
@@ -88,7 +88,7 @@ function urlListaTarefas(ano, mes) {
   const end   = new Date(ano, mes,     1, 2, 59, 59).toISOString();
   const qs = [
     'type=SERVICE_ORDER', 'type=RECURRENT', 'type=ACCOUNTING',
-    `company_user=${COMPANY_USER}`, 'company_user=NO_OWNER',
+    // sem filtro company_user → Todos os Usuários (todos os colaboradores)
     'is_mutual_company_grouper=0',
     `start_date=${encodeURIComponent(start)}`,
     `end_date=${encodeURIComponent(end)}`,
@@ -106,7 +106,7 @@ function urlDetalhe(tarefaId, ano, mes) {
   const end   = new Date(ano, mes,     1, 2, 59, 59).toISOString();
   const qs = [
     'type=SERVICE_ORDER', 'type=RECURRENT', 'type=ACCOUNTING',
-    `company_user=${COMPANY_USER}`, 'company_user=NO_OWNER',
+    // sem filtro company_user → Todos os Usuários (todos os colaboradores)
     `start_date=${encodeURIComponent(start)}`,
     `end_date=${encodeURIComponent(end)}`,
     'status=OPEN', 'os_workflow=1',
@@ -158,11 +158,25 @@ async function buscarTarefasPendentes(competencia = null) {
         const match  = raw.match(/^([A-Z0-9]+)\s*-\s*(.+)$/);
         const meta   = li.querySelector('[ng-bind*="due_date"], .task-due-date')?.textContent?.trim() || '';
         const atrasada = !!li.querySelector('.task-card-item.overdue');
+        // Colaborador responsável (ex.: "Cleyton - Contábil") — best-effort.
+        // TODO: confirmar seletor exato com sessão ativa; fallbacks abaixo.
+        let responsavel = '';
+        const respEl = li.querySelector(
+          '.task-owner-name, .task-responsible, .task-collaborator-name, ' +
+          '.task-company-user, [ng-bind*="owner"], [ng-bind*="responsible"], [ng-bind*="company_user"]'
+        );
+        if (respEl) responsavel = (respEl.textContent || '').trim();
+        if (!responsavel) {
+          const av = li.querySelector('img[title], [title]');
+          const t = av && av.getAttribute('title');
+          if (t) responsavel = t.trim();
+        }
         return {
           indice: i,
           nome,
           clienteCodigo: match?.[1] || '',
           clienteNome:   match?.[2] || raw,
+          responsavel,                 // colaborador (mapeado p/ consultor_id no nosso sistema)
           meta,
           atrasada,
           status: 'OPEN',

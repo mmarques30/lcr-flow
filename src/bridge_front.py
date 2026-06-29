@@ -24,6 +24,7 @@ import sys
 import csv
 import json
 import argparse
+import subprocess
 import datetime as dt
 from pathlib import Path
 
@@ -192,6 +193,34 @@ def linha_para_lancamento(linha: dict, banco_cod: int, conta_map: dict, hist_map
     }, conta_id
 
 
+def _conta_contrapartida(linha: dict, banco_cod: int):
+    deb, cred = linha.get("debito"), linha.get("credito")
+    if str(deb) == str(banco_cod):
+        return cred
+    if str(cred) == str(banco_cod):
+        return deb
+    return deb
+
+
+def sugestoes_motor(linhas: list, banco_cod: int) -> list:
+    """Converte a saída do motor em lancamentos_sugeridos no formato que a tela de
+    Revisão do front consome (conta_codigo, descricao, valor, confidence)."""
+    out = []
+    for l in linhas:
+        conta_cod = _conta_contrapartida(l, banco_cod)
+        out.append({
+            "data_lancamento": _iso_data(l.get("data")),
+            "valor": float(l.get("valor") or 0),
+            "tipo_movimento": "debito" if str(conta_cod) == str(l.get("debito")) else "credito",
+            "conta_codigo": str(conta_cod) if conta_cod is not None else None,
+            "historico_codigo": (str(l.get("historico")) if l.get("historico") not in (None, "", "None") else None),
+            "descricao": (l.get("complemento") or "")[:200],
+            "confidence": (float(l.get("confianca")) if l.get("confianca") is not None else None),
+            "justificativa": l.get("justificativa"),
+        })
+    return out
+
+
 def montar_csv_extrato(transacoes: list) -> bytes:
     buf = ["data;descricao;valor;tipo"]
     for t in transacoes:
@@ -204,7 +233,7 @@ def montar_csv_extrato(transacoes: list) -> bytes:
 
 
 # ── Pipeline principal ───────────────────────────────────────────────────────
-def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, origem="gestta"):
+def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, origem="gestta", finalizar_conciliacao=False):
     extrato_path = Path(extrato_path)
     if not extrato_path.exists():
         raise FileNotFoundError(extrato_path)
@@ -233,7 +262,7 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
         "empresa_id": empresa_id, "tipo": "extrato", "competencia": competencia,
         "competencia_id": competencia_id, "origem": origem, "status": "recebido",
         "status_processamento": "pendente", "arquivo_nome": extrato_path.name,
-        "storage_path": storage_path,
+        "storage_path": storage_path, "arquivo_url": storage_path,
     })
     documento_id = doc[0]["id"]
     log(f"    documento_id={documento_id}")
@@ -253,45 +282,274 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
         sb_insert("lancamentos", lancamentos, retornar=False)
     log(f"    {len(lancamentos)} lançamentos inseridos ({sem_conta} sem conta mapeada → revisão)")
 
+    # classificacao_ia no formato que a tela de Revisão do front consome
+    sugestoes = sugestoes_motor(aprovadas + revisao, banco_cod)
+    confs = [s["confidence"] for s in sugestoes if s["confidence"] is not None]
+    conf_geral = round(sum(confs) / len(confs), 2) if confs else None
+    classificacao_ia = {
+        "tipo_documento": "extrato_bancario",
+        "competencia": competencia,
+        "confidence_geral": conf_geral,
+        "observacoes": (
+            f"{len(aprovadas)} de {len(transacoes)} transações classificadas automaticamente "
+            f"(confiança ≥ 80%); {len(revisao)} requerem aprovação humana (confiança < 80%). "
+            "Revise as linhas destacadas e aprove para confirmar os lançamentos."
+        ),
+        "lancamentos_sugeridos": sugestoes,
+        "dados_extraidos": {"total_transacoes": len(transacoes),
+                            "aprovadas": len(aprovadas), "revisao": len(revisao),
+                            "fonte": "motor_lcr (Mapa de Transações + De-para)"},
+    }
     sb_update("documentos", {"id": documento_id}, {
         "status": "processado", "status_processamento": "classificado",
         "processado_em": dt.datetime.utcnow().isoformat() + "Z",
         "lancamentos_gerados": len(lancamentos),
-        "classificacao_ia": {"fonte": "motor_lcr", "aprovadas": len(aprovadas),
-                              "revisao": len(revisao), "total": len(transacoes)},
+        "classificacao_ia": classificacao_ia,
     })
 
-    log("\n[6] Conciliação: upload do extrato CSV + edge function conciliar...")
-    csv_bytes = montar_csv_extrato(transacoes)
-    csv_path = f"{empresa_id}/{competencia}/extrato-{documento_id}.csv"
-    sb_upload(BUCKET_CONC, csv_path, csv_bytes, "text/csv")
-    conc = sb_insert("conciliacoes", {
-        "empresa_id": empresa_id, "competencia": competencia, "competencia_id": competencia_id,
-        "extrato_csv_url": csv_path, "status": "em_andamento",
+    resultado = {"documento_id": documento_id, "lancamentos": len(lancamentos)}
+
+    if finalizar_conciliacao:
+        log("\n[6] Conciliação: upload do extrato CSV + edge function conciliar...")
+        csv_bytes = montar_csv_extrato(transacoes)
+        csv_path = f"{empresa_id}/{competencia}/extrato-{documento_id}.csv"
+        sb_upload(BUCKET_CONC, csv_path, csv_bytes, "text/csv")
+        conc = sb_insert("conciliacoes", {
+            "empresa_id": empresa_id, "competencia": competencia, "competencia_id": competencia_id,
+            "extrato_csv_url": csv_path, "status": "em_andamento",
+        })
+        conciliacao_id = conc[0]["id"]
+        res_conc = chamar_edge("conciliar", {"conciliacao_id": conciliacao_id}, jwt)
+        log(f"    conciliar → {json.dumps(res_conc, ensure_ascii=False)}")
+        sb_update("empresas", {"id": empresa_id}, {"status": "conciliacao"})
+        resultado.update({"conciliacao_id": conciliacao_id, "conciliacao": res_conc})
+    else:
+        # Automação: apenas envia os documentos extraídos + analisados.
+        # A conciliação NÃO é finalizada (fica como passo humano no front).
+        log("\n[6] Documentos analisados enviados; conciliação não finalizada (status → lancamento)")
+        sb_update("empresas", {"id": empresa_id}, {"status": "lancamento"})
+
+    return resultado
+
+
+# ── Integração com o Gestta (download direto dos documentos) ─────────────────
+def comp_to_gestta(competencia: str) -> str:
+    """'2026-06' -> '06/2026' (formato esperado pelo módulo Gestta)."""
+    ano, mes = competencia.split("-")
+    return f"{mes}/{ano}"
+
+
+def _node_eval(js: str) -> str:
+    """Executa JS via `node -e` na raiz do repo e devolve a última linha (JSON)."""
+    proc = subprocess.run(["node", "-e", js], capture_output=True, text=True, cwd=str(ROOT))
+    if proc.returncode != 0:
+        raise RuntimeError(f"Gestta/Node erro: {(proc.stderr or proc.stdout).strip()[:400]}")
+    linhas = [l for l in proc.stdout.splitlines() if l.strip()]
+    if not linhas:
+        raise RuntimeError("Gestta/Node não retornou saída.")
+    return linhas[-1]
+
+
+def resolver_tarefa_gestta(termo: str, comp_gestta: str) -> dict | None:
+    """Lista tarefas pendentes no Gestta e acha a do cliente (por código ou nome)."""
+    js = ("const g=require('./src/gestta/index.js');"
+          f"g.buscarTarefasPendentes('{comp_gestta}')"
+          ".then(t=>console.log(JSON.stringify(t)))"
+          ".catch(e=>{console.error(e.message);process.exit(1)});")
+    tarefas = json.loads(_node_eval(js))
+    t_l = termo.lower()
+    for t in tarefas:
+        if (t_l in (t.get("clienteCodigo") or "").lower()
+                or t_l in (t.get("clienteNome") or "").lower()):
+            return t
+    return None
+
+
+def baixar_documentos_gestta(tarefa_id: str, comp_gestta: str, destino: str) -> list:
+    destino = destino.replace("\\", "/")
+    Path(destino).mkdir(parents=True, exist_ok=True)
+    js = ("const g=require('./src/gestta/index.js');"
+          f"g.baixarDocumentosCliente('{tarefa_id}','{comp_gestta}','{destino}')"
+          ".then(a=>console.log(JSON.stringify(a)))"
+          ".catch(e=>{console.error(e.message);process.exit(1)});")
+    return json.loads(_node_eval(js))
+
+
+def detectar_tipo(nome: str) -> str:
+    """Mapeia o nome do arquivo para o enum documentos.tipo."""
+    n = nome.lower()
+    if any(k in n for k in ["extrato", "cta", "conta corrente"]):
+        return "extrato"
+    if any(k in n for k in ["nfe", "nf-e", "nota fiscal", "nfse", "nfs-e"]):
+        return "nf_entrada"
+    if any(k in n for k in ["fatura", "cartao", "cartão"]):
+        return "fatura_cartao"
+    if any(k in n for k in ["darf", "das", "guia", "inss", "fgts", "gps"]):
+        return "darf"
+    if "recibo" in n:
+        return "recibo"
+    if n.endswith((".xlsx", ".xls", ".csv")) or "planilha" in n or "investimento" in n:
+        return "planilha_financeira"
+    return "outros"
+
+
+MIME_POR_EXT = {
+    ".pdf": "application/pdf",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".csv": "text/csv",
+    ".xml": "application/xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".txt": "text/plain",
+}
+
+
+def mime_de(p: Path) -> str:
+    return MIME_POR_EXT.get(p.suffix.lower(), "application/pdf")
+
+
+def processar_documento_edge(empresa_id, competencia, competencia_id, file_path, tipo, jwt, origem="gestta"):
+    """Documentos não-extrato: sobe no Storage, cria documentos e deixa a edge
+    function processar-documento classificar e gerar lançamentos."""
+    p = Path(file_path)
+    # A edge function (Claude) não lê Excel binário (.xls/.xlsx). Converte p/ CSV
+    # para permitir a análise; demais tipos sobem como estão.
+    if p.suffix.lower() in (".xls", ".xlsx"):
+        import pandas as pd
+        df = None
+        try:
+            cabecalho = p.read_bytes()[:64].lstrip().lower()
+            if cabecalho.startswith(b"<"):
+                # "xls" que na verdade é HTML (export comum de sistemas BR)
+                tabelas = pd.read_html(str(p))
+                df = max(tabelas, key=len).astype(str)
+            else:
+                try:
+                    df = pd.read_excel(str(p), sheet_name=0, dtype=str, engine="openpyxl")
+                except Exception:
+                    df = pd.read_excel(str(p), sheet_name=0, dtype=str, engine="xlrd")
+        except Exception as e:
+            log(f"    ⚠️ não consegui converter {p.name} p/ CSV ({e}); enviando original")
+        if df is not None:
+            conteudo = df.fillna("").to_csv(index=False, sep=";").encode("utf-8")
+            arquivo_nome = p.stem + ".csv"
+            ctype = "text/csv"
+            log(f"    {p.name} convertido p/ CSV ({len(df)} linhas)")
+        else:
+            conteudo, arquivo_nome, ctype = p.read_bytes(), p.name, mime_de(p)
+    else:
+        conteudo, arquivo_nome, ctype = p.read_bytes(), p.name, mime_de(p)
+
+    storage_path = f"{empresa_id}/{competencia}/{arquivo_nome}"
+    sb_upload(BUCKET_DOCS, storage_path, conteudo, ctype)
+    doc = sb_insert("documentos", {
+        "empresa_id": empresa_id, "tipo": tipo, "competencia": competencia,
+        "competencia_id": competencia_id, "origem": origem, "status": "recebido",
+        "status_processamento": "pendente", "arquivo_nome": arquivo_nome,
+        "storage_path": storage_path, "arquivo_url": storage_path,
     })
-    conciliacao_id = conc[0]["id"]
-    res_conc = chamar_edge("conciliar", {"conciliacao_id": conciliacao_id}, jwt)
-    log(f"    conciliar → {json.dumps(res_conc, ensure_ascii=False)}")
+    documento_id = doc[0]["id"]
+    res = chamar_edge("processar-documento", {"documento_id": documento_id}, jwt)
+    log(f"    {p.name} [{tipo}] → {json.dumps(res, ensure_ascii=False)[:160]}")
+    return {"documento_id": documento_id, "tipo": tipo, "edge": res}
 
-    log("\n[7] Atualizando status da empresa → conciliacao...")
-    sb_update("empresas", {"id": empresa_id}, {"status": "conciliacao"})
 
-    return {
-        "documento_id": documento_id,
-        "lancamentos": len(lancamentos),
-        "conciliacao_id": conciliacao_id,
-        "conciliacao": res_conc,
-    }
+def buscar_consultor(nome_colaborador: str) -> str | None:
+    """Mapeia o responsável da tarefa Gestta ('Cleyton - Contábil') para
+    usuarios_perfil.id no nosso sistema, por nome."""
+    if not nome_colaborador:
+        return None
+    nome = nome_colaborador.split(" - ")[0].strip()
+    if not nome:
+        return None
+    achados = sb_get("usuarios_perfil", {"select": "id,nome", "nome": f"ilike.*{nome}*", "limit": "1"})
+    return achados[0]["id"] if achados else None
+
+
+def vincular_consultor(empresa_id: str, nome_colaborador: str):
+    cid = buscar_consultor(nome_colaborador)
+    if cid:
+        sb_update("empresas", {"id": empresa_id}, {"consultor_id": cid})
+        log(f"    consultor vinculado: '{nome_colaborador}' → {cid}")
+    else:
+        log(f"    consultor não encontrado p/ '{nome_colaborador}' — consultor_id inalterado")
+    return cid
+
+
+def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt):
+    """Roteia uma lista de arquivos: extrato → motor IA; demais → edge function.
+    Reutilizado pelo modo Gestta e pelo modo --docs (arquivos locais)."""
+    extratos = [a for a in arquivos if detectar_tipo(Path(a).name) == "extrato"]
+    outros = [a for a in arquivos if a not in extratos]
+    resumo = {"arquivos": len(arquivos), "extratos": [], "outros": []}
+
+    for ext in extratos:
+        log(f"\n[doc] Processando extrato: {Path(ext).name}")
+        resumo["extratos"].append(processar_extrato(empresa_id, competencia, ext, banco_cod, jwt))
+
+    if outros:
+        competencia_id = ensure_competencia(empresa_id, competencia)
+        log(f"\n[doc] Processando {len(outros)} documento(s) não-extrato via edge function...")
+        for doc in outros:
+            tipo = detectar_tipo(Path(doc).name)
+            resumo["outros"].append(processar_documento_edge(empresa_id, competencia, competencia_id, doc, tipo, jwt))
+
+    if not extratos:  # ainda assim reflete a fase no painel
+        sb_update("empresas", {"id": empresa_id}, {"status": "lancamento"})
+
+    return resumo
+
+
+def processar_via_gestta(empresa_id, competencia, termo_cliente, tarefa_id, banco_cod, jwt):
+    comp_g = comp_to_gestta(competencia)
+    responsavel = None
+
+    if not tarefa_id:
+        log(f"\n[G1] Resolvendo tarefa do cliente '{termo_cliente}' no Gestta ({comp_g})...")
+        tarefa = resolver_tarefa_gestta(termo_cliente, comp_g)
+        if not tarefa:
+            raise RuntimeError(f"Nenhuma tarefa pendente encontrada para '{termo_cliente}' em {comp_g}.")
+        tarefa_id = tarefa["taskId"]
+        responsavel = tarefa.get("responsavel")
+        log(f"    tarefa: {tarefa.get('clienteCodigo')} - {tarefa.get('clienteNome')} "
+            f"(taskId={tarefa_id}, responsável='{responsavel or '?'}')")
+
+    # Conecta o colaborador responsável da tarefa ao consultor no nosso sistema
+    if responsavel:
+        log("\n[G1b] Vinculando consultor responsável...")
+        vincular_consultor(empresa_id, responsavel)
+
+    destino = f"outputs/gestta/{empresa_id}_{competencia}"
+    log(f"\n[G2] Baixando documentos do Gestta (task {tarefa_id})...")
+    arquivos = baixar_documentos_gestta(tarefa_id, comp_g, destino)
+    log(f"    {len(arquivos)} arquivo(s): {[Path(a).name for a in arquivos]}")
+    if not arquivos:
+        raise RuntimeError("Nenhum documento baixado do Gestta.")
+
+    resumo = processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt)
+    resumo.update({"tarefa_id": tarefa_id, "responsavel": responsavel})
+    return resumo
 
 
 def main():
     ap = argparse.ArgumentParser(description="Conecta a automação ao front (PROC-001 até Etapa 4)")
     ap.add_argument("--empresa-id", required=True)
     ap.add_argument("--competencia", required=True, help="YYYY-MM")
-    ap.add_argument("--extrato", required=True, help="caminho do extrato (PDF/Excel)")
     ap.add_argument("--banco", type=int, default=657, help="código LCR do banco (657=Itaú)")
     ap.add_argument("--origem", default="gestta")
+    ap.add_argument("--conciliar", action="store_true",
+                    help="também finaliza a conciliação (default: só envia documentos + análise)")
+    # Fonte dos documentos (escolher uma):
+    ap.add_argument("--extrato", help="caminho de um extrato local (PDF/Excel)")
+    ap.add_argument("--docs", help="pasta com documentos locais já baixados (processa sem Gestta)")
+    ap.add_argument("--gestta-task", help="tarefaId do Gestta para baixar os documentos")
+    ap.add_argument("--gestta-cliente", help="código/nome do cliente no Gestta (resolve a tarefa)")
     args = ap.parse_args()
+
+    if not (args.extrato or args.docs or args.gestta_task or args.gestta_cliente):
+        ap.error("informe uma fonte: --extrato OU --docs OU --gestta-task OU --gestta-cliente")
 
     faltando = [k for k, v in {"SUPABASE_URL": URL, "SERVICE_ROLE": SR, "ANON": ANON,
                                "SVC_EMAIL": SVC_EMAIL, "SVC_PWD": SVC_PWD}.items() if not v]
@@ -302,12 +560,24 @@ def main():
     log("=== Bridge Front (PROC-001 → Supabase) ===")
     log(f"  empresa_id : {args.empresa_id}")
     log(f"  competência: {args.competencia}")
-    log(f"  extrato    : {args.extrato}")
+    fonte = args.extrato or args.docs or args.gestta_task or args.gestta_cliente
+    modo = "extrato local" if args.extrato else ("docs locais" if args.docs else "Gestta")
+    log(f"  fonte      : {modo} → {fonte}")
 
     jwt = obter_jwt()
     log("  JWT do usuário de serviço obtido ✓")
 
-    resumo = processar_extrato(args.empresa_id, args.competencia, args.extrato, args.banco, jwt, args.origem)
+    if args.extrato:
+        resumo = processar_extrato(args.empresa_id, args.competencia, args.extrato, args.banco, jwt,
+                                   args.origem, finalizar_conciliacao=args.conciliar)
+    elif args.docs:
+        arquivos = sorted(str(p) for p in Path(args.docs).iterdir() if p.is_file())
+        log(f"  docs locais: {[Path(a).name for a in arquivos]}")
+        resumo = processar_arquivos(args.empresa_id, args.competencia, arquivos, args.banco, jwt)
+    else:
+        resumo = processar_via_gestta(args.empresa_id, args.competencia,
+                                      args.gestta_cliente, args.gestta_task, args.banco, jwt)
+
     log("\n✅ CONCLUÍDO")
     log(json.dumps(resumo, ensure_ascii=False, indent=2))
 
