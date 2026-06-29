@@ -21,7 +21,9 @@ chromium.use(stealth());
 
 const SESSION_PATH     = path.join(__dirname, '../../sessions/gestta-session.json');
 const SCREENSHOTS_PATH = path.join(__dirname, '../../screenshots');
-const COMPANY_USER     = '6a0f5f8891844ae54d5b6853'; // ID fixo da conta Mariana
+const COMPANY_USER     = '6a0f5f8891844ae54d5b6853'; // ID fixo da conta Mariana (legado, sem uso)
+// ID do template de tarefa "COBRANÇA DE MOVIMENTO MENSAL" (filtro company_task no Gestta).
+const COBRANCA_TEMPLATE = '614b4c905962410006a60e08';
 
 fs.mkdirSync(SCREENSHOTS_PATH, { recursive: true });
 
@@ -53,7 +55,7 @@ async function screenshot(page, nome) {
 
 async function sessaoValida(page) {
   try {
-    await page.goto('https://app.gestta.com.br/tarefas', { waitUntil: 'networkidle', timeout: 20000 });
+    await page.goto('https://app.gestta.com.br/tarefas', { waitUntil: 'domcontentloaded', timeout: 20000 });
     return !page.url().includes('login');
   } catch {
     return false;
@@ -68,16 +70,19 @@ function extrairTaskId(url) {
 
 // Monta URL para lista de tarefas COBRANÇA (sem filtro document_request_sent)
 function urlListaCobranca(ano, mes) {
-  const start = new Date(ano, mes - 1, 1, 3, 0, 0).toISOString();
-  const end   = new Date(ano, mes,     1, 2, 59, 59).toISOString();
+  // Datas em UTC (determinístico em qualquer fuso do servidor): 00:00 BRT = 03:00 UTC.
+  const start = new Date(Date.UTC(ano, mes - 1, 1, 3, 0, 0, 0)).toISOString();
+  const end   = new Date(Date.UTC(ano, mes,     1, 2, 59, 59, 999)).toISOString();
   const qs = [
     'type=SERVICE_ORDER', 'type=RECURRENT', 'type=ACCOUNTING',
     // sem filtro company_user → Todos os Usuários (todos os colaboradores)
+    `company_task=${COBRANCA_TEMPLATE}`,   // filtro "COBRANÇA DE MOVIMENTO MENSAL"
     `start_date=${encodeURIComponent(start)}`,
     `end_date=${encodeURIComponent(end)}`,
-    'status=OPEN',
+    'status=OPEN', 'date_type=DUE_DATE',   // Data Meta (igual à tela usada manualmente)
     'overdue=0', 'downloaded=0', 'not_downloaded=0', 'fine=0', 'on_time=0',
-    'collaborator=0', 'email_not_sent=0', 'without_external_user=0',
+    'collaborator=0', 'no_owner=0', 'email_not_sent=0', 'document_request_sent=1',
+    'without_external_user=0', 'os_free=0', 'os_workflow=1',
   ].join('&');
   return `https://app.gestta.com.br/#/sidebar/task/overview/dashboard?${qs}`;
 }
@@ -102,17 +107,18 @@ function urlListaTarefas(ano, mes) {
 
 // Monta URL de detalhe de uma tarefa específica
 function urlDetalhe(tarefaId, ano, mes) {
-  const start = new Date(ano, mes - 1, 1, 3, 0, 0).toISOString();
-  const end   = new Date(ano, mes,     1, 2, 59, 59).toISOString();
+  const start = new Date(Date.UTC(ano, mes - 1, 1, 3, 0, 0, 0)).toISOString();
+  const end   = new Date(Date.UTC(ano, mes,     1, 2, 59, 59, 999)).toISOString();
   const qs = [
     'type=SERVICE_ORDER', 'type=RECURRENT', 'type=ACCOUNTING',
     // sem filtro company_user → Todos os Usuários (todos os colaboradores)
+    `company_task=${COBRANCA_TEMPLATE}`,
     `start_date=${encodeURIComponent(start)}`,
     `end_date=${encodeURIComponent(end)}`,
-    'status=OPEN', 'os_workflow=1',
+    'status=OPEN', 'date_type=DUE_DATE',
     'overdue=0', 'downloaded=0', 'not_downloaded=0', 'fine=0', 'on_time=0',
-    'collaborator=0', 'email_not_sent=0', 'document_request_sent=1',
-    'without_external_user=0',
+    'collaborator=0', 'no_owner=0', 'email_not_sent=0', 'document_request_sent=1',
+    'without_external_user=0', 'os_free=0', 'os_workflow=1',
   ].join('&');
   return `https://app.gestta.com.br/#/sidebar/task/overview/dashboard/${tarefaId}?${qs}`;
 }
@@ -137,11 +143,11 @@ async function buscarTarefasPendentes(competencia = null) {
     }
 
     await humanDelay();
-    await page.goto(urlListaTarefas(ano, mes), { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(urlListaTarefas(ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(2000, 3500);
 
     // Aguarda lista carregar
-    const temTarefas = await page.waitForSelector('li.task-item', { timeout: 15000 })
+    const temTarefas = await page.waitForSelector('li.task-item', { timeout: 45000 })
       .then(() => true)
       .catch(() => false);
 
@@ -203,7 +209,7 @@ async function buscarTarefasPendentes(competencia = null) {
       }
 
       // Volta para a lista
-      await page.goto(urlListaTarefas(ano, mes), { waitUntil: 'networkidle', timeout: 30000 });
+      await page.goto(urlListaTarefas(ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
       await humanDelay(1500, 2500);
     }
 
@@ -245,11 +251,11 @@ async function baixarDocumentosCliente(tarefaId, competencia, destino) {
     if (!(await sessaoValida(page))) throw new Error('SESSAO_EXPIRADA');
 
     await humanDelay();
-    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(2500, 4000);
 
     // ── Passo 1: Expande a seção "DOCUMENTOS SOLICITADOS" ─────────────────
-    await page.waitForSelector('text=DOCUMENTOS SOLICITADOS', { timeout: 20000 });
+    await page.waitForSelector('text=DOCUMENTOS SOLICITADOS', { timeout: 60000 });
     await humanDelay(500, 800);
 
     // Clica no header da seção (accordion pai)
@@ -539,7 +545,7 @@ async function concluirTarefaLancamentos(tarefaId, competencia = null) {
   try {
     if (!(await sessaoValida(page))) throw new Error('SESSAO_EXPIRADA');
 
-    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(2000, 3000);
 
     await _concluirTarefa(page, tarefaId);
@@ -572,10 +578,10 @@ async function buscarTarefasCobranca(competencia = null) {
     if (!(await sessaoValida(page))) throw new Error('SESSAO_EXPIRADA');
 
     await humanDelay();
-    await page.goto(urlListaCobranca(ano, mes), { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(urlListaCobranca(ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(2000, 3500);
 
-    const temTarefas = await page.waitForSelector('li.task-item', { timeout: 15000 })
+    const temTarefas = await page.waitForSelector('li.task-item', { timeout: 45000 })
       .then(() => true).catch(() => false);
 
     if (!temTarefas) {
@@ -587,7 +593,8 @@ async function buscarTarefasCobranca(competencia = null) {
     const dadosDom = await page.evaluate(() => {
       return Array.from(document.querySelectorAll('li.task-item')).map((li, i) => {
         const nome = li.querySelector('.task-name span')?.textContent?.trim() || '';
-        if (!nome.toUpperCase().includes('COBRAN')) return null;
+        // Exatamente "COBRANÇA DE MOVIMENTO MENSAL" (o company_task já restringe no servidor)
+        if (!nome.toUpperCase().includes('COBRANÇA DE MOVIMENTO MENSAL')) return null;
         const raw   = li.querySelector('.task-customer-name')?.textContent?.trim() || '';
         const match = raw.match(/^([A-Z0-9]+)\s*-\s*(.+)$/);
         return {
@@ -613,7 +620,7 @@ async function buscarTarefasCobranca(competencia = null) {
       tarefa.taskId = extrairTaskId(page.url());
       console.log(`  ${tarefa.clienteCodigo}: taskId=${tarefa.taskId}`);
 
-      await page.goto(urlListaCobranca(ano, mes), { waitUntil: 'networkidle', timeout: 30000 });
+      await page.goto(urlListaCobranca(ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
       await humanDelay(1500, 2500);
     }
 
@@ -649,7 +656,7 @@ async function analisarSuficienciaDocumentos(tarefaId, competencia = null) {
   try {
     if (!(await sessaoValida(page))) throw new Error('SESSAO_EXPIRADA');
 
-    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(2500, 4000);
 
     // ── 1. Lê Observação via modal Dados Cadastrais ───────────────────────
@@ -679,7 +686,7 @@ async function analisarSuficienciaDocumentos(tarefaId, competencia = null) {
     }
 
     // ── 2. Expande DOCUMENTOS SOLICITADOS (se fechado) ────────────────────
-    await page.waitForSelector('text=DOCUMENTOS SOLICITADOS', { timeout: 15000 });
+    await page.waitForSelector('text=DOCUMENTOS SOLICITADOS', { timeout: 60000 });
     const secaoAberta = await page.evaluate(() =>
       document.querySelectorAll('.document-request-list a.accordion-toggle').length > 0
     );
@@ -758,7 +765,7 @@ async function marcarChecklistEConcluir(tarefaId, competencia = null) {
   try {
     if (!(await sessaoValida(page))) throw new Error('SESSAO_EXPIRADA');
 
-    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(2500, 4000);
 
     // ── 1. Garante que o CHECKLIST está expandido ─────────────────────────

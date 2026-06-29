@@ -485,16 +485,25 @@ def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt):
     outros = [a for a in arquivos if a not in extratos]
     resumo = {"arquivos": len(arquivos), "extratos": [], "outros": []}
 
+    # Resiliência: um documento com formato/erro não derruba a tarefa — é sinalizado.
     for ext in extratos:
         log(f"\n[doc] Processando extrato: {Path(ext).name}")
-        resumo["extratos"].append(processar_extrato(empresa_id, competencia, ext, banco_cod, jwt))
+        try:
+            resumo["extratos"].append(processar_extrato(empresa_id, competencia, ext, banco_cod, jwt))
+        except Exception as e:
+            log(f"    ⚠️ extrato não processado ({Path(ext).name}): {str(e)[:120]}")
+            resumo["extratos"].append({"arquivo": Path(ext).name, "erro": str(e)[:200], "status": "revisao_humana"})
 
     if outros:
         competencia_id = ensure_competencia(empresa_id, competencia)
         log(f"\n[doc] Processando {len(outros)} documento(s) não-extrato via edge function...")
         for doc in outros:
             tipo = detectar_tipo(Path(doc).name)
-            resumo["outros"].append(processar_documento_edge(empresa_id, competencia, competencia_id, doc, tipo, jwt))
+            try:
+                resumo["outros"].append(processar_documento_edge(empresa_id, competencia, competencia_id, doc, tipo, jwt))
+            except Exception as e:
+                log(f"    ⚠️ documento não processado ({Path(doc).name}): {str(e)[:120]}")
+                resumo["outros"].append({"arquivo": Path(doc).name, "tipo": tipo, "erro": str(e)[:200], "status": "revisao_humana"})
 
     if not extratos:  # ainda assim reflete a fase no painel
         sb_update("empresas", {"id": empresa_id}, {"status": "lancamento"})
