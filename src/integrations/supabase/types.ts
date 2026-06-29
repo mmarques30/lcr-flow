@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      _tmp_gestta: {
+        Row: {
+          active: boolean | null
+          cnpj_clean: string | null
+          codigo: string | null
+          monthly: number | null
+          nome_norm: string | null
+          regime_enum: Database["public"]["Enums"]["regime_tributario"] | null
+          regime_origem: string | null
+        }
+        Insert: {
+          active?: boolean | null
+          cnpj_clean?: string | null
+          codigo?: string | null
+          monthly?: number | null
+          nome_norm?: string | null
+          regime_enum?: Database["public"]["Enums"]["regime_tributario"] | null
+          regime_origem?: string | null
+        }
+        Update: {
+          active?: boolean | null
+          cnpj_clean?: string | null
+          codigo?: string | null
+          monthly?: number | null
+          nome_norm?: string | null
+          regime_enum?: Database["public"]["Enums"]["regime_tributario"] | null
+          regime_origem?: string | null
+        }
+        Relationships: []
+      }
       audit_log: {
         Row: {
           acao: string
@@ -689,14 +719,20 @@ export type Database = {
       empresas: {
         Row: {
           ativo: boolean
-          cnpj: string
+          cnpj: string | null
+          codigo_gestta: string | null
           consultor_id: string | null
           created_at: string
           id: string
+          importado_em: string | null
           is_demo: boolean
+          mensalidade: number | null
           nome_fantasia: string | null
+          nome_normalizado: string | null
+          qtd_tarefas_mes: number | null
           razao_social: string
-          regime: Database["public"]["Enums"]["regime_tributario"]
+          regime: Database["public"]["Enums"]["regime_tributario"] | null
+          regime_origem: string | null
           segmento: string | null
           status: Database["public"]["Enums"]["empresa_status"]
           tags: string[]
@@ -704,14 +740,20 @@ export type Database = {
         }
         Insert: {
           ativo?: boolean
-          cnpj: string
+          cnpj?: string | null
+          codigo_gestta?: string | null
           consultor_id?: string | null
           created_at?: string
           id?: string
+          importado_em?: string | null
           is_demo?: boolean
+          mensalidade?: number | null
           nome_fantasia?: string | null
+          nome_normalizado?: string | null
+          qtd_tarefas_mes?: number | null
           razao_social: string
-          regime?: Database["public"]["Enums"]["regime_tributario"]
+          regime?: Database["public"]["Enums"]["regime_tributario"] | null
+          regime_origem?: string | null
           segmento?: string | null
           status?: Database["public"]["Enums"]["empresa_status"]
           tags?: string[]
@@ -719,14 +761,20 @@ export type Database = {
         }
         Update: {
           ativo?: boolean
-          cnpj?: string
+          cnpj?: string | null
+          codigo_gestta?: string | null
           consultor_id?: string | null
           created_at?: string
           id?: string
+          importado_em?: string | null
           is_demo?: boolean
+          mensalidade?: number | null
           nome_fantasia?: string | null
+          nome_normalizado?: string | null
+          qtd_tarefas_mes?: number | null
           razao_social?: string
-          regime?: Database["public"]["Enums"]["regime_tributario"]
+          regime?: Database["public"]["Enums"]["regime_tributario"] | null
+          regime_origem?: string | null
           segmento?: string | null
           status?: Database["public"]["Enums"]["empresa_status"]
           tags?: string[]
@@ -1283,6 +1331,7 @@ export type Database = {
           total: number
         }[]
       }
+      unaccent: { Args: { "": string }; Returns: string }
       update_meu_perfil: {
         Args: { p_avatar: string; p_nome: string }
         Returns: undefined
