@@ -798,6 +798,7 @@ export type Database = {
           descricao: string
           empresa_id: string | null
           id: string
+          sci_apelido: string | null
         }
         Insert: {
           ativo?: boolean
@@ -806,6 +807,7 @@ export type Database = {
           descricao: string
           empresa_id?: string | null
           id?: string
+          sci_apelido?: string | null
         }
         Update: {
           ativo?: boolean
@@ -814,6 +816,7 @@ export type Database = {
           descricao?: string
           empresa_id?: string | null
           id?: string
+          sci_apelido?: string | null
         }
         Relationships: [
           {
@@ -1153,6 +1156,8 @@ export type Database = {
           descricao: string
           empresa_id: string | null
           id: string
+          sci_apelido: string | null
+          sci_historico_padrao: string | null
           tipo: string | null
         }
         Insert: {
@@ -1164,6 +1169,8 @@ export type Database = {
           descricao: string
           empresa_id?: string | null
           id?: string
+          sci_apelido?: string | null
+          sci_historico_padrao?: string | null
           tipo?: string | null
         }
         Update: {
@@ -1175,6 +1182,8 @@ export type Database = {
           descricao?: string
           empresa_id?: string | null
           id?: string
+          sci_apelido?: string | null
+          sci_historico_padrao?: string | null
           tipo?: string | null
         }
         Relationships: [
