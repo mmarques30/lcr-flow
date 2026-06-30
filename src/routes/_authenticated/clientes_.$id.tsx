@@ -285,7 +285,7 @@ function VisaoGeralCliente({ empresaId, empresa, competencia }: { empresaId: str
 
             {bancosDetectados.length > 0 && (
               <div className="mt-4 border-t border-border pt-4">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Bancos detectados em extratos recebidos</div>
+                <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Banco operacional detectado nos extratos</div>
                 <ul className="space-y-1.5">
                   {bancosDetectados.map((b) => (
                     <li key={b.banco} className="flex items-center justify-between rounded-lg bg-accent-lime/15 px-3 py-1.5 text-xs">

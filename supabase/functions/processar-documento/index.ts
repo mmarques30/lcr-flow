@@ -40,7 +40,14 @@ Regras:
 - Planilha financeira: cada linha pode virar 1+ lançamentos.
 - DARF/GPS: 1 lançamento de despesa tributária. Recibo: 1 lançamento de despesa operacional.
 - valor sempre positivo. data_lancamento em AAAA-MM-DD. competencia em AAAA-MM.
-- Se não tiver certeza da conta, use a conta do grupo correto mais próxima e marque confidence < 0.7.`;
+- Se não tiver certeza da conta, use a conta do grupo correto mais próxima e marque confidence < 0.7.
+- IMPORTANTE — tipo_movimento (perspectiva do BANCO no extrato): preencha SEMPRE
+  com 'debito' (banco debitou = saída de dinheiro: pagamentos, transferências
+  enviadas, tarifas, taxas) ou 'credito' (banco creditou = entrada de dinheiro:
+  recebimentos, depósitos, rendimentos). Para NF/recibo/DARF que ainda não
+  refletem no banco: use 'debito' para despesas/saídas previstas e 'credito'
+  para receitas/entradas previstas. Esse campo determina a inversão D/C
+  contábil — é crítico que esteja sempre preenchido.`;
 
 // Mapeia o tipo_documento que a IA retorna (texto livre) para o ENUM
 // documento_tipo do banco. Reconhece sinônimos comuns.
@@ -108,7 +115,7 @@ const SCHEMA = {
         properties: {
           data_lancamento: { type: "string" },
           valor: { type: "number" },
-          tipo_movimento: { type: "string", description: "debito ou credito" },
+          tipo_movimento: { type: "string", description: "'debito' = saída de dinheiro do banco (pagamento, transferência enviada); 'credito' = entrada (recebimento, depósito). SEMPRE preencher." },
           conta_codigo: { type: "string" },
           historico_codigo: { type: "string" },
           descricao: { type: "string" },
@@ -321,6 +328,16 @@ Deno.serve(async (req) => {
   const contaId = new Map((contaRows ?? []).map((c) => [c.codigo, c.id]));
   const histId = new Map((histRows ?? []).map((h) => [h.codigo, h.id]));
 
+  // Normaliza tipo_movimento (IA pode retornar 'D'/'C', 'débito'/'crédito',
+  // 'debit'/'credit', etc.) para 'debito' / 'credito'.
+  function normMov(s?: string | null): string | null {
+    if (!s) return null;
+    const v = String(s).toLowerCase().trim();
+    if (v.startsWith("d")) return "debito";   // debito/débito/debit
+    if (v.startsWith("c")) return "credito";  // credito/crédito/credit
+    return null;
+  }
+
   const rows = (classificacao.lancamentos_sugeridos ?? []).map((s) => ({
     empresa_id: doc.empresa_id,
     conta_id: contaId.get(s.conta_codigo) ?? null,
@@ -328,6 +345,7 @@ Deno.serve(async (req) => {
     data_lancamento: /^\d{4}-\d{2}-\d{2}$/.test(s.data_lancamento) ? s.data_lancamento : null,
     valor: Math.abs(Number(s.valor) || 0),
     descricao: (s.descricao ?? "").slice(0, 200),
+    natureza_movimento: normMov(s.tipo_movimento),
     competencia,
     status: "gerada" as const,
     confidence: typeof s.confidence === "number" ? s.confidence : null,

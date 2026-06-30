@@ -240,6 +240,7 @@ function exportarCsv(empresa: string, competencia: string, linhas: SciLinha[]) {
 type SciLancDet = {
   id: string; data_lancamento: string | null; valor: number | null; descricao: string | null;
   documento_numero?: string | null;
+  natureza_movimento?: string | null;
   conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido: string | null } | null;
   historico: { codigo: string; descricao: string; sci_apelido: string | null } | null;
 };

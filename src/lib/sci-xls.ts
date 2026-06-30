@@ -23,6 +23,7 @@ export type SciLanc = {
   valor: number | null;
   descricao: string | null;
   documento_numero?: string | null;
+  natureza_movimento?: string | null;
   conta: { codigo: string; tipo: string | null; sci_apelido?: string | null } | null;
   historico: { codigo: string } | null;
 };
@@ -43,16 +44,32 @@ export function ladoConta(tipo: string | null): "debito" | "credito" {
   return "debito"; // fallback conservador (igual ao Python)
 }
 
-// Inversão automática contábil. O extrato bancário mostra D/C na perspectiva
-// do banco; a contabilidade precisa do oposto. O sinal do valor é a fonte de
-// verdade:
-//   valor < 0  → saída do banco  → BANCO no crédito,  contrapartida no DÉBITO
-//   valor > 0  → entrada no banco → BANCO no débito,   contrapartida no CRÉDITO
-//   valor == 0 → cai no fallback por natureza da conta (ladoConta).
+// Inversão automática contábil. Decide em qual lado a CONTRAPARTIDA (a conta
+// que não é o banco) entra. Ordem de prioridade:
+//
+//   1. natureza_movimento (vindo da IA na leitura do extrato — fonte de verdade):
+//      - 'debito'  = banco debitou → saída do banco  → contrapartida no DÉBITO
+//      - 'credito' = banco creditou → entrada no banco → contrapartida no CRÉDITO
+//   2. sinal do valor (quando o sistema armazenar valor com sinal):
+//      - valor < 0 → saída do banco  → contrapartida no DÉBITO
+//      - valor > 0 → entrada no banco → contrapartida no CRÉDITO
+//   3. ladoConta como último recurso (natureza por tipo de conta).
+//
+// IMPORTANTE: hoje o sistema grava valor sempre absoluto (Math.abs em
+// createLancamento/editarLancamento), então o passo 2 vira inócuo. Daí a
+// natureza_movimento ter virado obrigatória para a inversão funcionar.
+export function ladoEfetivo(args: { natureza?: string | null; valor: number; tipoConta: string | null }): "debito" | "credito" {
+  const n = (args.natureza ?? "").toLowerCase();
+  if (n === "debito" || n === "débito" || n === "d") return "debito";
+  if (n === "credito" || n === "crédito" || n === "c") return "credito";
+  if (args.valor < 0) return "debito";
+  if (args.valor > 0) return "credito";
+  return ladoConta(args.tipoConta);
+}
+
+// Mantida para compatibilidade (chamadas antigas que não passavam natureza).
 export function ladoPorValor(valor: number, tipoConta: string | null): "debito" | "credito" {
-  if (valor < 0) return "debito";   // contrapartida (despesa/passivo) vai no débito
-  if (valor > 0) return "credito";  // contrapartida (receita) vai no crédito
-  return ladoConta(tipoConta);
+  return ladoEfetivo({ valor, tipoConta });
 }
 
 function fmtData(d: string | null): number | string {
@@ -71,9 +88,8 @@ export function linhasSci(lancs: SciLanc[], bancoSci: number | string | "") {
       const conta = codSci(l.conta!);
       const banco: number | string = bancoSci;
       const valor = Number(l.valor ?? 0);
-      // Inversão automática contábil: sinal do valor decide o lado da
-      // contrapartida (perspectiva do banco vs perspectiva contábil).
-      const ld = ladoPorValor(valor, l.conta!.tipo);
+      // Inversão automática contábil: natureza_movimento (IA) > sinal > tipo.
+      const ld = ladoEfetivo({ natureza: l.natureza_movimento, valor, tipoConta: l.conta!.tipo });
       const debito = ld === "debito" ? conta : banco;
       const credito = ld === "debito" ? banco : conta;
       return {
@@ -117,6 +133,7 @@ export type SciLancRico = {
   valor: number | null;
   descricao: string | null;
   documento_numero?: string | null;
+  natureza_movimento?: string | null;
   conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido?: string | null } | null;
   historico: { codigo: string; descricao: string; sci_apelido?: string | null } | null;
 };
@@ -154,7 +171,7 @@ export function linhasSciPreview(
       const conta: SciCelula = { codigo: codSci(l.conta!), nome: l.conta!.descricao };
       const banco: SciCelula = { codigo: bancoSci, nome: bancoNome || "Banco" };
       const valor = Number(l.valor ?? 0);
-      const ld = ladoPorValor(valor, l.conta!.tipo);
+      const ld = ladoEfetivo({ natureza: l.natureza_movimento, valor, tipoConta: l.conta!.tipo });
       return {
         id: l.id,
         data: fmtData(l.data_lancamento),

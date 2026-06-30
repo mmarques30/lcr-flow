@@ -426,8 +426,14 @@ export const getEmpresaPainel = createServerFn({ method: "GET" })
       { match: "c6 bank", nome: "C6" },
       { match: "xp ", nome: "XP" },
     ];
+    // Detecta SÓ bancos que aparecem em documentos do tipo "extrato" (= conta
+    // operacional da empresa). NF/recibo/planilha mencionam bancos de terceiros
+    // (fornecedores, clientes) que NÃO são contas da empresa — varrer todos
+    // gerava ruído (Itaú + XP + BB + Caixa + Bradesco para uma empresa que só
+    // opera no Itaú). Quando há extratos, eles são a fonte de verdade.
     const detectados = new Map<string, { banco: string; ocorrencias: number }>();
-    docs.forEach((d) => {
+    const extratos = docs.filter((d) => d.tipo === "extrato");
+    extratos.forEach((d) => {
       const partes = [
         d.arquivo_nome ?? "",
         typeof d.classificacao_ia === "object" && d.classificacao_ia ? JSON.stringify(d.classificacao_ia) : "",
@@ -774,7 +780,7 @@ export const listLancamentosConciliacao = createServerFn({ method: "GET" })
     const { data: empresa } = await context.supabase.from("empresas").select("id, razao_social, nome_fantasia").eq("id", data.empresa_id).maybeSingle();
     const { data: rows, error } = await context.supabase
       .from("lancamentos")
-      .select("id, data_lancamento, valor, descricao, documento_numero, conciliado, confidence, status, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
+      .select("id, data_lancamento, valor, descricao, documento_numero, natureza_movimento, conciliado, confidence, status, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
       .eq("empresa_id", data.empresa_id)
       .eq("competencia", data.competencia)
       .not("valor", "is", null)
