@@ -346,21 +346,15 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
 
   return (
     <div className="space-y-5">
-      {/* Cabeçalho + ações */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <FileSpreadsheet className="h-5 w-5 text-primary" />
-          <h3 className="font-display text-xl">Planilha SCI · {formatCompetencia(competencia)}</h3>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={busy} onClick={gerar}><FileSpreadsheet className="mr-1 h-4 w-4" />{busy ? "Gerando…" : "Gerar SCI"}</Button>
-          <Button variant="outline" size="sm" disabled={lancs.length === 0} onClick={baixarXls} title="Baixa o arquivo de importação SCI (.xls) — uma linha por lançamento, layout do modelo">
-            <Download className="mr-1 h-4 w-4" />Baixar SCI (.xls)
-          </Button>
-          <Button variant="outline" size="sm" disabled={!linhas || linhas.length === 0} onClick={() => linhas && exportarCsv(empresaNome, competencia, linhas)}>
-            <Download className="mr-1 h-4 w-4" />Baixar CSV
-          </Button>
-        </div>
+      {/* Ações — título suprimido (já está no filtro de competência do header) */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button size="sm" disabled={busy} onClick={gerar}><FileSpreadsheet className="mr-1 h-4 w-4" />{busy ? "Gerando…" : "Gerar SCI"}</Button>
+        <Button variant="outline" size="sm" disabled={lancs.length === 0} onClick={baixarXls} title="Baixa o arquivo de importação SCI (.xls) — uma linha por lançamento, layout do modelo">
+          <Download className="mr-1 h-4 w-4" />Baixar SCI (.xls)
+        </Button>
+        <Button variant="outline" size="sm" disabled={!linhas || linhas.length === 0} onClick={() => linhas && exportarCsv(empresaNome, competencia, linhas)}>
+          <Download className="mr-1 h-4 w-4" />Baixar CSV
+        </Button>
       </div>
 
 {/* Prévia da planilha SCI (layout do modelo de importação, por lançamento) */}
