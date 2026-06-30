@@ -45,8 +45,32 @@ async function baixar(path: string) {
 // Rota standalone (continua acessível); reaproveita os mesmos blocos do Painel do Cliente.
 function ConciliacaoCliente() {
   const { empresaId } = Route.useParams();
+  const qc = useQueryClient();
   const { data } = useSuspenseQuery({ queryKey: ["conciliacao-detalhe", empresaId], queryFn: () => getConciliacaoDetalhe({ data: { empresa_id: empresaId } }) });
   const competencia = data.competencia;
+  const conc = data.conciliacao;
+  const temExtrato = !!conc?.extrato_csv_url;
+  const [busy, setBusy] = useState(false);
+
+  // Botão "Conciliar agora" (topo da página): roda o motor sobre os registros já
+  // extraídos do Gestta (razão = lançamentos × extrato), sem importação manual.
+  async function conciliar() {
+    if (!conc) return;
+    setBusy(true);
+    try {
+      const { data: res, error } = await supabase.functions.invoke("conciliar", { body: { conciliacao_id: conc.id } });
+      if (error) throw new Error(error.message);
+      if (res && res.ok === false) throw new Error(res.error ?? "Falha na conciliação");
+      await qc.invalidateQueries({ queryKey: ["conciliacao-detalhe", empresaId] });
+      await qc.invalidateQueries({ queryKey: ["conciliacoes"] });
+      await qc.invalidateQueries({ queryKey: ["lanc-conc", empresaId] });
+      toast.success(`Conciliação concluída — ${res.conciliados} conciliados, ${res.divergencias_count} divergência(s).`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <>
@@ -57,6 +81,17 @@ function ConciliacaoCliente() {
         <div>
           <h1 className="font-display text-3xl">{data.empresa.razao_social}</h1>
           <p className="mt-1 text-sm text-soft-foreground">Competência {formatCompetencia(competencia)}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill variant={temExtrato ? "now" : "next"}>{temExtrato ? "Extrato do Gestta disponível" : "Aguardando extrato do Gestta"}</StatusPill>
+          {temExtrato && (
+            <Button variant="ghost" size="sm" onClick={() => conc?.extrato_csv_url && baixar(conc.extrato_csv_url)}>
+              <Download className="mr-1 h-4 w-4" />Baixar extrato
+            </Button>
+          )}
+          <Button disabled={!temExtrato || busy} onClick={conciliar} title={temExtrato ? "Cruza os lançamentos extraídos com o extrato do Gestta" : "Aguardando o extrato ser extraído do Gestta"}>
+            <Wand2 className="mr-1.5 h-4 w-4" />{busy ? "Conciliando..." : "Conciliar agora"}
+          </Button>
         </div>
       </div>
 
@@ -332,37 +367,11 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       </Card>
 
       <h2 className="mb-1 font-display text-xl">Conciliar com extrato bancário</h2>
-      <p className="mb-4 text-sm text-soft-foreground">A razão são os lançamentos extraídos acima. Quando houver extrato bancário da competência, cruze para conferir.</p>
-
-      <Card className="mb-3">
-        <CardContent className="flex flex-wrap items-center justify-between gap-4 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
-              <FileText className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <div className="font-medium leading-tight">Extrato bancário</div>
-              <div className="text-xs text-muted-foreground">{temExtrato ? "Arquivo disponível" : "Nenhum extrato disponível ainda"}</div>
-            </div>
-            <StatusPill variant={temExtrato ? "now" : "next"}>{temExtrato ? "Disponível" : "Pendente"}</StatusPill>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {temExtrato && (
-              <Button variant="ghost" size="sm" onClick={() => conc?.extrato_csv_url && baixar(conc.extrato_csv_url)}>
-                <Download className="mr-1 h-4 w-4" />Baixar
-              </Button>
-            )}
-            <Button disabled={!temExtrato || busy === "conciliar"} onClick={conciliar}>
-              <Wand2 className="mr-1.5 h-4 w-4" />{busy === "conciliar" ? "Conciliando..." : "Conciliar agora"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-      <p className="mb-6 text-xs text-muted-foreground">Cruza os lançamentos da razão com o extrato — por regras (valor + data ±3 dias) e, no que sobrar, por IA.</p>
+      <p className="mb-6 text-sm text-soft-foreground">A razão são os lançamentos extraídos acima. O extrato bancário vem do Gestta na automação — use o botão <strong>“Conciliar agora”</strong> no topo da página para cruzar os dois.</p>
 
       {!resultado ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
-          {temExtrato ? "Pronto para conciliar — clique em “Conciliar agora”." : "Aguardando o extrato bancário da competência para conciliar."}
+          {temExtrato ? "Pronto para conciliar — clique em “Conciliar agora”." : "Aguardando a extração do extrato no Gestta para conciliar."}
         </CardContent></Card>
       ) : (
         <div className="space-y-5">
@@ -372,7 +381,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             <Mini label="Divergências (extrato)" value={resultado.divergencias_extrato.length} tone="warn" />
           </div>
 
-          <Secao titulo="Conciliados" icon={<CheckCircle2 className="h-4 w-4 text-primary" />}>
+          <Secao titulo="O que foi conciliado" icon={<CheckCircle2 className="h-4 w-4 text-primary" />}>
             <Table>
               <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Razão</TableHead><TableHead>Extrato</TableHead><TableHead className="text-right">Valor</TableHead><TableHead>Fonte</TableHead></TableRow></TableHeader>
               <TableBody>
@@ -397,7 +406,13 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
           {(resultado.divergencias_razao.length > 0 || resultado.divergencias_extrato.length > 0) && (
             <Card className="border-amber-200">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-amber-50/60 px-6 py-3">
-                <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-600" /><h3 className="font-display text-lg">Divergências — ajuste manual</h3></div>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-1 h-4 w-4 shrink-0 text-amber-600" />
+                  <div>
+                    <h3 className="font-display text-lg leading-tight">O que não foi conciliado</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Cruza os lançamentos da razão com o extrato — por regras (valor + data ±3 dias) e, no que sobrar, por IA. O que resta aqui é ajuste manual.</p>
+                  </div>
+                </div>
                 <Button size="sm" disabled={acting || selRazao === null || selExtrato === null} onClick={conciliarManual}>
                   <Link2 className="mr-1 h-4 w-4" /> Conciliar par selecionado
                 </Button>
