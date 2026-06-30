@@ -244,16 +244,30 @@ export const getEmpresasResumo = createServerFn({ method: "GET" })
 export const getNotificacoes = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const hoje = new Date().toISOString().slice(0, 10);
-    const [docs, diverg, tarefas] = await Promise.all([
+    const agora = new Date();
+    const hoje = agora.toISOString().slice(0, 10);
+    const diaHoje = agora.getDate();
+    const [docs, diverg, tarefas, fechando] = await Promise.all([
       context.supabase.from("documentos").select("id", { count: "exact", head: true }).in("status", ["recebido", "classificado"]),
       context.supabase.from("conciliacoes").select("id", { count: "exact", head: true }).eq("status", "divergencias"),
       context.supabase.from("tarefas").select("id", { count: "exact", head: true }).lt("prazo", hoje).not("status", "in", "(done,concluida)"),
+      // Fechamento operacional: clientes com dia_fechamento configurado caindo
+      // nos próximos 3 dias (hoje incluso).
+      context.supabase.from("empresas").select("id, dia_fechamento").eq("ativo", true).not("dia_fechamento", "is", null),
     ]);
     const items: { tipo: string; titulo: string; to: string; count: number }[] = [];
     if (docs.count) items.push({ tipo: "documentos", titulo: `${docs.count} documento(s) aguardando classificação`, to: "/documentos", count: docs.count });
     if (diverg.count) items.push({ tipo: "conciliacao", titulo: `${diverg.count} conciliação(ões) com divergências`, to: "/conciliacao", count: diverg.count });
     if (tarefas.count) items.push({ tipo: "tarefas", titulo: `${tarefas.count} tarefa(s) em atraso`, to: "/tarefas", count: tarefas.count });
+
+    type EmpFech = { id: string; dia_fechamento: number | null };
+    const fechamentosProximos = ((fechando.data ?? []) as EmpFech[]).filter((e) => {
+      if (e.dia_fechamento == null) return false;
+      const diff = e.dia_fechamento - diaHoje;
+      return diff >= 0 && diff <= 3;
+    }).length;
+    if (fechamentosProximos) items.push({ tipo: "fechamento", titulo: `${fechamentosProximos} cliente(s) com fechamento contábil nos próximos 3 dias`, to: "/clientes", count: fechamentosProximos });
+
     return { items, total: items.length };
   });
 

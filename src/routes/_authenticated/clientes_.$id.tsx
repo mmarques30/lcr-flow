@@ -238,7 +238,17 @@ function VisaoGeralCliente({ empresaId, empresa, competencia }: { empresaId: str
             <div>
               <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Dia de fechamento</dt>
               <dd className="mt-0.5 font-medium inline-flex items-center gap-1.5">
-                {empresa.dia_fechamento ? <><CalendarClock className="h-3.5 w-3.5 text-primary" />Todo dia {empresa.dia_fechamento}</> : "—"}
+                {empresa.dia_fechamento
+                  ? <><CalendarClock className="h-3.5 w-3.5 text-primary" />Todo dia {empresa.dia_fechamento}{(() => {
+                      const hoje = new Date().getDate();
+                      const diff = empresa.dia_fechamento - hoje;
+                      if (diff < 0) return null;
+                      if (diff === 0) return <span className="ml-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-semibold text-destructive">é hoje</span>;
+                      if (diff <= 3) return <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">faltam {diff}d</span>;
+                      if (diff <= 7) return <span className="ml-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">em {diff}d</span>;
+                      return null;
+                    })()}</>
+                  : "—"}
               </dd>
             </div>
             <div><dt className="text-[11px] uppercase tracking-wide text-muted-foreground">CNPJ</dt><dd className="mt-0.5 font-mono text-xs">{empresa.cnpj ? formatCNPJ(empresa.cnpj) : "—"}</dd></div>
@@ -470,6 +480,7 @@ function EditarClienteDrawer({ empresa }: { empresa: EmpresaDetalhe }) {
             <div className="space-y-1.5">
               <Label className="inline-flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5" />Dia de fechamento</Label>
               <Input type="number" min={1} max={31} placeholder="Ex: 10" value={form.dia_fechamento} onChange={(e) => setForm({ ...form, dia_fechamento: e.target.value })} />
+              <p className="text-[11px] text-muted-foreground">Data de corte mensal. O sistema dispara <strong>notificações</strong> quando esse dia está chegando (≤ 3 dias) para o cliente.</p>
             </div>
           </div>
           <div className="space-y-1.5">
