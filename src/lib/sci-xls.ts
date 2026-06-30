@@ -52,20 +52,24 @@ export function ladoConta(tipo: string | null): "debito" | "credito" {
 //   1. natureza_movimento (vindo da IA na leitura do extrato — fonte de verdade):
 //      - 'debito'  = banco debitou → saída do banco  → contrapartida no DÉBITO
 //      - 'credito' = banco creditou → entrada no banco → contrapartida no CRÉDITO
-//   2. sinal do valor (quando o sistema armazenar valor com sinal):
-//      - valor < 0 → saída do banco  → contrapartida no DÉBITO
-//      - valor > 0 → entrada no banco → contrapartida no CRÉDITO
-//   3. ladoConta como último recurso (natureza por tipo de conta).
+//   2. sinal do valor com SIGNED valor (negativo = saída, positivo = entrada).
+//   3. ladoConta (natureza por tipo de conta: despesa/ativo → débito,
+//      receita/passivo → crédito).
 //
-// IMPORTANTE: hoje o sistema grava valor sempre absoluto (Math.abs em
-// createLancamento/editarLancamento), então o passo 2 vira inócuo. Daí a
-// natureza_movimento ter virado obrigatória para a inversão funcionar.
-export function ladoEfetivo(args: { natureza?: string | null; valor: number; tipoConta: string | null }): "debito" | "credito" {
+// IMPORTANTE: o sistema persiste valor sempre absoluto. Para o passo 2
+// disparar, é preciso passar o sinal explicitamente (callers que sabem o
+// sinal pré-Math.abs podem fazer isso). Caso contrário, vai direto para
+// ladoConta, que é o fallback SEGURO — antes o código retornava "credito"
+// quando valor>0 (sempre) e gerava inversão errada em despesas (TRSS,
+// ICMS, tarifas).
+export function ladoEfetivo(args: { natureza?: string | null; valor?: number; tipoConta: string | null }): "debito" | "credito" {
   const n = (args.natureza ?? "").toLowerCase();
-  if (n === "debito" || n === "débito" || n === "d") return "debito";
-  if (n === "credito" || n === "crédito" || n === "c") return "credito";
-  if (args.valor < 0) return "debito";
-  if (args.valor > 0) return "credito";
+  if (n.startsWith("d")) return "debito";
+  if (n.startsWith("c")) return "credito";
+  // Só usa sinal do valor se foi passado explicitamente com sinal preservado.
+  if (typeof args.valor === "number" && args.valor < 0) return "debito";
+  // valor > 0 NÃO usa mais "credito" — quase todos os callers passam
+  // Math.abs(valor), então essa heurística enviesava despesas para o crédito.
   return ladoConta(args.tipoConta);
 }
 
