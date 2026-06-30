@@ -356,7 +356,7 @@ export const getEmpresaPainel = createServerFn({ method: "GET" })
     }
 
     const [docsAll, lancAll, lancMes, esperados, contasCad] = await Promise.all([
-      supabase.from("documentos").select("id, tipo, status, origem, recebido_em, competencia, arquivo_nome").eq("empresa_id", data.empresa_id).order("recebido_em", { ascending: false }).limit(500),
+      supabase.from("documentos").select("id, tipo, status, origem, recebido_em, competencia, arquivo_nome, classificacao_ia, dados_extraidos").eq("empresa_id", data.empresa_id).order("recebido_em", { ascending: false }).limit(500),
       supabase.from("lancamentos").select("id, competencia, valor, created_at").eq("empresa_id", data.empresa_id).in("competencia", seisMeses),
       supabase.from("lancamentos").select("id, valor, descricao, data_lancamento").eq("empresa_id", data.empresa_id).eq("competencia", compAtual).order("data_lancamento", { ascending: false }).limit(20),
       supabase.from("documentos_esperados").select("id, tipo").eq("empresa_id", data.empresa_id),
@@ -401,21 +401,74 @@ export const getEmpresaPainel = createServerFn({ method: "GET" })
       return { id: e.id, tipo: e.tipo, recebido: false, no_mes: false, status: null as string | null, recebido_em: null as string | null, competencia_recebido: null as string | null };
     });
 
-    // Bancos detectados via nomes de arquivo dos extratos / documentos recebidos.
+    // Bancos detectados varrendo TODO documento recebido (não só extratos):
+    // procura o nome do banco no arquivo_nome e nos dados extraídos pela IA
+    // (classificacao_ia.dados_extraidos / dados_extraidos). Ex.: NF pode citar
+    // banco do emissor; planilha financeira pode trazer "Banco: Itaú" etc.
     const cadastrados = new Set((contasCad.data ?? []).map((c) => (c.banco ?? "").toLowerCase()));
-    const bancosConhecidos = ["itau", "itaú", "bradesco", "santander", "bb", "banco do brasil", "caixa", "sicoob", "sicredi", "inter", "nubank", "safra", "bmg", "btg"];
+    const BANCOS = [
+      { match: "bradesco", nome: "Bradesco" },
+      { match: "santander", nome: "Santander" },
+      { match: "banco do brasil", nome: "Banco do Brasil" },
+      { match: "caixa", nome: "Caixa" },
+      { match: "sicoob", nome: "Sicoob" },
+      { match: "sicredi", nome: "Sicredi" },
+      { match: "nubank", nome: "Nubank" },
+      { match: "safra", nome: "Safra" },
+      { match: "bmg", nome: "BMG" },
+      { match: "btg", nome: "BTG" },
+      { match: "itau", nome: "Itaú" },
+      { match: "itaú", nome: "Itaú" },
+      { match: "inter", nome: "Inter" },
+      { match: "original", nome: "Original" },
+      { match: "stone", nome: "Stone" },
+      { match: "pagbank", nome: "PagBank" },
+      { match: "c6 bank", nome: "C6" },
+      { match: "xp ", nome: "XP" },
+    ];
     const detectados = new Map<string, { banco: string; ocorrencias: number }>();
-    docs.filter((d) => d.tipo === "extrato").forEach((d) => {
-      const nome = (d.arquivo_nome ?? "").toLowerCase();
-      bancosConhecidos.forEach((b) => {
-        if (nome.includes(b) && !cadastrados.has(b)) {
-          const cur = detectados.get(b) ?? { banco: b.charAt(0).toUpperCase() + b.slice(1), ocorrencias: 0 };
+    docs.forEach((d) => {
+      const partes = [
+        d.arquivo_nome ?? "",
+        typeof d.classificacao_ia === "object" && d.classificacao_ia ? JSON.stringify(d.classificacao_ia) : "",
+        typeof d.dados_extraidos === "object" && d.dados_extraidos ? JSON.stringify(d.dados_extraidos) : "",
+      ].join(" ").toLowerCase();
+      BANCOS.forEach((b) => {
+        if (partes.includes(b.match) && !cadastrados.has(b.nome.toLowerCase())) {
+          const cur = detectados.get(b.nome) ?? { banco: b.nome, ocorrencias: 0 };
           cur.ocorrencias++;
-          detectados.set(b, cur);
+          detectados.set(b.nome, cur);
         }
       });
     });
     const bancosDetectados = Array.from(detectados.values()).sort((a, b) => b.ocorrencias - a.ocorrencias);
+
+    // Compõe um "nome curto" para listagem dos últimos documentos. Tenta primeiro
+    // extrair identificadores estruturados (nº NF, fornecedor, valor) de
+    // classificacao_ia/dados_extraidos. Se nada vier, usa o arquivo_nome.
+    function nomeCurto(d: { tipo: string; arquivo_nome: string | null; classificacao_ia: unknown; dados_extraidos: unknown }): string {
+      const dados = (d.classificacao_ia && typeof d.classificacao_ia === "object" ? (d.classificacao_ia as { dados_extraidos?: unknown }).dados_extraidos : null)
+        ?? d.dados_extraidos ?? null;
+      if (dados && typeof dados === "object") {
+        const o = dados as Record<string, unknown>;
+        const numero = (o.numero_nf ?? o.numero ?? o.nf ?? o.documento ?? "") as string | number;
+        const fornecedor = (o.fornecedor ?? o.emitente ?? o.cliente ?? o.razao_social ?? o.empresa ?? "") as string;
+        const valor = (o.valor_total ?? o.valor ?? "") as string | number;
+        const partes: string[] = [];
+        if (numero) partes.push(`Nº ${String(numero).trim()}`);
+        if (fornecedor) partes.push(String(fornecedor).trim().slice(0, 40));
+        if (valor !== "" && valor != null) {
+          const n = Number(valor);
+          if (!Number.isNaN(n)) partes.push(n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+        }
+        if (partes.length > 0) return partes.join(" · ");
+      }
+      // Fallback: limpa o arquivo_nome (remove extensão, separadores)
+      if (d.arquivo_nome) {
+        return d.arquivo_nome.replace(/\.[^.]+$/, "").replace(/[_\-]+/g, " ").slice(0, 80);
+      }
+      return "";
+    }
 
     const ultimoDoc = docs[0] ?? null;
     const lancMesData = lancMes.data ?? [];
@@ -435,7 +488,7 @@ export const getEmpresaPainel = createServerFn({ method: "GET" })
       serieMensal,
       docsByTipo,
       docsEsperadosMes: esperadosMes,
-      docsRecentes: docs.slice(0, 8).map((d) => ({ id: d.id, tipo: d.tipo, status: d.status, origem: d.origem, recebido_em: d.recebido_em, competencia: d.competencia })),
+      docsRecentes: docs.slice(0, 8).map((d) => ({ id: d.id, tipo: d.tipo, status: d.status, origem: d.origem, recebido_em: d.recebido_em, competencia: d.competencia, nome_curto: nomeCurto(d), arquivo_nome: d.arquivo_nome })),
       lancRecentes: lancMesData.slice(0, 8).map((l) => ({ id: l.id, descricao: l.descricao, valor: Number(l.valor ?? 0), data_lancamento: l.data_lancamento })),
       bancosDetectados,
     };
@@ -494,7 +547,7 @@ export const listDocumentos = createServerFn({ method: "GET" })
   .handler(async ({ context, data }) => {
     let q = context.supabase
       .from("documentos")
-      .select("id, tipo, competencia, origem, status, status_processamento, arquivo_nome, arquivo_url, dados_extraidos, recebido_em, empresa:empresa_id(id, razao_social), responsavel:responsavel_id(nome)")
+      .select("id, tipo, competencia, origem, status, status_processamento, arquivo_nome, arquivo_url, dados_extraidos, classificacao_ia, recebido_em, empresa:empresa_id(id, razao_social), responsavel:responsavel_id(nome)")
       .order("recebido_em", { ascending: false })
       .limit(500);
     // Escopa por empresa quando informado (evita que o limite global de 500

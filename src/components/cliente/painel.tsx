@@ -22,6 +22,28 @@ import { DocumentoRevisaoView } from "@/routes/_authenticated/revisar.$documento
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// Compõe um identificador curto para o documento usando o que a IA já
+// extraiu (nº NF, emitente, valor) e cai no arquivo_nome se nada vier.
+function nomeCurtoDoc(d: { arquivo_nome?: string | null; classificacao_ia?: unknown; dados_extraidos?: unknown }): string {
+  const ci = d.classificacao_ia && typeof d.classificacao_ia === "object" ? (d.classificacao_ia as { dados_extraidos?: unknown }).dados_extraidos : null;
+  const dados = (ci ?? d.dados_extraidos) as Record<string, unknown> | null;
+  if (dados && typeof dados === "object") {
+    const numero = (dados.numero_nf ?? dados.numero ?? dados.nf ?? dados.documento ?? "") as string | number;
+    const fornecedor = (dados.fornecedor ?? dados.emitente ?? dados.cliente ?? dados.razao_social ?? dados.empresa ?? "") as string;
+    const valor = (dados.valor_total ?? dados.valor ?? "") as string | number;
+    const partes: string[] = [];
+    if (numero) partes.push(`Nº ${String(numero).trim()}`);
+    if (fornecedor) partes.push(String(fornecedor).trim().slice(0, 40));
+    if (valor !== "" && valor != null) {
+      const n = Number(valor);
+      if (!Number.isNaN(n)) partes.push(n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+    }
+    if (partes.length > 0) return partes.join(" · ");
+  }
+  if (d.arquivo_nome) return d.arquivo_nome.replace(/\.[^.]+$/, "").replace(/[_\-]+/g, " ").slice(0, 80);
+  return "";
+}
+
 // ---------------------------------------------------------------- Documentos
 export function DocumentosTab({ empresaId }: { empresaId: string }) {
   const qc = useQueryClient();
@@ -59,12 +81,17 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
       <CardContent className="p-0">
         <Table>
           <TableHeader>
-            <TableRow><TableHead>Tipo</TableHead><TableHead>Competência</TableHead><TableHead>Origem</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Ações</TableHead></TableRow>
+            <TableRow><TableHead>Documento</TableHead><TableHead>Competência</TableHead><TableHead>Origem</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Ações</TableHead></TableRow>
           </TableHeader>
           <TableBody>
-            {docs.map((d) => (
+            {docs.map((d) => {
+              const nome = nomeCurtoDoc(d);
+              return (
               <TableRow key={d.id}>
-                <TableCell className="text-sm">{DOC_TIPO_LABEL[d.tipo]}</TableCell>
+                <TableCell className="text-sm">
+                  <div className="font-medium" title={d.arquivo_nome ?? ""}>{nome || DOC_TIPO_LABEL[d.tipo]}</div>
+                  {nome && <div className="text-[11px] text-muted-foreground">{DOC_TIPO_LABEL[d.tipo]}</div>}
+                </TableCell>
                 <TableCell className="text-sm">{formatCompetencia(d.competencia)}</TableCell>
                 <TableCell className="text-xs uppercase text-muted-foreground">{d.origem}</TableCell>
                 <TableCell><StatusPill variant={variantFor(d.status)}>{DOC_STATUS_LABEL[d.status]}</StatusPill></TableCell>
@@ -90,7 +117,8 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
             {!isLoading && docs.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Nenhum documento para este cliente.</TableCell></TableRow>}
             {isLoading && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
           </TableBody>
