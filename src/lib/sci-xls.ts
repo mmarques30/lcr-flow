@@ -22,7 +22,7 @@ export type SciLanc = {
   data_lancamento: string | null;
   valor: number | null;
   descricao: string | null;
-  conta: { codigo: string; tipo: string | null } | null;
+  conta: { codigo: string; tipo: string | null; sci_apelido?: string | null } | null;
   historico: { codigo: string } | null;
 };
 
@@ -48,13 +48,15 @@ function fmtData(d: string | null): number | string {
   return m ? Number(`${m[1]}${m[2]}${m[3]}`) : String(d).replace(/-/g, "").slice(0, 8);
 }
 
-/** Monta as linhas do layout SCI (uma por lançamento com conta). */
-export function linhasSci(lancs: SciLanc[], bancoCodigo: number | null) {
+/** Monta as linhas do layout SCI (uma por lançamento com conta).
+ *  Débito/crédito usam o apelido SCI (de-para) quando houver; `bancoSci` já vem
+ *  resolvido para o apelido do banco. */
+export function linhasSci(lancs: SciLanc[], bancoSci: number | string | "") {
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
-      const conta = Number(l.conta!.codigo);
-      const banco: number | "" = bancoCodigo ?? "";
+      const conta = codSci(l.conta!);
+      const banco: number | string = bancoSci;
       const ld = ladoConta(l.conta!.tipo);
       const debito = ld === "debito" ? conta : banco;
       const credito = ld === "debito" ? banco : conta;
@@ -79,9 +81,9 @@ export function baixarPlanilhaSciXls(
   empresaNome: string,
   competencia: string,
   lancs: SciLanc[],
-  bancoCodigo: number | null,
+  bancoSci: number | string | "",
 ): number {
-  const rows = linhasSci(lancs, bancoCodigo);
+  const rows = linhasSci(lancs, bancoSci);
   const ws = XLSX.utils.json_to_sheet(rows, { header: COLUNAS });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Planilha de importação");
