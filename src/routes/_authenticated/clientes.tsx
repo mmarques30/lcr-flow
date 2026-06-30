@@ -303,8 +303,8 @@ function NovoClienteDialog({ consultores, onSuccess }: { consultores: { id: stri
 }
 
 type EmpresaEdit = {
-  id: string; razao_social: string; nome_fantasia: string | null; cnpj: string;
-  regime: "simples" | "presumido" | "real" | "mei"; segmento: string | null;
+  id: string; razao_social: string; nome_fantasia: string | null; cnpj: string | null;
+  regime: "simples" | "presumido" | "real" | "mei" | null; segmento: string | null;
   consultor_id: string | null; tags: string[] | null;
 };
 
@@ -314,8 +314,8 @@ function EditarClienteDialog({ empresa, consultores }: { empresa: EmpresaEdit; c
   const [form, setForm] = useState({
     razao_social: empresa.razao_social,
     nome_fantasia: empresa.nome_fantasia ?? "",
-    cnpj: empresa.cnpj,
-    regime: empresa.regime,
+    cnpj: empresa.cnpj ?? "",
+    regime: empresa.regime ?? "simples",
     segmento: empresa.segmento ?? "",
     consultor_id: empresa.consultor_id ?? "",
     tags: (empresa.tags ?? []).join(", "),
@@ -327,8 +327,8 @@ function EditarClienteDialog({ empresa, consultores }: { empresa: EmpresaEdit; c
     setForm({
       razao_social: empresa.razao_social,
       nome_fantasia: empresa.nome_fantasia ?? "",
-      cnpj: empresa.cnpj,
-      regime: empresa.regime,
+      cnpj: empresa.cnpj ?? "",
+      regime: empresa.regime ?? "simples",
       segmento: empresa.segmento ?? "",
       consultor_id: empresa.consultor_id ?? "",
       tags: (empresa.tags ?? []).join(", "),

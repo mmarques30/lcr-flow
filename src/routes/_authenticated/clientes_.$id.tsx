@@ -91,7 +91,7 @@ function ClienteDetalhe() {
               <dl className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div><dt className="text-muted-foreground">Nome fantasia</dt><dd>{empresa.nome_fantasia ?? "—"}</dd></div>
                 <div><dt className="text-muted-foreground">Segmento</dt><dd>{empresa.segmento ?? "—"}</dd></div>
-                <div><dt className="text-muted-foreground">Regime</dt><dd>{REGIME_LABEL[empresa.regime]}</dd></div>
+                <div><dt className="text-muted-foreground">Regime</dt><dd>{empresa.regime ? REGIME_LABEL[empresa.regime] : "—"}</dd></div>
                 <div><dt className="text-muted-foreground">CNPJ</dt><dd className="font-mono">{empresa.cnpj}</dd></div>
               </dl>
             </CardContent></Card>

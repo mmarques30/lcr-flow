@@ -269,14 +269,19 @@ export const deleteEmpresa = createServerFn({ method: "POST" })
 
 export const listDocumentos = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
+  .inputValidator((d?: { empresa_id?: string }) => z.object({ empresa_id: z.string().uuid().optional() }).parse(d ?? {}))
+  .handler(async ({ context, data }) => {
+    let q = context.supabase
       .from("documentos")
       .select("id, tipo, competencia, origem, status, status_processamento, arquivo_nome, arquivo_url, dados_extraidos, recebido_em, empresa:empresa_id(id, razao_social), responsavel:responsavel_id(nome)")
       .order("recebido_em", { ascending: false })
       .limit(500);
+    // Escopa por empresa quando informado (evita que o limite global de 500
+    // esconda os documentos de um cliente quando há muitos no total).
+    if (data.empresa_id) q = q.eq("empresa_id", data.empresa_id);
+    const { data: rows, error } = await q;
     if (error) throw new Error(error.message);
-    return data ?? [];
+    return rows ?? [];
   });
 
 const createDocSchema = z.object({
@@ -489,7 +494,7 @@ export const listLancamentosConciliacao = createServerFn({ method: "GET" })
     const { data: empresa } = await context.supabase.from("empresas").select("id, razao_social, nome_fantasia").eq("id", data.empresa_id).maybeSingle();
     const { data: rows, error } = await context.supabase
       .from("lancamentos")
-      .select("id, data_lancamento, valor, descricao, conciliado, confidence, status, conta:conta_id(codigo, descricao, tipo), historico:historico_id(codigo, descricao)")
+      .select("id, data_lancamento, valor, descricao, conciliado, confidence, status, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
       .eq("empresa_id", data.empresa_id)
       .eq("competencia", data.competencia)
       .not("valor", "is", null)
@@ -568,8 +573,10 @@ export const conciliarParManual = createServerFn({ method: "POST" })
     return { ok: true, divergencias_count };
   });
 
-// Edita um lançamento (corrigir data/valor/descrição) — usado para acertar uma
-// divergência antes de reconciliar.
+// Edita um lançamento: atribuir/corrigir a conta contábil e ajustar data/valor/
+// descrição. Usado na revisão humana (aba Conciliação bancária) e para acertar
+// uma divergência antes de reconciliar. Ao definir a conta, marca confiança alta
+// (1.0) para o lançamento sair do estado "a revisar".
 export const editarLancamento = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({
@@ -577,12 +584,29 @@ export const editarLancamento = createServerFn({ method: "POST" })
     data_lancamento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     valor: z.number().optional(),
     descricao: z.string().max(200).optional(),
+    conta_codigo: z.string().max(40).optional(),
   }).parse(d))
   .handler(async ({ context, data }) => {
     const patch: Record<string, unknown> = {};
     if (data.data_lancamento) patch.data_lancamento = data.data_lancamento;
     if (typeof data.valor === "number") patch.valor = Math.abs(data.valor);
     if (data.descricao != null) patch.descricao = data.descricao;
+
+    // Atribuir/corrigir conta: resolve o código → conta_id no escopo da empresa
+    // (conta específica da empresa tem prioridade sobre a global, empresa_id null).
+    if (data.conta_codigo) {
+      const { data: lanc } = await context.supabase.from("lancamentos").select("empresa_id").eq("id", data.id).maybeSingle();
+      const empresaId = (lanc as { empresa_id?: string | null } | null)?.empresa_id ?? null;
+      const { data: contas, error: cErr } = await context.supabase
+        .from("plano_contas").select("id, empresa_id, codigo").eq("codigo", data.conta_codigo);
+      if (cErr) throw new Error(cErr.message);
+      const lista = (contas ?? []) as { id: string; empresa_id: string | null; codigo: string }[];
+      const conta = lista.find((c) => c.empresa_id === empresaId) ?? lista.find((c) => c.empresa_id === null) ?? lista[0];
+      if (!conta) throw new Error(`Conta "${data.conta_codigo}" não encontrada no plano de contas.`);
+      patch.conta_id = conta.id;
+      patch.confidence = 1; // conta definida por humano → sai de "a revisar"
+    }
+
     if (Object.keys(patch).length === 0) return { ok: true };
     const { error } = await context.supabase.from("lancamentos").update(patch as never).eq("id", data.id);
     if (error) throw new Error(error.message);
@@ -863,7 +887,7 @@ export const listPlanoContas = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("plano_contas")
-      .select("codigo, descricao, tipo, ativo")
+      .select("codigo, descricao, tipo, ativo, sci_apelido")
       .order("codigo")
       .range(0, 4999);
     if (error) throw new Error(error.message);

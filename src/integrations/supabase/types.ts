@@ -689,14 +689,20 @@ export type Database = {
       empresas: {
         Row: {
           ativo: boolean
-          cnpj: string
+          cnpj: string | null
+          codigo_gestta: string | null
           consultor_id: string | null
           created_at: string
           id: string
+          importado_em: string | null
           is_demo: boolean
+          mensalidade: number | null
           nome_fantasia: string | null
+          nome_normalizado: string | null
+          qtd_tarefas_mes: number | null
           razao_social: string
-          regime: Database["public"]["Enums"]["regime_tributario"]
+          regime: Database["public"]["Enums"]["regime_tributario"] | null
+          regime_origem: string | null
           segmento: string | null
           status: Database["public"]["Enums"]["empresa_status"]
           tags: string[]
@@ -704,14 +710,20 @@ export type Database = {
         }
         Insert: {
           ativo?: boolean
-          cnpj: string
+          cnpj?: string | null
+          codigo_gestta?: string | null
           consultor_id?: string | null
           created_at?: string
           id?: string
+          importado_em?: string | null
           is_demo?: boolean
+          mensalidade?: number | null
           nome_fantasia?: string | null
+          nome_normalizado?: string | null
+          qtd_tarefas_mes?: number | null
           razao_social: string
-          regime?: Database["public"]["Enums"]["regime_tributario"]
+          regime?: Database["public"]["Enums"]["regime_tributario"] | null
+          regime_origem?: string | null
           segmento?: string | null
           status?: Database["public"]["Enums"]["empresa_status"]
           tags?: string[]
@@ -719,14 +731,20 @@ export type Database = {
         }
         Update: {
           ativo?: boolean
-          cnpj?: string
+          cnpj?: string | null
+          codigo_gestta?: string | null
           consultor_id?: string | null
           created_at?: string
           id?: string
+          importado_em?: string | null
           is_demo?: boolean
+          mensalidade?: number | null
           nome_fantasia?: string | null
+          nome_normalizado?: string | null
+          qtd_tarefas_mes?: number | null
           razao_social?: string
-          regime?: Database["public"]["Enums"]["regime_tributario"]
+          regime?: Database["public"]["Enums"]["regime_tributario"] | null
+          regime_origem?: string | null
           segmento?: string | null
           status?: Database["public"]["Enums"]["empresa_status"]
           tags?: string[]
@@ -750,6 +768,7 @@ export type Database = {
           descricao: string
           empresa_id: string | null
           id: string
+          sci_apelido: string | null
         }
         Insert: {
           ativo?: boolean
@@ -758,6 +777,7 @@ export type Database = {
           descricao: string
           empresa_id?: string | null
           id?: string
+          sci_apelido?: string | null
         }
         Update: {
           ativo?: boolean
@@ -766,6 +786,7 @@ export type Database = {
           descricao?: string
           empresa_id?: string | null
           id?: string
+          sci_apelido?: string | null
         }
         Relationships: [
           {
@@ -1105,6 +1126,8 @@ export type Database = {
           descricao: string
           empresa_id: string | null
           id: string
+          sci_apelido: string | null
+          sci_historico_padrao: string | null
           tipo: string | null
         }
         Insert: {
@@ -1116,6 +1139,8 @@ export type Database = {
           descricao: string
           empresa_id?: string | null
           id?: string
+          sci_apelido?: string | null
+          sci_historico_padrao?: string | null
           tipo?: string | null
         }
         Update: {
@@ -1127,6 +1152,8 @@ export type Database = {
           descricao?: string
           empresa_id?: string | null
           id?: string
+          sci_apelido?: string | null
+          sci_historico_padrao?: string | null
           tipo?: string | null
         }
         Relationships: [
@@ -1283,6 +1310,7 @@ export type Database = {
           total: number
         }[]
       }
+      unaccent: { Args: { "": string }; Returns: string }
       update_meu_perfil: {
         Args: { p_avatar: string; p_nome: string }
         Returns: undefined

@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { Markdown } from "@/components/markdown";
-import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, type SciLinha } from "@/lib/lcr.functions";
+import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, getEmpresa, listPlanoContas, type SciLinha } from "@/lib/lcr.functions";
+import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, type SciCelula } from "@/lib/sci-xls";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { Sparkles, Loader2, ClipboardCheck, Download, FileSpreadsheet, X, Plus, Eye, ChevronRight } from "lucide-react";
@@ -23,8 +24,8 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2,
 // ---------------------------------------------------------------- Documentos
 export function DocumentosTab({ empresaId }: { empresaId: string }) {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["documentos"], queryFn: () => listDocumentos() });
-  const docs = (data ?? []).filter((d) => d.empresa?.id === empresaId);
+  const { data, isLoading } = useQuery({ queryKey: ["documentos", empresaId], queryFn: () => listDocumentos({ data: { empresa_id: empresaId } }) });
+  const docs = data ?? [];
   const [processando, setProcessando] = useState<string | null>(null);
   const [aberto, setAberto] = useState<string | null>(null);
 
@@ -203,9 +204,19 @@ function exportarCsv(empresa: string, competencia: string, linhas: SciLinha[]) {
 
 type SciLancDet = {
   id: string; data_lancamento: string | null; valor: number | null; descricao: string | null;
-  conta: { codigo: string; descricao: string; tipo: string | null } | null;
-  historico: { codigo: string; descricao: string } | null;
+  conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido: string | null } | null;
+  historico: { codigo: string; descricao: string; sci_apelido: string | null } | null;
 };
+
+// Célula código + nome para a prévia da planilha (débito/crédito).
+function CelSci({ cel }: { cel: SciCelula }) {
+  return (
+    <TableCell className="text-sm">
+      <span className="font-mono text-xs">{cel.codigo === "" ? "—" : cel.codigo}</span>
+      {cel.nome && <div className="text-xs text-muted-foreground">{cel.nome}</div>}
+    </TableCell>
+  );
+}
 
 export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empresaId: string; empresaNome: string; competencia: string }) {
   const [linhas, setLinhas] = useState<SciLinha[] | null>(null);
@@ -215,6 +226,30 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
   // Detalhamento: lançamentos individuais da competência (sempre carregados).
   const { data: det } = useQuery({ queryKey: ["lanc-conc", empresaId, competencia], queryFn: () => listLancamentosConciliacao({ data: { empresa_id: empresaId, competencia } }) });
   const lancs = (det?.lancamentos ?? []) as SciLancDet[];
+  const totalGeral = lancs.reduce((s, l) => s + (l.valor ?? 0), 0);
+  const contasDistintas = new Set(lancs.map((l) => l.conta?.codigo).filter(Boolean)).size;
+
+  // Código do banco (contrapartida débito/crédito) a partir da conta bancária da empresa.
+  const { data: emp } = useQuery({ queryKey: ["empresa", empresaId], queryFn: () => getEmpresa({ data: { id: empresaId } }) });
+  const contasBanc = (emp as { contas_bancarias?: { banco: string | null }[] } | undefined)?.contas_bancarias ?? [];
+  const bancoCodigo = bancoCodigoDe(contasBanc[0]?.banco ?? null);
+  const bancoNome = contasBanc[0]?.banco ?? "";
+  // Apelido SCI do banco (de-para): resolve via plano de contas; cai no código LCR se não houver.
+  const { data: planoContas } = useQuery({ queryKey: ["plano-contas"], queryFn: () => listPlanoContas(), staleTime: 5 * 60_000 });
+  const sciApelidoBanco: number | string = (() => {
+    if (bancoCodigo == null) return "";
+    const pc = ((planoContas ?? []) as { codigo: string; sci_apelido: string | null }[]).find((c) => String(c.codigo) === String(bancoCodigo));
+    const v = pc?.sci_apelido?.trim() || String(bancoCodigo);
+    const n = Number(v);
+    return Number.isNaN(n) ? v : n;
+  })();
+  const previewRows = linhasSciPreview(lancs, sciApelidoBanco, bancoNome);
+
+  function baixarXls() {
+    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancs, sciApelidoBanco);
+    if (n === 0) toast.warning("Nenhum lançamento com conta para exportar.");
+    else toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);
+  }
 
   async function gerar() {
     setBusy(true);
@@ -237,53 +272,72 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
           <FileSpreadsheet className="h-5 w-5 text-primary" />
           <h3 className="font-display text-xl">Planilha SCI · {formatCompetencia(competencia)}</h3>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" disabled={busy} onClick={gerar}><FileSpreadsheet className="mr-1 h-4 w-4" />{busy ? "Gerando…" : "Gerar SCI"}</Button>
+          <Button variant="outline" size="sm" disabled={lancs.length === 0} onClick={baixarXls} title="Baixa o arquivo de importação SCI (.xls) — uma linha por lançamento, layout do modelo">
+            <Download className="mr-1 h-4 w-4" />Baixar SCI (.xls)
+          </Button>
           <Button variant="outline" size="sm" disabled={!linhas || linhas.length === 0} onClick={() => linhas && exportarCsv(empresaNome, competencia, linhas)}>
             <Download className="mr-1 h-4 w-4" />Baixar CSV
           </Button>
         </div>
       </div>
 
-      {/* Prévia SCI — agregado por conta, pronto para importar no SCI */}
+{/* Prévia da planilha SCI (layout do modelo de importação, por lançamento) */}
       <Card>
         <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-6 py-3">
           <FileSpreadsheet className="h-4 w-4 text-primary" />
-          <h4 className="font-display text-lg">Prévia SCI</h4>
-          {linhas && <span className="text-xs text-muted-foreground">· {linhas.length} conta(s) · formato de importação</span>}
+          <h4 className="font-display text-lg">Prévia da planilha SCI</h4>
+          <span className="text-xs text-muted-foreground">· layout de importação · {previewRows.length} lançamento(s)</span>
         </div>
         <CardContent className="p-0">
-          {!linhas ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">Clique em “Gerar SCI” para agregar os lançamentos por conta — esta é a planilha que vai ser baixada para subir no SCI.</div>
-          ) : (
+          <div className="max-h-[28rem] overflow-auto">
             <Table>
-              <TableHeader><TableRow><TableHead>Código</TableHead><TableHead>Conta</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="whitespace-nowrap">DATA</TableHead>
+                  <TableHead>DÉBITO</TableHead>
+                  <TableHead>CRÉDITO</TableHead>
+                  <TableHead className="text-center">PART DÉB</TableHead>
+                  <TableHead className="text-center">PART CRED</TableHead>
+                  <TableHead className="text-right">VALOR</TableHead>
+                  <TableHead>HISTÓRICO</TableHead>
+                  <TableHead>COMPLEMENTO</TableHead>
+                  <TableHead className="text-center">DOCUMENTO</TableHead>
+                  <TableHead className="text-center whitespace-nowrap">C.CUSTO DÉB</TableHead>
+                  <TableHead className="text-center whitespace-nowrap">C.CUSTO CRED</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {linhas.map((l) => (
-                  <TableRow key={l.codigo}>
-                    <TableCell className="font-mono text-sm">{l.codigo}</TableCell>
-                    <TableCell>{l.descricao}</TableCell>
-                    <TableCell><span className="rounded-full bg-muted px-2 py-0.5 text-[10px] capitalize text-muted-foreground">{l.tipo}</span></TableCell>
-                    <TableCell className="text-right font-mono">{brl(l.total)}</TableCell>
+                {previewRows.map((r, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="whitespace-nowrap font-mono text-xs">{r.data}</TableCell>
+                    <CelSci cel={r.debito} />
+                    <CelSci cel={r.credito} />
+                    <TableCell className="text-center text-muted-foreground">—</TableCell>
+                    <TableCell className="text-center text-muted-foreground">—</TableCell>
+                    <TableCell className="text-right font-mono text-sm">{brl(r.valor)}</TableCell>
+                    <TableCell className="text-sm">
+                      <span className="font-mono text-xs">{r.historico.codigo || "—"}{r.historico.apelido && ` · ${r.historico.apelido}`}</span>
+                      {r.historico.nome && <div className="text-xs text-muted-foreground">{r.historico.nome}</div>}
+                    </TableCell>
+                    <TableCell className="max-w-[16rem] truncate text-sm" title={r.complemento}>{r.complemento}</TableCell>
+                    <TableCell className="text-center text-muted-foreground">—</TableCell>
+                    <TableCell className="text-center text-muted-foreground">—</TableCell>
+                    <TableCell className="text-center text-muted-foreground">—</TableCell>
                   </TableRow>
                 ))}
-                {linhas.length === 0 && <TableRow><TableCell colSpan={4} className="py-6 text-center text-muted-foreground">Nenhum lançamento nesta competência.</TableCell></TableRow>}
-                {linhas.length > 0 && (
-                  <TableRow className="border-t-2 border-border font-semibold">
-                    <TableCell colSpan={3}>Total</TableCell>
-                    <TableCell className="text-right font-mono">{brl(totais.valor)}</TableCell>
-                  </TableRow>
-                )}
+                {previewRows.length === 0 && <TableRow><TableCell colSpan={11} className="py-6 text-center text-muted-foreground">Nenhum lançamento com conta nesta competência.</TableCell></TableRow>}
               </TableBody>
             </Table>
-          )}
+          </div>
         </CardContent>
       </Card>
 
       {/* Detalhamento por lançamento — collapsible, fechado por padrão */}
       <Card>
         <details className="group">
-          <summary className="flex cursor-pointer list-none items-center gap-2 border-b border-border bg-muted/40 px-6 py-3 group-open:border-b">
+          <summary className="flex cursor-pointer list-none items-center gap-2 border-b border-border bg-muted/40 px-6 py-3">
             <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
             <ClipboardCheck className="h-4 w-4 text-primary" />
             <h4 className="font-display text-lg">Detalhamento por lançamento</h4>
@@ -317,6 +371,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
           </CardContent>
         </details>
       </Card>
+
     </div>
   );
 }

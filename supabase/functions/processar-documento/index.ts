@@ -13,7 +13,17 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const fail = (error: string) => json(200, { ok: false, error });
 
-const MODEL = "claude-sonnet-4-6";
+// Haiku 4.5: limite de tokens/min bem maior que o Sonnet no mesmo tier (evita o
+// rate_limit_error de 10k tokens/min) + mais barato e rápido p/ classificar docs.
+const MODEL = "claude-haiku-4-5";
+
+// Subconjunto curado de contas/históricos enviado como contexto (em vez das 1187
+// contas + 559 históricos) p/ caber no limite de 10k tokens input/min. Fonte:
+// Mapa de Transações Típicas + bancos + impostos/despesas/receitas comuns
+// (docs/contas-curadas-ia.json no repo da automação). Conta rara fora da lista →
+// a IA marca confidence<0.7 e o item vai p/ revisão humana no front.
+const CONTAS_IA = ["7","8","9","10","15","16","17","18","19","20","29","32","33","34","35","37","38","39","40","41","43","44","45","46","47","48","49","50","51","69","70","71","72","75","76","77","84","146","147","148","149","150","160","161","162","163","167","169","171","172","173","176","177","178","179","180","181","184","185","187","188","189","190","191","194","195","196","197","200","201","202","203","211","213","216","277","278","279","280","283","284","285","293","322","334","387","417","420","421","422","424","426","427","428","429","432","434","435","440","442","448","456","457","459","460","465","467","468","469","470","471","473","475","476","481","497","498","523","536","555","565","572","575","578","579","580","606","608","614","628","629","631","648","649","650","651","657","658","659","672","673","676","678","696","697","698","699","702","704","707","717","721","724","726","738","739","741","748","749","750","751","752","755","756","766","767","768","775","777","779","780","784","794","795","796","797","809","821","823","839","859","865","883","889","892","893","896","898","899","900","901","902","903","906","907","908","910","925","926","932","933","946","949","952","962","968","1010","1013","1025","1027","1030","1031","1042","1044","1060","1061","1062","1070","1073","1075","1076","1085","1095","1107","1121","1129","1130","1150","1151","1165","1175","1181","1185","1189","1194","1195","1243","1268","1290","1304","1341","1342","1347","1348","1349","1350","1357","1358"];
+const HIST_IA = ["7","159","267","297","317","427","437","442","447","478","497","811","1001","1643","1767","1961","2003","2020","2054","2089","2178","2216","2283","2321","2330","2569","2623","2801","2844","2925","3671","3672","3673","3677","3678","3679","3682","3683","3685","3686","3687","3688","3689","3690","3692","3693","3694","3699","3700","3702","3707","3710","3719","3733","3746","9999"];
 
 const SYSTEM_PROMPT = `Você é o classificador de documentos contábeis da LCR Contadores.
 Analise o documento enviado por um cliente e:
@@ -171,8 +181,8 @@ Deno.serve(async (req) => {
 
   // contexto: plano de contas + históricos
   const [{ data: contas }, { data: historicos }] = await Promise.all([
-    admin.from("plano_contas").select("codigo, descricao, tipo").eq("ativo", true).range(0, 4999),
-    admin.from("historicos_contabeis").select("codigo, descricao").range(0, 1999),
+    admin.from("plano_contas").select("codigo, descricao, tipo").eq("ativo", true).in("codigo", CONTAS_IA),
+    admin.from("historicos_contabeis").select("codigo, descricao").in("codigo", HIST_IA),
   ]);
   const ctx =
     `Plano de contas (${(contas ?? []).length}):\n${(contas ?? []).map((c) => `${c.codigo} | ${c.descricao} | ${c.tipo}`).join("\n")}\n\n` +
@@ -184,24 +194,35 @@ Deno.serve(async (req) => {
     lancamentos_sugeridos: { data_lancamento: string; valor: number; tipo_movimento?: string; conta_codigo: string; historico_codigo?: string; descricao: string; confidence?: number }[];
   };
   try {
-    const apiResp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
-        messages: [{
-          role: "user",
-          content: [
-            contentBlock,
-            { type: "text", text: `Empresa atual: ${empresa?.razao_social ?? "?"} (CNPJ ${empresa?.cnpj ?? "?"}).\n\n${ctx}\n\nClassifique este documento e sugira os lançamentos.` },
-          ],
-        }],
-        output_config: { format: { type: "json_schema", schema: SCHEMA } },
-      }),
+    const reqBody = JSON.stringify({
+      model: MODEL,
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      messages: [{
+        role: "user",
+        content: [
+          contentBlock,
+          { type: "text", text: `Empresa atual: ${empresa?.razao_social ?? "?"} (CNPJ ${empresa?.cnpj ?? "?"}).\n\n${ctx}\n\nClassifique este documento e sugira os lançamentos.` },
+        ],
+      }],
+      output_config: { format: { type: "json_schema", schema: SCHEMA } },
     });
-    if (!apiResp.ok) return markErro(`Claude API ${apiResp.status}: ${(await apiResp.text()).slice(0, 400)}`);
+    // Retry no 529 (overloaded) — sobrecarga transiente da Anthropic, backoff curto (10/20/30s).
+    // O 429 (rate_limit) NÃO é retentado aqui: a espera de ~1min estouraria o timeout da edge;
+    // quem chama (bridge_front.processar_documento_edge) reinvoca a edge após 65s.
+    let apiResp: Response | undefined;
+    for (let tentativa = 0; tentativa < 4; tentativa++) {
+      apiResp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: reqBody,
+      });
+      if (apiResp.ok || apiResp.status !== 529) break;
+      await new Promise((r) => setTimeout(r, 10000 * (tentativa + 1)));
+    }
+    if (!apiResp || !apiResp.ok) {
+      return markErro(`Claude API ${apiResp?.status ?? "?"}: ${apiResp ? (await apiResp.text()).slice(0, 400) : "sem resposta"}`);
+    }
     const dataApi = await apiResp.json();
     if (dataApi.stop_reason === "refusal") return markErro("A IA recusou processar este documento.");
     const tb = (dataApi.content ?? []).find((b: { type: string }) => b.type === "text");

@@ -1,18 +1,20 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient, useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { StatusPill } from "@/components/status-pill";
-import { getConciliacaoDetalhe, ensureConciliacao, setConciliacaoExtratoCsv, listLancamentosConciliacao, conciliarParManual, editarLancamento } from "@/lib/lcr.functions";
+import { getConciliacaoDetalhe, listLancamentosConciliacao, conciliarParManual, editarLancamento, listPlanoContas, listDocumentos } from "@/lib/lcr.functions";
 import { formatCompetencia } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
-import { ChevronLeft, Upload, Download, CheckCircle2, Sparkles, Wand2, ListChecks, AlertTriangle, FileText, Link2, Pencil } from "lucide-react";
+import { ChevronLeft, Download, CheckCircle2, Sparkles, Wand2, ListChecks, AlertTriangle, FileText, Link2, Pencil, ChevronsUpDown, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -162,36 +164,30 @@ export function RazaoContabil({ empresaId, competencia }: { empresaId: string; c
   );
 }
 
-// TAB "Conciliação bancária": cruza os lançamentos (razão) com o extrato importado.
+// TAB "Conciliação bancária": revisão/edição humana de TODOS os registros
+// extraídos pela IA (lançamentos aprovados + os que foram p/ revisão) e, abaixo,
+// o cruzamento com o extrato bancário.
 export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: string; competencia: string }) {
   const qc = useQueryClient();
   const key = ["conciliacao-detalhe", empresaId, competencia];
   const { data } = useQuery({ queryKey: key, queryFn: () => getConciliacaoDetalhe({ data: { empresa_id: empresaId, competencia } }) });
-  const extratoRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<"extrato" | "conciliar" | null>(null);
+  const [busy, setBusy] = useState<"conciliar" | null>(null);
+
+  // Todos os lançamentos extraídos da competência (compartilha cache com a Razão).
+  const lancKey = ["lanc-conc", empresaId, competencia];
+  const { data: lancData, isLoading: lancLoading } = useQuery({ queryKey: lancKey, queryFn: () => listLancamentosConciliacao({ data: { empresa_id: empresaId, competencia } }) });
+  const lancs = (lancData?.lancamentos ?? []) as LancConc[];
+  const aRever = lancs.filter(precisaRevisao).length;
+
+  // Documentos que a IA NÃO conseguiu classificar (status "erro") nesta competência:
+  // não geram lançamento, então não aparecem na lista — avisamos para não passarem batido.
+  const { data: docsData } = useQuery({ queryKey: ["documentos"], queryFn: () => listDocumentos() });
+  const docsErro = ((docsData ?? []) as { id: string; competencia: string | null; status_processamento: string | null; arquivo_nome: string | null; tipo: string | null; empresa?: { id: string } | null }[])
+    .filter((d) => d.empresa?.id === empresaId && d.competencia === competencia && d.status_processamento === "erro");
 
   const conc = data?.conciliacao ?? null;
   const resultado = (conc?.resultado ?? null) as Resultado;
   const temExtrato = !!conc?.extrato_csv_url;
-
-  async function enviarExtrato(file: File) {
-    setBusy("extrato");
-    try {
-      const { id } = await ensureConciliacao({ data: { empresa_id: empresaId, competencia } });
-      const safeName = file.name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${empresaId}/${competencia}/extrato-${crypto.randomUUID()}-${safeName}`;
-      const { error } = await supabase.storage.from("conciliacoes").upload(path, file, { upsert: false, cacheControl: "3600" });
-      if (error) { toast.error(error.message); return; }
-      await setConciliacaoExtratoCsv({ data: { id, extrato_csv_url: path } });
-      await qc.invalidateQueries({ queryKey: key });
-      toast.success("Extrato importado.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao importar");
-    } finally {
-      setBusy(null);
-      if (extratoRef.current) extratoRef.current.value = "";
-    }
-  }
 
   async function conciliar() {
     if (!conc) return;
@@ -210,11 +206,21 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
     }
   }
 
-  // seleção para pareamento manual + edição de lançamento na divergência
+  // seleção para pareamento manual + edição de lançamento
   const [selRazao, setSelRazao] = useState<number | null>(null);
   const [selExtrato, setSelExtrato] = useState<number | null>(null);
-  const [edit, setEdit] = useState<{ id: string; data: string; valor: string; descricao: string } | null>(null);
+  const [edit, setEdit] = useState<{ id: string; data: string; valor: string; descricao: string; conta_codigo: string } | null>(null);
   const [acting, setActing] = useState(false);
+
+  function abrirEdicao(l: LancConc) {
+    setEdit({
+      id: l.id,
+      data: l.data_lancamento ? l.data_lancamento.slice(0, 10) : "",
+      valor: l.valor != null ? String(Math.abs(l.valor)) : "",
+      descricao: l.descricao ?? "",
+      conta_codigo: l.conta?.codigo ?? "",
+    });
+  }
 
   async function conciliarManual() {
     if (!conc || selRazao === null || selExtrato === null) return;
@@ -234,11 +240,18 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
     if (!edit) return;
     setActing(true);
     try {
-      await editarLancamento({ data: { id: edit.id, data_lancamento: edit.data || undefined, valor: edit.valor ? Number(edit.valor.replace(",", ".")) : undefined, descricao: edit.descricao || undefined } });
+      await editarLancamento({ data: {
+        id: edit.id,
+        data_lancamento: edit.data || undefined,
+        valor: edit.valor ? Number(edit.valor.replace(",", ".")) : undefined,
+        descricao: edit.descricao || undefined,
+        conta_codigo: edit.conta_codigo || undefined,
+      } });
       setEdit(null);
       await qc.invalidateQueries({ queryKey: ["lanc-conc"] });
-      toast.success("Lançamento atualizado. Reconciliando…");
-      await conciliar();
+      await qc.invalidateQueries({ queryKey: ["documentos"] });
+      if (temExtrato) { toast.success("Lançamento atualizado. Reconciliando…"); await conciliar(); }
+      else toast.success("Lançamento atualizado.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally { setActing(false); }
@@ -246,11 +259,8 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
 
   return (
     <>
-      <h2 className="mb-1 font-display text-xl">Conciliar com extrato bancário (CSV)</h2>
-      <p className="mb-4 text-sm text-soft-foreground">A razão são os lançamentos aprovados (gerados pela IA). Importe o extrato bancário para cruzar automaticamente.</p>
-
-      <input ref={extratoRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) enviarExtrato(f); }} />
-      <Card className="mb-3">
+      {/* Ação no topo: extrato (vem do Gestta) + Conciliar agora */}
+      <Card className="mb-6">
         <CardContent className="flex flex-wrap items-center justify-between gap-4 py-5">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
@@ -258,14 +268,11 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             </div>
             <div>
               <div className="font-medium leading-tight">Extrato bancário</div>
-              <div className="text-xs text-muted-foreground">{temExtrato ? "Arquivo importado" : "Nenhum arquivo importado ainda"}</div>
+              <div className="text-xs text-muted-foreground">{temExtrato ? "Extraído do Gestta" : "Aguardando extração do Gestta"}</div>
             </div>
-            <StatusPill variant={temExtrato ? "now" : "next"}>{temExtrato ? "Importado" : "Pendente"}</StatusPill>
+            <StatusPill variant={temExtrato ? "now" : "next"}>{temExtrato ? "Disponível" : "Pendente"}</StatusPill>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" disabled={busy === "extrato"} onClick={() => extratoRef.current?.click()}>
-              <Upload className="mr-1 h-4 w-4" />{busy === "extrato" ? "Enviando..." : temExtrato ? "Substituir" : "Importar CSV"}
-            </Button>
             {temExtrato && (
               <Button variant="ghost" size="sm" onClick={() => conc?.extrato_csv_url && baixar(conc.extrato_csv_url)}>
                 <Download className="mr-1 h-4 w-4" />Baixar
@@ -277,11 +284,84 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
           </div>
         </CardContent>
       </Card>
-      <p className="mb-6 text-xs text-muted-foreground">Cruza os lançamentos da razão com o extrato — por regras (valor + data ±3 dias) e, no que sobrar, por IA.</p>
+
+      {/* Aviso: documentos não classificados (sem lançamento) — tratar manualmente */}
+      {docsErro.length > 0 && (
+        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4">
+          <div className="flex items-center gap-2 text-amber-800">
+            <AlertTriangle className="h-4 w-4" />
+            <span className="font-medium">{docsErro.length} documento(s) não classificado(s) nesta competência</span>
+          </div>
+          <p className="mt-1 text-sm text-amber-700">
+            A IA não conseguiu extrair lançamentos destes documentos — eles <strong>não</strong> aparecem na lista abaixo e precisam de tratamento manual na aba <strong>Documentos</strong>:
+          </p>
+          <ul className="mt-2 space-y-0.5 text-sm text-amber-800">
+            {docsErro.map((d) => <li key={d.id} className="font-mono text-xs">• {d.arquivo_nome ?? d.tipo ?? d.id}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {/* Registros extraídos — revisão e edição humana (todos os lançamentos da IA) */}
+      <Card className="mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-3">
+          <div className="flex items-center gap-2">
+            <ListChecks className="h-4 w-4 text-primary" />
+            <h3 className="font-display text-lg">Registros extraídos · revisão e edição</h3>
+            <span className="text-xs text-muted-foreground">· {lancs.length} lançamento(s)</span>
+          </div>
+          {aRever > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"><AlertTriangle className="h-3 w-3" /> {aRever} a revisar</span>}
+        </div>
+        <CardContent className="p-0">
+          <div className="max-h-[28rem] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-24">Data</TableHead>
+                  <TableHead>Conta</TableHead>
+                  <TableHead>Descrição</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead className="w-36">Status</TableHead>
+                  <TableHead className="w-16 text-right">Editar</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {lancs.map((l) => {
+                  const alerta = precisaRevisao(l);
+                  const st = statusLancamento(l);
+                  return (
+                    <TableRow key={l.id} className={cn(alerta && "bg-amber-50")}>
+                      <TableCell className="text-sm">{l.data_lancamento ? new Date(l.data_lancamento).toLocaleDateString("pt-BR") : "—"}</TableCell>
+                      <TableCell className="text-sm">
+                        {l.conta ? <span className="font-mono text-xs">{l.conta.codigo}</span> : <span className="inline-flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3" /> sem conta</span>}
+                        {l.conta && <div className="text-xs text-muted-foreground">{l.conta.descricao}</div>}
+                      </TableCell>
+                      <TableCell className="max-w-[18rem] truncate text-sm" title={l.descricao ?? ""}>
+                        {l.descricao}
+                        {l.confidence != null && l.confidence < 0.7 && <span className="ml-1 text-[10px] text-amber-700">({Math.round(l.confidence * 100)}%)</span>}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm">{l.valor == null ? "—" : brl(l.valor)}</TableCell>
+                      <TableCell><StatusPill variant={st.variant}>{st.label}</StatusPill></TableCell>
+                      <TableCell className="text-right">
+                        <button type="button" onClick={() => abrirEdicao(l)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar / classificar">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {!lancLoading && lancs.length === 0 && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nenhum lançamento nesta competência.</TableCell></TableRow>}
+                {lancLoading && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <h2 className="mb-3 mt-2 font-display text-xl">Resultado da conciliação</h2>
 
       {!resultado ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
-          {temExtrato ? "Pronto para conciliar — clique em “Conciliar agora”." : "Importe o extrato bancário em CSV para iniciar."}
+          {temExtrato ? "Pronto para conciliar — clique em “Conciliar agora”." : "Aguardando a extração do extrato no Gestta para conciliar."}
         </CardContent></Card>
       ) : (
         <div className="space-y-5">
@@ -291,7 +371,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             <Mini label="Divergências (extrato)" value={resultado.divergencias_extrato.length} tone="warn" />
           </div>
 
-          <Secao titulo="Conciliados" icon={<CheckCircle2 className="h-4 w-4 text-primary" />}>
+          <Secao titulo="O que foi conciliado" icon={<CheckCircle2 className="h-4 w-4 text-primary" />}>
             <Table>
               <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Razão</TableHead><TableHead>Extrato</TableHead><TableHead className="text-right">Valor</TableHead><TableHead>Fonte</TableHead></TableRow></TableHeader>
               <TableBody>
@@ -316,7 +396,13 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
           {(resultado.divergencias_razao.length > 0 || resultado.divergencias_extrato.length > 0) && (
             <Card className="border-amber-200">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-amber-50/60 px-6 py-3">
-                <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-600" /><h3 className="font-display text-lg">Divergências — ajuste manual</h3></div>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-1 h-4 w-4 shrink-0 text-amber-600" />
+                  <div>
+                    <h3 className="font-display text-lg leading-tight">O que não foi conciliado</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Cruza os lançamentos da razão com o extrato — por regras (valor + data ±3 dias) e, no que sobrar, por IA. O que resta aqui é ajuste manual.</p>
+                  </div>
+                </div>
                 <Button size="sm" disabled={acting || selRazao === null || selExtrato === null} onClick={conciliarManual}>
                   <Link2 className="mr-1 h-4 w-4" /> Conciliar par selecionado
                 </Button>
@@ -325,7 +411,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                 <DivergCol
                   titulo="Na razão, sem par no extrato" linhas={resultado.divergencias_razao}
                   sel={selRazao} onSel={(i) => setSelRazao(selRazao === i ? null : i)}
-                  onEdit={(l) => setEdit({ id: l.id ?? "", data: l.data ?? "", valor: String(l.valor ?? ""), descricao: l.descricao ?? "" })}
+                  onEdit={(l) => setEdit({ id: l.id ?? "", data: l.data ?? "", valor: String(l.valor ?? ""), descricao: l.descricao ?? "", conta_codigo: "" })}
                 />
                 <DivergCol
                   titulo="No extrato, sem par na razão" linhas={resultado.divergencias_extrato}
@@ -345,6 +431,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
           <DialogHeader><DialogTitle className="font-display text-2xl">Editar lançamento</DialogTitle></DialogHeader>
           {edit && (
             <div className="space-y-4">
+              <div className="space-y-1.5"><Label>Conta contábil</Label><ContaCombobox value={edit.conta_codigo} onChange={(codigo) => setEdit({ ...edit, conta_codigo: codigo })} /></div>
               <div className="space-y-1.5"><Label>Descrição</Label><Input value={edit.descricao} onChange={(e) => setEdit({ ...edit, descricao: e.target.value })} /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Data (AAAA-MM-DD)</Label><Input value={edit.data} onChange={(e) => setEdit({ ...edit, data: e.target.value })} placeholder="2026-06-30" /></div>
@@ -354,7 +441,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEdit(null)}>Cancelar</Button>
-            <Button disabled={acting || !edit?.id} onClick={salvarEdicao}>{acting ? "Salvando…" : "Salvar e reconciliar"}</Button>
+            <Button disabled={acting || !edit?.id} onClick={salvarEdicao}>{acting ? "Salvando…" : "Salvar"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -392,6 +479,43 @@ function DivergCol({ titulo, linhas, sel, onSel, onEdit }: {
         {linhas.length === 0 && <div className="px-4 py-6 text-center text-xs text-muted-foreground">Sem divergências.</div>}
       </div>
     </div>
+  );
+}
+
+// Seletor de conta contábil pesquisável (código ou descrição) sobre o plano de contas.
+function ContaCombobox({ value, onChange }: { value: string; onChange: (codigo: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useQuery({ queryKey: ["plano-contas"], queryFn: () => listPlanoContas(), staleTime: 5 * 60_000 });
+  const contas = (data ?? []) as { codigo: string; descricao: string; tipo: string | null; ativo: boolean }[];
+  const sel = contas.find((c) => c.codigo === value);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between font-normal">
+          <span className="truncate text-left">
+            {sel ? <><span className="font-mono text-xs">{sel.codigo}</span> · {sel.descricao}</> : (value ? value : <span className="text-muted-foreground">Selecionar conta…</span>)}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[22rem] max-w-[90vw] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Buscar por código ou nome…" />
+          <CommandList>
+            <CommandEmpty>{isLoading ? "Carregando…" : "Nenhuma conta encontrada."}</CommandEmpty>
+            <CommandGroup>
+              {contas.map((c) => (
+                <CommandItem key={c.codigo} value={`${c.codigo} ${c.descricao}`} onSelect={() => { onChange(c.codigo); setOpen(false); }}>
+                  <Check className={cn("mr-2 h-4 w-4", value === c.codigo ? "opacity-100" : "opacity-0")} />
+                  <span className="font-mono text-xs mr-2">{c.codigo}</span>
+                  <span className="truncate">{c.descricao}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 
