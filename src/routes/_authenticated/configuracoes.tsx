@@ -14,12 +14,12 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusPill } from "@/components/status-pill";
 import {
-  listIntegracoes, saveIntegracao, getMeuPerfil,
+  listIntegracoes, saveIntegracao, getMeuPerfil, getCockpitIntegracoes,
   listUsuarios, updateUsuario, listPlanoContas,
 } from "@/lib/lcr.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { ACESSOS, temAcesso } from "@/lib/acessos";
-import { Plus, Trash2, ShieldCheck, Copy, Pencil, KeyRound } from "lucide-react";
+import { Plus, Trash2, ShieldCheck, Copy, Pencil, KeyRound, Activity, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { requireAcesso } from "@/lib/guard";
 
@@ -84,11 +84,124 @@ function IntegracoesTab() {
   const { data: integracoes } = useSuspenseQuery({ queryKey: ["integracoes"], queryFn: () => listIntegracoes() });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-      {INTEGRACOES_DEFS.map((def) => {
-        const atual = integracoes.find((i) => i.tipo === def.tipo);
-        return <IntegracaoCard key={def.tipo} def={def} status={atual?.status ?? "desconectado"} initialConfig={(atual?.config as Record<string, string>) ?? {}} onSaved={() => qc.invalidateQueries({ queryKey: ["integracoes"] })} />;
-      })}
+    <Tabs defaultValue="cockpit" className="space-y-4">
+      <TabsList>
+        <TabsTrigger value="cockpit" className="gap-2"><Activity className="h-4 w-4" />Cockpit</TabsTrigger>
+        <TabsTrigger value="configurar" className="gap-2"><Settings2 className="h-4 w-4" />Configurar</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="cockpit" className="mt-0">
+        <CockpitView />
+      </TabsContent>
+
+      <TabsContent value="configurar" className="mt-0">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {INTEGRACOES_DEFS.map((def) => {
+            const atual = integracoes.find((i) => i.tipo === def.tipo);
+            return <IntegracaoCard key={def.tipo} def={def} status={atual?.status ?? "desconectado"} initialConfig={(atual?.config as Record<string, string>) ?? {}} onSaved={() => qc.invalidateQueries({ queryKey: ["integracoes"] })} />;
+          })}
+        </div>
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function formatRelativo(iso: string | null): string {
+  if (!iso) return "sem atividade";
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 0) return "agora";
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return "há segundos";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h}h`;
+  const d = Math.floor(h / 24);
+  return `há ${d}d`;
+}
+
+function CockpitView() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["cockpit-integracoes"],
+    queryFn: () => getCockpitIntegracoes(),
+    refetchInterval: 15_000,
+  });
+
+  if (isLoading || !data) {
+    return <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">Carregando cockpit operacional…</CardContent></Card>;
+  }
+
+  const online = data.automacoes.filter((a) => a.conectada);
+  const offlineCount = data.total - data.conectadas;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="bg-foreground text-background">
+          <CardContent className="pt-6 pb-5">
+            <div className="text-xs uppercase tracking-wide text-background/70">Automações conectadas</div>
+            <div className="font-display text-4xl mt-1">{data.conectadas}<span className="text-background/60 text-2xl"> / {data.total}</span></div>
+            <div className="mt-3 flex items-center gap-2 text-xs text-background/70">
+              <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" /></span>
+              monitorando em tempo real
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6 pb-5">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Offline / pendentes</div>
+            <div className="font-display text-4xl mt-1">{offlineCount}</div>
+            <div className="mt-3 text-xs text-muted-foreground">Configure em "Configurar" para entrar no ar.</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6 pb-5">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Última leitura</div>
+            <div className="font-display text-4xl mt-1">{formatRelativo(data.gerado_em)}</div>
+            <div className="mt-3 text-xs text-muted-foreground">Atualiza a cada 15s.</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {online.length === 0 ? (
+        <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">Nenhuma automação conectada no momento. Vá em "Configurar" para ativar.</CardContent></Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {online.map((a) => (
+            <Card key={a.tipo} className="card-interactive">
+              <CardContent className="pt-5 pb-5 space-y-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{a.categoria}</div>
+                    <h4 className="font-display text-lg leading-tight">{a.nome}</h4>
+                  </div>
+                  <div className="flex items-center gap-1.5 rounded-full bg-green-500/10 text-green-700 px-2.5 py-1 text-[11px] font-medium">
+                    <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" /></span>
+                    online
+                  </div>
+                </div>
+
+                <p className="text-xs text-soft-foreground leading-relaxed">{a.descricao}</p>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{a.metrica1.label}</div>
+                    <div className="font-display text-lg mt-0.5">{a.metrica1.value}</div>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{a.metrica2.label}</div>
+                    <div className="font-display text-lg mt-0.5">{a.metrica2.value}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground border-t border-border/60 pt-3">
+                  <span>Última atividade</span>
+                  <span className="font-medium text-foreground">{formatRelativo(a.ultimaAt)}</span>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

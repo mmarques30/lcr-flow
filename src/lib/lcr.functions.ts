@@ -762,6 +762,104 @@ export const listIntegracoes = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
+// Cockpit operacional: status agregado de cada automação para a view executiva.
+export const getCockpitIntegracoes = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const agora = new Date();
+    const h24 = new Date(agora.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const h7d = new Date(agora.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const [
+      integracoesRes,
+      docsGesttaRes,
+      docs24hRes,
+      lancIaRes,
+      lancMesRes,
+      planilhasMesRes,
+      cerebroChamadasRes,
+      ultimoLancRes,
+    ] = await Promise.all([
+      context.supabase.from("integracoes").select("*"),
+      context.supabase.from("documentos").select("id, recebido_em").eq("origem", "gestta").order("recebido_em", { ascending: false }).limit(1),
+      context.supabase.from("documentos").select("id", { count: "exact", head: true }).gte("recebido_em", h24),
+      context.supabase.from("lancamentos").select("id", { count: "exact", head: true }).gte("created_at", h24).not("confidence", "is", null),
+      context.supabase.from("lancamentos").select("id", { count: "exact", head: true }).gte("created_at", h7d).not("valor", "is", null),
+      context.supabase.from("lancamentos").select("id", { count: "exact", head: true }).gte("created_at", h7d).eq("status", "gerada").is("valor", null),
+      context.supabase.from("cerebro_interactions").select("id, created_at").gte("created_at", h24).order("created_at", { ascending: false }).limit(50),
+      context.supabase.from("lancamentos").select("created_at").order("created_at", { ascending: false }).limit(1),
+    ]);
+
+    const integracoes = integracoesRes.data ?? [];
+    const conectadaStatus = new Set(["configurado", "conectado", "ativo"]);
+    const find = (tipo: string) => integracoes.find((i) => i.tipo === tipo);
+
+    const gestta = find("gestta");
+    const claude = find("claude_api");
+    const sci = find("sci");
+    const leveldrive = find("leveldrive");
+    const sharepoint = find("sharepoint");
+
+    const ultimoDocGestta = docsGesttaRes.data?.[0]?.recebido_em ?? null;
+    const ultimoLanc = ultimoLancRes.data?.[0]?.created_at ?? null;
+    const ultimoCerebro = cerebroChamadasRes.data?.[0]?.created_at ?? null;
+
+    const automacoes = [
+      {
+        tipo: "gestta",
+        nome: "Gestta",
+        categoria: "Documentos",
+        conectada: conectadaStatus.has(gestta?.status ?? ""),
+        ultimaAt: ultimoDocGestta,
+        metrica1: { label: "Docs recebidos 24h", value: docs24hRes.count ?? 0 },
+        metrica2: { label: "Última sincronização", value: ultimoDocGestta ? "ok" : "—" },
+        descricao: "Pull contínuo de documentos enviados pelos clientes.",
+      },
+      {
+        tipo: "claude_api",
+        nome: "Claude (IA)",
+        categoria: "Inteligência",
+        conectada: conectadaStatus.has(claude?.status ?? ""),
+        ultimaAt: ultimoCerebro ?? ultimoLanc,
+        metrica1: { label: "Lançamentos com IA 24h", value: lancIaRes.count ?? 0 },
+        metrica2: { label: "Chamadas Cérebro 24h", value: cerebroChamadasRes.data?.length ?? 0 },
+        descricao: "Classificação, regra IA, conciliação e Cérebro consultivo.",
+      },
+      {
+        tipo: "sci",
+        nome: "SCI Único",
+        categoria: "Contábil",
+        conectada: conectadaStatus.has(sci?.status ?? ""),
+        ultimaAt: ultimoLanc,
+        metrica1: { label: "Lançamentos 7d", value: lancMesRes.count ?? 0 },
+        metrica2: { label: "Planilhas geradas 7d", value: planilhasMesRes.count ?? 0 },
+        descricao: "Razão SCI gerado a partir dos lançamentos conciliados.",
+      },
+      {
+        tipo: "leveldrive",
+        nome: "LevelDrive",
+        categoria: "Armazenamento",
+        conectada: conectadaStatus.has(leveldrive?.status ?? ""),
+        ultimaAt: leveldrive?.atualizado_em ?? null,
+        metrica1: { label: "Pasta", value: ((leveldrive?.config as Record<string, string> | null)?.path) ? "ok" : "—" },
+        metrica2: { label: "Sincronização", value: leveldrive?.status === "configurado" ? "ativa" : "pendente" },
+        descricao: "Backup automático de documentos e relatórios.",
+      },
+      {
+        tipo: "sharepoint",
+        nome: "SharePoint",
+        categoria: "Armazenamento",
+        conectada: conectadaStatus.has(sharepoint?.status ?? ""),
+        ultimaAt: sharepoint?.atualizado_em ?? null,
+        metrica1: { label: "URL configurada", value: ((sharepoint?.config as Record<string, string> | null)?.folder_url) ? "ok" : "—" },
+        metrica2: { label: "Sincronização", value: sharepoint?.status === "configurado" ? "ativa" : "pendente" },
+        descricao: "Repositório corporativo de documentos.",
+      },
+    ];
+
+    const conectadas = automacoes.filter((a) => a.conectada).length;
+    return { gerado_em: agora.toISOString(), total: automacoes.length, conectadas, automacoes };
+  });
+
 export const saveIntegracao = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { tipo: string; config: Record<string, unknown>; status?: string }) =>
