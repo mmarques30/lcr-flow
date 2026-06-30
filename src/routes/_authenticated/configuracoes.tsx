@@ -14,12 +14,12 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusPill } from "@/components/status-pill";
 import {
-  listIntegracoes, saveIntegracao, getMeuPerfil, getCockpitIntegracoes,
+  listIntegracoes, getMeuPerfil, getCockpitIntegracoes,
   listUsuarios, updateUsuario, listPlanoContas,
 } from "@/lib/lcr.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { ACESSOS, temAcesso } from "@/lib/acessos";
-import { Plus, Trash2, ShieldCheck, Copy, Pencil, KeyRound, Activity, Settings2 } from "lucide-react";
+import { Plus, Trash2, ShieldCheck, Copy, Pencil, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { requireAcesso } from "@/lib/guard";
 
@@ -39,14 +39,6 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
   component: ConfiguracoesPage,
   errorComponent: ({ error }) => <div className="p-6 text-destructive">Erro: {error.message}</div>,
 });
-
-const INTEGRACOES_DEFS: { tipo: string; nome: string; campos: { key: string; label: string; type?: string }[] }[] = [
-  { tipo: "gestta", nome: "Gestta", campos: [{ key: "api_key", label: "API Key", type: "password" }, { key: "base_url", label: "Base URL" }] },
-  { tipo: "sci", nome: "SCI Único", campos: [{ key: "url", label: "URL" }, { key: "usuario", label: "Usuário" }, { key: "senha", label: "Senha", type: "password" }] },
-  { tipo: "leveldrive", nome: "LevelDrive", campos: [{ key: "path", label: "Caminho da pasta" }] },
-  { tipo: "sharepoint", nome: "SharePoint", campos: [{ key: "folder_url", label: "URL da pasta" }] },
-  { tipo: "claude_api", nome: "Claude API", campos: [{ key: "api_key", label: "API Key", type: "password" }, { key: "model", label: "Modelo" }] },
-];
 
 function ConfiguracoesPage() {
   const { data: perfil } = useSuspenseQuery({ queryKey: ["meu-perfil"], queryFn: () => getMeuPerfil() });
@@ -80,30 +72,9 @@ function ConfiguracoesPage() {
 }
 
 function IntegracoesTab() {
-  const qc = useQueryClient();
-  const { data: integracoes } = useSuspenseQuery({ queryKey: ["integracoes"], queryFn: () => listIntegracoes() });
-
-  return (
-    <Tabs defaultValue="cockpit" className="space-y-4">
-      <TabsList>
-        <TabsTrigger value="cockpit" className="gap-2"><Activity className="h-4 w-4" />Cockpit</TabsTrigger>
-        <TabsTrigger value="configurar" className="gap-2"><Settings2 className="h-4 w-4" />Configurar</TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="cockpit" className="mt-0">
-        <CockpitView />
-      </TabsContent>
-
-      <TabsContent value="configurar" className="mt-0">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {INTEGRACOES_DEFS.map((def) => {
-            const atual = integracoes.find((i) => i.tipo === def.tipo);
-            return <IntegracaoCard key={def.tipo} def={def} status={atual?.status ?? "desconectado"} initialConfig={(atual?.config as Record<string, string>) ?? {}} onSaved={() => qc.invalidateQueries({ queryKey: ["integracoes"] })} />;
-          })}
-        </div>
-      </TabsContent>
-    </Tabs>
-  );
+  // Pré-carrega lista pra manter coerência do invalidate ao salvar via cockpit.
+  useSuspenseQuery({ queryKey: ["integracoes"], queryFn: () => listIntegracoes() });
+  return <CockpitView />;
 }
 
 function formatRelativo(iso: string | null): string {
@@ -203,43 +174,6 @@ function CockpitView() {
         </div>
       )}
     </div>
-  );
-}
-
-function IntegracaoCard({ def, status, initialConfig, onSaved }: { def: typeof INTEGRACOES_DEFS[0]; status: string; initialConfig: Record<string, string>; onSaved: () => void }) {
-  const [cfg, setCfg] = useState<Record<string, string>>(initialConfig);
-  const [loading, setLoading] = useState(false);
-  useEffect(() => setCfg(initialConfig), [initialConfig]);
-
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await saveIntegracao({ data: { tipo: def.tipo, config: cfg } });
-      toast.success(`${def.nome} salvo.`);
-      onSaved();
-    } catch (err) { toast.error(err instanceof Error ? err.message : "Erro"); }
-    finally { setLoading(false); }
-  }
-
-  return (
-    <Card className="card-interactive">
-      <CardContent className="pt-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-lg">{def.nome}</h3>
-          <StatusPill variant={status === "configurado" ? "doing" : "next"}>{status === "configurado" ? "Configurado" : "Desconectado"}</StatusPill>
-        </div>
-        <form onSubmit={salvar} className="space-y-3">
-          {def.campos.map((c) => (
-            <div key={c.key} className="space-y-1.5">
-              <Label>{c.label}</Label>
-              <Input type={c.type ?? "text"} value={cfg[c.key] ?? ""} onChange={(e) => setCfg({ ...cfg, [c.key]: e.target.value })} />
-            </div>
-          ))}
-          <Button type="submit" disabled={loading} size="sm">{loading ? "Salvando..." : "Salvar"}</Button>
-        </form>
-      </CardContent>
-    </Card>
   );
 }
 

@@ -115,45 +115,45 @@ function Dashboard() {
 
       {/* HERO — painel principal navy com KPIs grandes + sparkline integrada */}
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="relative overflow-hidden rounded-3xl bg-deep p-7 text-background lg:col-span-2">
+        <div className="relative overflow-hidden rounded-3xl bg-primary p-7 text-primary-foreground lg:col-span-2">
           {/* Gradient glow ao fundo (marca azul) */}
           <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-primary/40 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-24 -left-10 h-64 w-64 rounded-full bg-accent-lime/20 blur-3xl" />
 
           <div className="relative flex items-start justify-between gap-6">
             <div>
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-background/60">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-primary-foreground/70">
                 <Sparkles className="h-3.5 w-3.5" /> Operação · {formatCompetencia(data.competencia)}
               </div>
               <div className="mt-4 flex items-end gap-5">
                 <div>
-                  <div className="text-[11px] uppercase tracking-wide text-background/60">Lançamentos do mês</div>
+                  <div className="text-[11px] uppercase tracking-wide text-primary-foreground/70">Lançamentos do mês</div>
                   <div className="font-display text-[3.5rem] font-bold leading-none tracking-tight">
                     {data.lancamentosMes.toLocaleString("pt-BR")}
                   </div>
                 </div>
                 <div className="pb-3"><Delta pct={data.deltaLanc} /></div>
               </div>
-              <div className="mt-1 text-xs text-background/60">
+              <div className="mt-1 text-xs text-primary-foreground/70">
                 vs {data.lancamentosMesAnterior.toLocaleString("pt-BR")} no mês anterior
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-right min-w-[220px]">
-              <div className="rounded-2xl bg-background/5 p-3 backdrop-blur-sm">
-                <div className="text-[10px] uppercase tracking-wide text-background/60">Clientes</div>
+              <div className="rounded-2xl bg-primary-foreground/10 p-3 backdrop-blur-sm">
+                <div className="text-[10px] uppercase tracking-wide text-primary-foreground/70">Clientes</div>
                 <div className="mt-1 font-display text-2xl">{data.clientesAtivos.toLocaleString("pt-BR")}</div>
               </div>
-              <div className="rounded-2xl bg-background/5 p-3 backdrop-blur-sm">
-                <div className="text-[10px] uppercase tracking-wide text-background/60">Docs aguardando</div>
+              <div className="rounded-2xl bg-primary-foreground/10 p-3 backdrop-blur-sm">
+                <div className="text-[10px] uppercase tracking-wide text-primary-foreground/70">Docs aguardando</div>
                 <div className="mt-1 font-display text-2xl">{data.docsAguardando.toLocaleString("pt-BR")}</div>
               </div>
-              <div className="rounded-2xl bg-background/5 p-3 backdrop-blur-sm">
-                <div className="text-[10px] uppercase tracking-wide text-background/60">Conciliação pendente</div>
+              <div className="rounded-2xl bg-primary-foreground/10 p-3 backdrop-blur-sm">
+                <div className="text-[10px] uppercase tracking-wide text-primary-foreground/70">Conciliação pendente</div>
                 <div className="mt-1 font-display text-2xl">{data.conciliacoesPendentes.toLocaleString("pt-BR")}</div>
               </div>
-              <div className="rounded-2xl bg-background/5 p-3 backdrop-blur-sm">
-                <div className="text-[10px] uppercase tracking-wide text-background/60">Tarefas abertas</div>
+              <div className="rounded-2xl bg-primary-foreground/10 p-3 backdrop-blur-sm">
+                <div className="text-[10px] uppercase tracking-wide text-primary-foreground/70">Tarefas abertas</div>
                 <div className="mt-1 font-display text-2xl">{data.tarefasAbertas.toLocaleString("pt-BR")}</div>
               </div>
             </div>
@@ -179,7 +179,7 @@ function Dashboard() {
                 <Area type="monotone" dataKey="lancamentos" stroke="var(--color-accent-lime)" strokeWidth={2} fill="url(#heroFill)" />
               </AreaChart>
             </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-x-0 -bottom-1 flex justify-between px-1 text-[10px] uppercase tracking-wider text-background/40">
+            <div className="pointer-events-none absolute inset-x-0 -bottom-1 flex justify-between px-1 text-[10px] uppercase tracking-wider text-primary-foreground/50">
               {data.serieMensal.map((s) => <span key={s.competencia}>{formatShortComp(s.competencia)}</span>)}
             </div>
           </div>
@@ -548,10 +548,10 @@ function Dashboard() {
                   })}
                 </div>
 
-                <div className="mt-6 rounded-2xl bg-deep p-4 text-background">
+                <div className="mt-6 rounded-2xl bg-primary p-4 text-primary-foreground">
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <div className="text-[10px] uppercase tracking-wider text-background/60">Próximo passo</div>
+                      <div className="text-[10px] uppercase tracking-wider text-primary-foreground/70">Próximo passo</div>
                       <div className="mt-1 font-display text-base">Atacar a fase de {faseDestaque?.fase}</div>
                     </div>
                     <Link to="/clientes" className="inline-flex items-center gap-1 rounded-full bg-background px-3 py-1.5 text-xs font-medium text-foreground">

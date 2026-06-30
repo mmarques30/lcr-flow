@@ -693,12 +693,14 @@ export type Database = {
           codigo_gestta: string | null
           consultor_id: string | null
           created_at: string
+          dia_fechamento: number | null
           id: string
           importado_em: string | null
           is_demo: boolean
           mensalidade: number | null
           nome_fantasia: string | null
           nome_normalizado: string | null
+          observacoes: string | null
           qtd_tarefas_mes: number | null
           razao_social: string
           regime: Database["public"]["Enums"]["regime_tributario"] | null
@@ -714,12 +716,14 @@ export type Database = {
           codigo_gestta?: string | null
           consultor_id?: string | null
           created_at?: string
+          dia_fechamento?: number | null
           id?: string
           importado_em?: string | null
           is_demo?: boolean
           mensalidade?: number | null
           nome_fantasia?: string | null
           nome_normalizado?: string | null
+          observacoes?: string | null
           qtd_tarefas_mes?: number | null
           razao_social: string
           regime?: Database["public"]["Enums"]["regime_tributario"] | null
@@ -735,12 +739,14 @@ export type Database = {
           codigo_gestta?: string | null
           consultor_id?: string | null
           created_at?: string
+          dia_fechamento?: number | null
           id?: string
           importado_em?: string | null
           is_demo?: boolean
           mensalidade?: number | null
           nome_fantasia?: string | null
           nome_normalizado?: string | null
+          observacoes?: string | null
           qtd_tarefas_mes?: number | null
           razao_social?: string
           regime?: Database["public"]["Enums"]["regime_tributario"] | null

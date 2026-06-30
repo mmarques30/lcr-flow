@@ -304,6 +304,105 @@ export const createEmpresa = createServerFn({ method: "POST" })
     return emp;
   });
 
+// Dados agregados para a Visão geral do cliente: série mensal, KPIs, contas
+// detectadas dos extratos, documentos esperados com status no mês.
+export const getEmpresaPainel = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      empresa_id: z.string().uuid(),
+      competencia: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    const compAtual = data.competencia ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+
+    const seisMeses: string[] = [];
+    {
+      const [yy, mm] = compAtual.split("-").map(Number);
+      const d2 = new Date(yy, mm - 1, 1);
+      for (let i = 0; i < 6; i++) {
+        seisMeses.unshift(`${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}`);
+        d2.setMonth(d2.getMonth() - 1);
+      }
+    }
+
+    const [docsAll, lancAll, lancMes, esperados, contasCad] = await Promise.all([
+      supabase.from("documentos").select("id, tipo, status, origem, recebido_em, competencia, arquivo_nome").eq("empresa_id", data.empresa_id).order("recebido_em", { ascending: false }).limit(500),
+      supabase.from("lancamentos").select("id, competencia, valor, created_at").eq("empresa_id", data.empresa_id).in("competencia", seisMeses),
+      supabase.from("lancamentos").select("id, valor, descricao, data_lancamento").eq("empresa_id", data.empresa_id).eq("competencia", compAtual).order("data_lancamento", { ascending: false }).limit(20),
+      supabase.from("documentos_esperados").select("id, tipo").eq("empresa_id", data.empresa_id),
+      supabase.from("contas_bancarias").select("id, banco, agencia, conta").eq("empresa_id", data.empresa_id),
+    ]);
+
+    const docs = docsAll.data ?? [];
+    const lancs = lancAll.data ?? [];
+
+    // Série mensal de lançamentos.
+    const porMes = Object.fromEntries(seisMeses.map((c) => [c, { lancamentos: 0, valor: 0 }])) as Record<string, { lancamentos: number; valor: number }>;
+    lancs.forEach((l) => {
+      if (l.competencia in porMes) {
+        porMes[l.competencia].lancamentos++;
+        porMes[l.competencia].valor += Number(l.valor ?? 0);
+      }
+    });
+    const serieMensal = seisMeses.map((c) => ({ competencia: c, ...porMes[c] }));
+
+    // Docs do mês selecionado.
+    const docsMes = docs.filter((d) => d.competencia === compAtual);
+
+    // Distribuição por tipo (todos os tempos).
+    const tipoCount: Record<string, number> = {};
+    docs.forEach((d) => { tipoCount[d.tipo] = (tipoCount[d.tipo] ?? 0) + 1; });
+    const docsByTipo = Object.entries(tipoCount).map(([tipo, total]) => ({ tipo, total })).sort((a, b) => b.total - a.total);
+
+    // Documentos esperados com status no mês selecionado.
+    const esperadosMes = (esperados.data ?? []).map((e) => {
+      const recebido = docsMes.find((d) => d.tipo === e.tipo);
+      return { id: e.id, tipo: e.tipo, recebido: !!recebido, status: recebido?.status ?? null, recebido_em: recebido?.recebido_em ?? null };
+    });
+
+    // Bancos detectados via nomes de arquivo dos extratos / documentos recebidos.
+    const cadastrados = new Set((contasCad.data ?? []).map((c) => (c.banco ?? "").toLowerCase()));
+    const bancosConhecidos = ["itau", "itaú", "bradesco", "santander", "bb", "banco do brasil", "caixa", "sicoob", "sicredi", "inter", "nubank", "safra", "bmg", "btg"];
+    const detectados = new Map<string, { banco: string; ocorrencias: number }>();
+    docs.filter((d) => d.tipo === "extrato").forEach((d) => {
+      const nome = (d.arquivo_nome ?? "").toLowerCase();
+      bancosConhecidos.forEach((b) => {
+        if (nome.includes(b) && !cadastrados.has(b)) {
+          const cur = detectados.get(b) ?? { banco: b.charAt(0).toUpperCase() + b.slice(1), ocorrencias: 0 };
+          cur.ocorrencias++;
+          detectados.set(b, cur);
+        }
+      });
+    });
+    const bancosDetectados = Array.from(detectados.values()).sort((a, b) => b.ocorrencias - a.ocorrencias);
+
+    const ultimoDoc = docs[0] ?? null;
+    const lancMesData = lancMes.data ?? [];
+    const ultimoLanc = lancMesData[0] ?? null;
+    const valorMes = lancMesData.reduce((s, l) => s + Number(l.valor ?? 0), 0);
+
+    return {
+      competencia: compAtual,
+      kpis: {
+        totalDocs: docs.length,
+        docsMes: docsMes.length,
+        lancMes: lancMesData.length,
+        valorMes,
+        ultimoDoc: ultimoDoc ? { tipo: ultimoDoc.tipo, recebido_em: ultimoDoc.recebido_em } : null,
+        ultimoLanc: ultimoLanc ? { descricao: ultimoLanc.descricao, valor: Number(ultimoLanc.valor ?? 0), data_lancamento: ultimoLanc.data_lancamento } : null,
+      },
+      serieMensal,
+      docsByTipo,
+      docsEsperadosMes: esperadosMes,
+      docsRecentes: docs.slice(0, 8).map((d) => ({ id: d.id, tipo: d.tipo, status: d.status, origem: d.origem, recebido_em: d.recebido_em, competencia: d.competencia })),
+      lancRecentes: lancMesData.slice(0, 8).map((l) => ({ id: l.id, descricao: l.descricao, valor: Number(l.valor ?? 0), data_lancamento: l.data_lancamento })),
+      bancosDetectados,
+    };
+  });
+
 export const updateEmpresa = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) =>
@@ -311,11 +410,14 @@ export const updateEmpresa = createServerFn({ method: "POST" })
       id: z.string().uuid(),
       razao_social: z.string().min(2).max(200),
       nome_fantasia: z.string().max(200).optional().nullable(),
-      cnpj: z.string().min(14).max(20),
-      regime: z.enum(["simples", "presumido", "real", "mei"]),
+      cnpj: z.string().min(11).max(20).optional().nullable(),
+      regime: z.enum(["simples", "presumido", "real", "mei"]).optional().nullable(),
       segmento: z.string().max(100).optional().nullable(),
       consultor_id: z.string().uuid().optional().nullable(),
       tags: z.array(z.string().max(50)).max(20).default([]),
+      observacoes: z.string().max(2000).optional().nullable(),
+      dia_fechamento: z.number().int().min(1).max(31).optional().nullable(),
+      status: z.enum(["em_dia", "cobranca", "lancamento", "conciliacao", "entregue", "atrasado"]).optional(),
     }).parse(d),
   )
   .handler(async ({ context, data }) => {
@@ -325,11 +427,14 @@ export const updateEmpresa = createServerFn({ method: "POST" })
       .update({
         razao_social: patch.razao_social,
         nome_fantasia: patch.nome_fantasia ?? null,
-        cnpj: patch.cnpj,
-        regime: patch.regime,
+        cnpj: patch.cnpj ?? null,
+        regime: patch.regime ?? null,
         segmento: patch.segmento ?? null,
         consultor_id: patch.consultor_id ?? null,
         tags: patch.tags,
+        observacoes: patch.observacoes ?? null,
+        dia_fechamento: patch.dia_fechamento ?? null,
+        ...(patch.status ? { status: patch.status } : {}),
       })
       .eq("id", id);
     if (error) throw new Error(error.message);
