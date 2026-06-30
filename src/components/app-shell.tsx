@@ -1,10 +1,14 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Building2, ListChecks, Settings, LogOut, PanelLeftClose, PanelLeftOpen, Brain, LineChart, HeartHandshake, Plug, Users, ListTree, ChevronDown, Bell, UserPen, Camera, History, Check, type LucideIcon } from "lucide-react";
+import {
+  LayoutDashboard, Building2, ListChecks, Settings, LogOut, PanelLeftClose, PanelLeftOpen,
+  Brain, LineChart, HeartHandshake, Plug, Users, ListTree, ChevronDown, Bell, UserPen, Camera,
+  History, Check, ChevronRight, Search, Activity, type LucideIcon,
+} from "lucide-react";
 import { LcrLogo } from "./brand";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -18,7 +22,7 @@ function Avatar({ url, nome, size = 36, className }: { url?: string | null; nome
     return <img src={url} alt={nome ?? "Perfil"} width={size} height={size} style={{ width: size, height: size }} className={cn("rounded-full object-cover", className)} />;
   }
   return (
-    <span style={{ width: size, height: size }} className={cn("flex items-center justify-center rounded-full bg-primary/12 text-xs font-semibold text-primary", className)}>
+    <span style={{ width: size, height: size }} className={cn("flex items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary", className)}>
       {iniciais}
     </span>
   );
@@ -93,16 +97,14 @@ function MeuPerfilDialog({ open, onOpenChange, nomeInicial, avatarInicial }: { o
 }
 
 type NavLeaf = { to: string; label: string; icon: LucideIcon; acesso: string; tab?: string };
-type NavItem = NavLeaf | { group: string; icon: LucideIcon; itens: NavLeaf[] };
+type NavGroup = { group: string; icon: LucideIcon; itens: NavLeaf[] };
+type NavItem = NavLeaf | NavGroup;
 
-// O ciclo contábil (Documentos/Lançamentos/Conciliação) vive DENTRO do Painel
-// do Cliente (Carteira → cliente → abas), então não aparece aqui como item
-// solto. Os demais grupos (Cérebro LCR, Configurações) mantêm sub-itens.
+// Navegação organizada em seções. Itens soltos aparecem como leafs principais;
+// grupos colapsáveis para sub-áreas (Cérebro / Configurações).
 const NAV: NavItem[] = [
-  { group: "Visão geral", icon: LayoutDashboard, itens: [
-    { to: "/app", label: "Início", icon: LayoutDashboard, acesso: "dashboard" },
-    { to: "/clientes", label: "Carteira", icon: Building2, acesso: "clientes" },
-  ] },
+  { to: "/app", label: "Início", icon: LayoutDashboard, acesso: "dashboard" },
+  { to: "/clientes", label: "Carteira", icon: Building2, acesso: "clientes" },
   { to: "/tarefas", label: "Tarefas", icon: ListChecks, acesso: "tarefas" },
   { group: "Cérebro LCR", icon: Brain, itens: [
     { to: "/cx", label: "CX", icon: HeartHandshake, acesso: "cx" },
@@ -124,19 +126,30 @@ function leafAtiva(leaf: NavLeaf, pathname: string, tabAtual: string | undefined
   return pathname === leaf.to || (leaf.to !== "/app" && pathname.startsWith(leaf.to));
 }
 
+// Item de navegação principal (sidebar) — densidade EZ Blockchain: ícone +
+// label, barra accent à esquerda no ativo, sem all-caps em chips.
 function NavLeafLink({ leaf, active, indented = false }: { leaf: NavLeaf; active: boolean; indented?: boolean }) {
   const Icon = leaf.icon;
   const className = cn(
-    "group relative flex items-center gap-3 rounded-[16px] py-2.5 pr-3 text-sm transition-all duration-200 ease-out",
-    indented ? "pl-9" : "pl-3",
+    "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150",
     active
-      ? "bg-sidebar-primary text-sidebar-primary-foreground font-semibold shadow-soft"
-      : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+      ? "bg-sidebar-primary/15 text-sidebar-foreground"
+      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
+    indented && "pl-10",
   );
   const inner = (
     <>
-      {!indented && <Icon className={cn("h-[18px] w-[18px] shrink-0 transition-colors", active ? "" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground")} />}
+      {active && <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-accent-lime" />}
+      {!indented && (
+        <span className={cn(
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+          active ? "bg-accent-lime/20 text-accent-lime" : "text-sidebar-foreground/55 group-hover:text-sidebar-foreground",
+        )}>
+          <Icon className="h-4 w-4" />
+        </span>
+      )}
       <span className="truncate">{leaf.label}</span>
+      {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent-lime shadow-[0_0_8px_var(--color-accent-lime)]" />}
     </>
   );
   if (leaf.to === "/configuracoes") {
@@ -145,11 +158,39 @@ function NavLeafLink({ leaf, active, indented = false }: { leaf: NavLeaf; active
   return <Link to={leaf.to as "/app"} className={className}>{inner}</Link>;
 }
 
-// Topbar: toggle do menu à esquerda; notificações + perfil à direita.
-// Some ao rolar para baixo e volta ao subir.
-function TopBar({ userName, userRole, userAvatar, collapsed, onToggle, onSignOut }: {
+const ROUTE_TITLES: Record<string, string> = {
+  "/app": "Visão geral",
+  "/clientes": "Carteira",
+  "/tarefas": "Tarefas",
+  "/cx": "CX",
+  "/mestre": "Mestre",
+  "/consultive": "Consultivo",
+  "/historico": "Histórico Geral",
+  "/knowledge": "Base de Conhecimento",
+  "/configuracoes": "Configurações",
+  "/documentos": "Documentos",
+  "/lancamentos": "Lançamentos",
+  "/conciliacao": "Conciliação",
+};
+
+function tituloDaRota(pathname: string): string {
+  if (ROUTE_TITLES[pathname]) return ROUTE_TITLES[pathname];
+  const root = "/" + pathname.split("/")[1];
+  if (ROUTE_TITLES[root]) {
+    if (pathname.includes("/clientes/")) return "Cliente";
+    if (pathname.includes("/cx/")) return "Cliente · CX";
+    if (pathname.includes("/consultive/")) return "Cliente · Consultivo";
+    if (pathname.includes("/conciliacao/")) return "Conciliação · Cliente";
+    return ROUTE_TITLES[root];
+  }
+  return "LCR";
+}
+
+// Top bar moderno: breadcrumb à esquerda, busca central, status real-time +
+// notificações + perfil à direita.
+function TopBar({ userName, userRole, userAvatar, collapsed, onToggle, onSignOut, pathname }: {
   userName?: string; userRole?: string; userAvatar?: string | null;
-  collapsed: boolean; onToggle: () => void; onSignOut: () => void;
+  collapsed: boolean; onToggle: () => void; onSignOut: () => void; pathname: string;
 }) {
   const [hidden, setHidden] = useState(false);
   const [perfilOpen, setPerfilOpen] = useState(false);
@@ -161,6 +202,7 @@ function TopBar({ userName, userRole, userAvatar, collapsed, onToggle, onSignOut
   const visiveis = notifItems.filter((n) => lidas[n.tipo] !== n.count);
   const marcarLida = (tipo: string, count: number) => persistLidas({ ...lidas, [tipo]: count });
   const marcarTodas = () => persistLidas(Object.fromEntries(notifItems.map((n) => [n.tipo, n.count])));
+
   useEffect(() => {
     let last = window.scrollY;
     const onScroll = () => {
@@ -172,28 +214,67 @@ function TopBar({ userName, userRole, userAvatar, collapsed, onToggle, onSignOut
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  const titulo = tituloDaRota(pathname);
+  const hora = useMemo(() => new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }), [pathname]);
+
   return (
     <header
       className={cn(
-        "sticky top-0 z-20 flex h-16 items-center justify-between gap-1 border-b border-primary/15 bg-[oklch(0.89_0.04_250)]/90 px-4 backdrop-blur transition-transform duration-300 ease-out lg:px-8",
+        "sticky top-0 z-20 flex h-16 items-center justify-between gap-3 border-b border-border bg-card/85 px-4 backdrop-blur-md transition-transform duration-300 ease-out lg:px-8",
         hidden ? "-translate-y-full" : "translate-y-0",
       )}
     >
-      <button
-        onClick={onToggle}
-        className="flex h-10 w-10 items-center justify-center rounded-full text-soft-foreground transition-colors hover:bg-card hover:text-foreground"
-        aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
-        title={collapsed ? "Expandir menu" : "Recolher menu"}
-      >
-        {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
-      </button>
+      {/* Esquerda: toggle + breadcrumb */}
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          onClick={onToggle}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-soft-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+          title={collapsed ? "Expandir menu" : "Recolher menu"}
+        >
+          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </button>
+        <nav className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground min-w-0" aria-label="breadcrumb">
+          <span className="font-medium">LCR Contábil</span>
+          <ChevronRight className="h-3 w-3" />
+          <span className="font-display text-sm text-foreground truncate">{titulo}</span>
+        </nav>
+      </div>
 
-      <div className="flex items-center gap-1">
+      {/* Centro: busca compacta */}
+      <div className="hidden lg:flex max-w-md flex-1 items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground transition-colors focus-within:border-primary/40 focus-within:bg-card">
+        <Search className="h-3.5 w-3.5" />
+        <input
+          type="search"
+          placeholder="Buscar clientes, documentos, lançamentos…"
+          className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/70 outline-none"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const val = (e.target as HTMLInputElement).value.trim();
+              if (val) window.location.assign(`/clientes?q=${encodeURIComponent(val)}`);
+            }
+          }}
+        />
+        <kbd className="hidden sm:inline-flex items-center rounded border border-border bg-card px-1.5 text-[10px] text-muted-foreground">↵</kbd>
+      </div>
+
+      {/* Direita: status + sino + perfil */}
+      <div className="flex items-center gap-1.5">
+        <div className="hidden md:flex items-center gap-1.5 rounded-full bg-primary/8 px-3 py-1.5 text-[11px] font-medium text-primary">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+          </span>
+          <Activity className="h-3 w-3" />
+          <span>Em sincronia · {hora}</span>
+        </div>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="relative flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-card hover:text-foreground" aria-label="Notificações">
-              <Bell className="h-5 w-5" />
-              {visiveis.length > 0 && <span className="absolute right-2 top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">{visiveis.length}</span>}
+            <button className="relative flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" aria-label="Notificações">
+              <Bell className="h-4 w-4" />
+              {visiveis.length > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">{visiveis.length}</span>}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-80">
@@ -224,11 +305,11 @@ function TopBar({ userName, userRole, userAvatar, collapsed, onToggle, onSignOut
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-2.5 transition-colors hover:bg-card">
-              <Avatar url={userAvatar} nome={userName} size={36} />
+            <button className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-2.5 transition-colors hover:bg-muted">
+              <Avatar url={userAvatar} nome={userName} size={32} />
               <span className="hidden text-left sm:block">
-                <span className="block text-sm font-semibold leading-tight text-foreground">{userName ?? "Equipe LCR"}</span>
-                <span className="block text-[11px] capitalize leading-tight text-muted-foreground">{userRole ?? "Conectado"}</span>
+                <span className="block text-xs font-semibold leading-tight text-foreground">{userName ?? "Equipe LCR"}</span>
+                <span className="block text-[10px] capitalize leading-tight text-muted-foreground">{userRole ?? "Conectado"}</span>
               </span>
             </button>
           </DropdownMenuTrigger>
@@ -266,10 +347,20 @@ export function AppShell({ children, userName, userRole, userAvatar, acessos }: 
     return !acessos || acessos.includes(it.acesso) ? [it] : [];
   });
 
+  // grupos: abertos por padrão se contiverem item ativo, senão fechados
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    const inicial: Record<string, boolean> = {};
+    itens.forEach((it) => {
+      if ("group" in it) {
+        inicial[it.group] = it.itens.some((sub) => leafAtiva(sub, pathname, tabAtual));
+      }
+    });
+    setOpenGroups((prev) => ({ ...inicial, ...prev }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
   const toggleGroup = (label: string) => setOpenGroups((p) => ({ ...p, [label]: !p[label] }));
 
-  // lê a preferência do usuário após montar (evita mismatch de hidratação)
   useEffect(() => {
     setCollapsed(localStorage.getItem("lcr-sidebar-collapsed") === "1");
   }, []);
@@ -292,51 +383,68 @@ export function AppShell({ children, userName, userRole, userAvatar, acessos }: 
     <div className="flex min-h-screen bg-background">
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 flex w-64 flex-col overflow-hidden bg-sidebar text-sidebar-foreground bg-gradient-to-b from-sidebar to-deep shadow-elevated transition-transform duration-200",
+          "fixed inset-y-0 left-0 z-30 flex w-64 flex-col overflow-hidden bg-gradient-to-b from-deep via-deep to-[oklch(0.22_0.06_258)] text-sidebar-foreground shadow-elevated transition-transform duration-200",
           collapsed ? "-translate-x-full" : "translate-x-0",
         )}
       >
-        {/* Header — apenas a logo, centralizada */}
-        <div className="flex items-center justify-center px-5 py-6">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/95 shadow-soft"><LcrLogo size={34} /></div>
+        {/* Glow ambiente no topo */}
+        <div className="pointer-events-none absolute -top-20 left-1/2 h-40 w-40 -translate-x-1/2 rounded-full bg-primary/30 blur-3xl" />
+
+        {/* Header — logo + identificação do produto */}
+        <div className="relative flex items-center gap-3 px-5 py-5 border-b border-sidebar-foreground/10">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-soft">
+            <LcrLogo size={28} />
+          </div>
+          <div className="min-w-0">
+            <div className="font-display text-lg leading-tight text-sidebar-foreground">LCR Contábil</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-sidebar-foreground/50">Cockpit operacional</div>
+          </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-3">
-          <div className="space-y-2">
+        {/* Status real-time */}
+        <div className="mx-3 mt-3 rounded-2xl border border-sidebar-foreground/10 bg-sidebar-foreground/5 px-3 py-2.5">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="flex items-center gap-1.5 font-medium text-accent-lime">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-lime opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-lime" />
+              </span>
+              Online
+            </span>
+            <span className="text-sidebar-foreground/50">tempo real</span>
+          </div>
+          <div className="mt-1 text-[10px] text-sidebar-foreground/55">Integrações ativas · sincronizando</div>
+        </div>
+
+        <nav className="relative mt-4 flex-1 overflow-y-auto px-3 pb-3">
+          <div className="mb-2 px-3 text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/40">Navegação</div>
+          <div className="space-y-0.5">
             {itens.map((it) => {
               if (!("group" in it)) {
                 const active = leafAtiva(it, pathname, tabAtual);
-                return (
-                  <Link
-                    key={it.label}
-                    to={it.to as "/app"}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-[14px] px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider shadow-soft transition-all duration-200",
-                      active
-                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : "bg-sidebar-accent/50 text-sidebar-foreground/75 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
-                    )}
-                  >
-                    {it.label}
-                  </Link>
-                );
+                return <NavLeafLink key={it.label} leaf={it} active={active} />;
               }
               const aberto = openGroups[it.group] ?? false;
               const temAtivo = it.itens.some((sub) => leafAtiva(sub, pathname, tabAtual));
+              const GroupIcon = it.icon;
               return (
-                <div key={it.group}>
+                <div key={it.group} className="mt-3 first:mt-0">
                   <button
                     onClick={() => toggleGroup(it.group)}
                     className={cn(
-                      "flex w-full items-center gap-2 rounded-[14px] px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider shadow-soft transition-all duration-200",
-                      temAtivo
-                        ? "bg-sidebar-primary/20 text-sidebar-foreground"
-                        : "bg-sidebar-accent/50 text-sidebar-foreground/75 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
+                      "group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150",
+                      temAtivo ? "text-sidebar-foreground" : "text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
                     )}
                     aria-expanded={aberto}
                   >
+                    <span className={cn(
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+                      temAtivo ? "bg-accent-lime/20 text-accent-lime" : "text-sidebar-foreground/55 group-hover:text-sidebar-foreground",
+                    )}>
+                      <GroupIcon className="h-4 w-4" />
+                    </span>
                     <span className="flex-1 text-left">{it.group}</span>
-                    <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-200", aberto ? "" : "-rotate-90")} />
+                    <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-sidebar-foreground/50 transition-transform duration-200", aberto ? "" : "-rotate-90")} />
                   </button>
                   {aberto && (
                     <div className="mt-0.5 space-y-0.5">
@@ -352,24 +460,23 @@ export function AppShell({ children, userName, userRole, userAvatar, acessos }: 
         </nav>
 
         {/* Usuário */}
-        <div className="p-3">
-          <div className="flex items-center justify-between gap-2 rounded-xl bg-sidebar-accent/50 px-3 py-2.5 text-sm">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <Avatar url={userAvatar} nome={userName} size={32} />
-              <div className="min-w-0">
-                <div className="truncate font-medium text-sidebar-foreground">{userName ?? "Equipe LCR"}</div>
-                <div className="text-[11px] text-sidebar-foreground/55">Conectado</div>
-              </div>
+        <div className="relative p-3">
+          <div className="flex items-center gap-2.5 rounded-2xl border border-sidebar-foreground/10 bg-sidebar-foreground/5 p-2.5">
+            <Avatar url={userAvatar} nome={userName} size={36} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-sidebar-foreground">{userName ?? "Equipe LCR"}</div>
+              <div className="truncate text-[10px] capitalize text-sidebar-foreground/55">{userRole ?? "conectado"}</div>
             </div>
-            <button onClick={handleSignOut} className="rounded-lg p-2 text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground" aria-label="Sair">
+            <button onClick={handleSignOut} className="rounded-lg p-2 text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground" aria-label="Sair" title="Sair">
               <LogOut className="h-4 w-4" />
             </button>
           </div>
         </div>
       </aside>
+
       <main className={cn("flex-1 transition-[margin] duration-200", collapsed ? "ml-0" : "ml-64")}>
-        <TopBar userName={userName} userRole={userRole} userAvatar={userAvatar} collapsed={collapsed} onToggle={toggle} onSignOut={handleSignOut} />
-        <div className="w-full px-6 pb-10 pt-2 lg:px-12">{children}</div>
+        <TopBar userName={userName} userRole={userRole} userAvatar={userAvatar} collapsed={collapsed} onToggle={toggle} onSignOut={handleSignOut} pathname={pathname} />
+        <div className="w-full px-6 pb-10 pt-4 lg:px-10">{children}</div>
       </main>
     </div>
   );
@@ -377,9 +484,9 @@ export function AppShell({ children, userName, userRole, userAvatar, acessos }: 
 
 export function PageHeader({ title, emphasis, description, actions }: { title: string; emphasis?: string; description?: string; actions?: ReactNode }) {
   return (
-    <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="font-display text-3xl text-foreground sm:text-[2rem]">
+        <h1 className="font-display text-3xl text-foreground sm:text-[2rem] leading-tight">
           {title}
           {emphasis ? <> <span className="emphasis">{emphasis}</span></> : null}
         </h1>
@@ -390,13 +497,13 @@ export function PageHeader({ title, emphasis, description, actions }: { title: s
   );
 }
 
-/** Resumo consolidado no topo da tela — KPI cards (padrão NutriSense). */
+/** Resumo consolidado no topo da tela — KPI cards modernizados. */
 export function ResumoTela({ itens }: { itens: { label: string; value: number | string; tone?: "default" | "warn" | "ok" }[] }) {
   return (
     <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {itens.map((it) => (
-        <div key={it.label} className="rounded-xl bg-card px-5 py-4 shadow-soft transition-shadow duration-200 hover:shadow-card">
-          <div className="label-cat">{it.label}</div>
+        <div key={it.label} className="group rounded-2xl border-0 bg-card px-5 py-4 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card">
+          <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{it.label}</div>
           <div className={cn(
             "mt-1.5 text-[1.75rem] font-bold leading-none tracking-tight",
             it.tone === "warn" ? "text-destructive" : it.tone === "ok" ? "text-primary" : "text-foreground",
