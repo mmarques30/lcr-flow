@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { StatusPill } from "@/components/status-pill";
-import { getConciliacaoDetalhe, listLancamentosConciliacao, conciliarParManual, editarLancamento, createLancamento, deleteLancamento, limparConciliacao, listPlanoContas, listDocumentos } from "@/lib/lcr.functions";
+import { getConciliacaoDetalhe, listLancamentosConciliacao, conciliarParManual, editarLancamento, createLancamento, deleteLancamento, limparConciliacao, listPlanoContas, listDocumentos, enriquecerExtrato, listDocsSuporte } from "@/lib/lcr.functions";
+import { DOC_TIPO_LABEL } from "@/lib/format";
 import { formatCompetencia } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
@@ -71,6 +72,11 @@ function ConciliacaoCliente() {
 type LancConc = {
   id: string; data_lancamento: string | null; valor: number | null; descricao: string | null;
   conciliado: boolean; confidence: number | null;
+  fonte_extrato?: boolean | null;
+  enriquecido?: boolean | null;
+  participante?: string | null;
+  documento_numero?: string | null;
+  documento_suporte_id?: string | null;
   conta: { codigo: string; descricao: string; tipo: string | null } | null;
   historico: { codigo: string; descricao: string } | null;
 };
@@ -405,16 +411,35 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </div>
       )}
 
-      {/* Registros extraídos — revisão, inclusão e edição humana */}
+      {/* Lançamentos do extrato — fonte única, com indicação de enriquecimento */}
       <Card className="mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-3">
           <div className="flex items-center gap-2">
             <ListChecks className="h-4 w-4 text-primary" />
-            <h3 className="font-display text-lg">Registros extraídos · revisão e edição</h3>
-            <span className="text-xs text-muted-foreground">· {lancs.length} lançamento(s)</span>
+            <h3 className="font-display text-lg">Lançamentos do extrato</h3>
+            <span className="text-xs text-muted-foreground">· {lancs.length} linha(s)</span>
           </div>
           <div className="flex items-center gap-2">
-            {aRever > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"><AlertTriangle className="h-3 w-3" /> {aRever} a revisar</span>}
+            {(() => {
+              const semSuporte = lancs.filter((l) => l.fonte_extrato && !l.enriquecido).length;
+              return semSuporte > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                  <AlertTriangle className="h-3 w-3" /> {semSuporte} sem documento suporte
+                </span>
+              ) : null;
+            })()}
+            <Button size="sm" variant="outline" disabled={acting} onClick={async () => {
+              setActing(true);
+              try {
+                const res = await enriquecerExtrato({ data: { empresa_id: empresaId, competencia, force: true } });
+                await qc.invalidateQueries({ queryKey: lancKey });
+                toast.success(`Enriquecimento: ${res.enriquecidos} casados / ${res.sem_suporte} sem suporte.`);
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Erro");
+              } finally { setActing(false); }
+            }}>
+              <Sparkles className="mr-1 h-3.5 w-3.5" />Enriquecer
+            </Button>
             <Button size="sm" onClick={() => abrirNovo()}><Plus className="mr-1 h-3.5 w-3.5" />Adicionar manual</Button>
           </div>
         </div>
@@ -423,9 +448,10 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-24">Data</TableHead>
+                  <TableHead className="w-20">Data</TableHead>
                   <TableHead>Conta</TableHead>
                   <TableHead>Descrição</TableHead>
+                  <TableHead>Participante / NF</TableHead>
                   <TableHead className="text-right">Valor</TableHead>
                   <TableHead className="w-36">Status</TableHead>
                   <TableHead className="w-24 text-right">Ações</TableHead>
@@ -434,9 +460,16 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
               <TableBody>
                 {lancs.map((l) => {
                   const alerta = precisaRevisao(l);
-                  const st = statusLancamento(l);
+                  const isExtrato = !!l.fonte_extrato;
+                  const semSuporte = isExtrato && !l.enriquecido;
+                  // Status visual: verde (enriquecido), amarelo (extrato sem suporte), default
+                  const statusInfo = semSuporte
+                    ? { label: "Sem documento suporte", variant: "back" as const }
+                    : l.enriquecido
+                      ? { label: "Com suporte", variant: "now" as const }
+                      : statusLancamento(l);
                   return (
-                    <TableRow key={l.id} className={cn(alerta && "bg-amber-50")}>
+                    <TableRow key={l.id} className={cn(alerta && "bg-amber-50", semSuporte && "bg-amber-50/60")}>
                       <TableCell className="text-sm">{l.data_lancamento ? new Date(l.data_lancamento).toLocaleDateString("pt-BR") : "—"}</TableCell>
                       <TableCell className="text-sm">
                         {l.conta ? <span className="font-mono text-xs">{l.conta.codigo}</span> : <span className="inline-flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3" /> sem conta</span>}
@@ -446,8 +479,12 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                         {l.descricao}
                         {l.confidence != null && l.confidence < 0.7 && <span className="ml-1 text-[10px] text-amber-700">({Math.round(l.confidence * 100)}%)</span>}
                       </TableCell>
+                      <TableCell className="text-xs">
+                        {l.participante ? <div className="font-medium text-foreground truncate max-w-[12rem]" title={l.participante}>{l.participante}</div> : <span className="text-muted-foreground">—</span>}
+                        {l.documento_numero ? <div className="font-mono text-[10px] text-muted-foreground">NF {l.documento_numero}</div> : null}
+                      </TableCell>
                       <TableCell className="text-right font-mono text-sm">{l.valor == null ? "—" : brl(l.valor)}</TableCell>
-                      <TableCell><StatusPill variant={st.variant}>{st.label}</StatusPill></TableCell>
+                      <TableCell><StatusPill variant={statusInfo.variant}>{statusInfo.label}</StatusPill></TableCell>
                       <TableCell className="text-right">
                         <div className="inline-flex items-center gap-1">
                           <button type="button" onClick={() => abrirEdicao(l)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar / classificar">
@@ -461,13 +498,17 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                     </TableRow>
                   );
                 })}
-                {!lancLoading && lancs.length === 0 && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nenhum lançamento nesta competência. Use “Adicionar manual” para incluir um lançamento que não veio via documento processado (ex.: fluxo de caixa, ajustes contábeis).</TableCell></TableRow>}
-                {lancLoading && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
+                {!lancLoading && lancs.length === 0 && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Nenhum lançamento ainda. Cada linha do extrato bancário vira um lançamento aqui. Adicionar manual = lançamentos que não vêm do extrato (ex.: ajustes contábeis).</TableCell></TableRow>}
+                {lancLoading && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
+
+      {/* Documentos suporte recebidos */}
+      <DocsSuporteCard empresaId={empresaId} competencia={competencia} />
+
 
       <div className="mb-3 mt-2 flex items-center justify-between gap-3">
         <h2 className="font-display text-xl">Resultado da conciliação</h2>
@@ -695,6 +736,67 @@ function ContaCombobox({ value, onChange }: { value: string; onChange: (codigo: 
         </Command>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function DocsSuporteCard({ empresaId, competencia }: { empresaId: string; competencia: string }) {
+  const { data: docs } = useQuery({
+    queryKey: ["docs-suporte", empresaId, competencia],
+    queryFn: () => listDocsSuporte({ data: { empresa_id: empresaId, competencia } }),
+  });
+  const lista = (docs ?? []) as Array<{ id: string; tipo: string; arquivo_nome: string | null; recebido_em: string; lancamento_match: { id: string; descricao: string | null; valor: number | null } | null }>;
+  if (lista.length === 0) return null;
+  const orfaos = lista.filter((d) => !d.lancamento_match).length;
+  return (
+    <Card className="mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-3">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-primary" />
+          <h3 className="font-display text-lg">Documentos suporte recebidos</h3>
+          <span className="text-xs text-muted-foreground">· {lista.length} · {orfaos} sem match</span>
+        </div>
+        {orfaos > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+            <AlertTriangle className="h-3 w-3" /> {orfaos} sem linha correspondente no extrato
+          </span>
+        )}
+      </div>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Documento</TableHead>
+              <TableHead>Tipo</TableHead>
+              <TableHead>Recebido em</TableHead>
+              <TableHead>Linha do extrato</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {lista.map((d) => (
+              <TableRow key={d.id} className={cn(!d.lancamento_match && "bg-amber-50/40")}>
+                <TableCell className="text-sm truncate max-w-[20rem]" title={d.arquivo_nome ?? ""}>
+                  {d.arquivo_nome ?? "—"}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">{DOC_TIPO_LABEL[d.tipo as keyof typeof DOC_TIPO_LABEL] ?? d.tipo}</TableCell>
+                <TableCell className="text-xs">{new Date(d.recebido_em).toLocaleDateString("pt-BR")}</TableCell>
+                <TableCell className="text-xs">
+                  {d.lancamento_match ? (
+                    <span className="inline-flex items-center gap-1 text-primary">
+                      <Link2 className="h-3 w-3" />
+                      <span className="truncate max-w-[16rem]">{d.lancamento_match.descricao ?? d.lancamento_match.id.slice(0, 8)}</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-amber-700">
+                      <AlertTriangle className="h-3 w-3" /> Sem match no extrato
+                    </span>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 

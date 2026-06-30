@@ -780,7 +780,7 @@ export const listLancamentosConciliacao = createServerFn({ method: "GET" })
     const { data: empresa } = await context.supabase.from("empresas").select("id, razao_social, nome_fantasia").eq("id", data.empresa_id).maybeSingle();
     const { data: rows, error } = await context.supabase
       .from("lancamentos")
-      .select("id, data_lancamento, valor, descricao, documento_numero, part_deb, part_cred, natureza_movimento, conciliado, confidence, status, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
+      .select("id, data_lancamento, valor, descricao, documento_numero, part_deb, part_cred, natureza_movimento, conciliado, confidence, status, fonte_extrato, enriquecido, participante, documento_suporte_id, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
       .eq("empresa_id", data.empresa_id)
       .eq("competencia", data.competencia)
       .not("valor", "is", null)
@@ -857,6 +857,61 @@ export const conciliarParManual = createServerFn({ method: "POST" })
       .eq("id", data.conciliacao_id);
     if (upErr) throw new Error(upErr.message);
     return { ok: true, divergencias_count };
+  });
+
+// Dispara o cruzamento extrato × documentos suporte (NF/recibo/planilha).
+// Cada lançamento gerado de uma linha do extrato pode ser enriquecido com
+// participante + nº do documento quando um doc suporte da mesma competência
+// bate em valor e data.
+export const enriquecerExtrato = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({
+    empresa_id: z.string().uuid(),
+    competencia: z.string().regex(/^\d{4}-\d{2}$/),
+    force: z.boolean().optional(),
+  }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { data: res, error } = await context.supabase.functions.invoke("enriquecer-extrato", {
+      body: data,
+    });
+    if (error) throw new Error(error.message);
+    if (res && res.ok === false) throw new Error(res.error ?? "Falha ao enriquecer");
+    return res as { ok: true; total_lancamentos: number; enriquecidos: number; sem_suporte: number; docs_suporte_disponiveis: number };
+  });
+
+// Lista os documentos suporte (não-extrato) de uma competência, com status
+// de match (linha do extrato a qual cada um foi associado).
+export const listDocsSuporte = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({
+    empresa_id: z.string().uuid(),
+    competencia: z.string().regex(/^\d{4}-\d{2}$/),
+  }).parse(d))
+  .handler(async ({ context, data }) => {
+    const [{ data: docs }, { data: lancs }] = await Promise.all([
+      context.supabase.from("documentos")
+        .select("id, tipo, arquivo_nome, recebido_em, classificacao_ia")
+        .eq("empresa_id", data.empresa_id)
+        .eq("competencia", data.competencia)
+        .neq("tipo", "extrato")
+        .order("recebido_em", { ascending: false }),
+      context.supabase.from("lancamentos")
+        .select("id, documento_suporte_id, descricao, valor, data_lancamento")
+        .eq("empresa_id", data.empresa_id)
+        .eq("competencia", data.competencia)
+        .eq("fonte_extrato", true)
+        .eq("enriquecido", true),
+    ]);
+    const mapaLanc = new Map(((lancs ?? []) as { id: string; documento_suporte_id: string | null; descricao: string | null; valor: number | null; data_lancamento: string | null }[])
+      .filter((l) => l.documento_suporte_id)
+      .map((l) => [l.documento_suporte_id as string, l]));
+    return ((docs ?? []) as { id: string; tipo: string; arquivo_nome: string | null; recebido_em: string }[]).map((d) => ({
+      id: d.id,
+      tipo: d.tipo,
+      arquivo_nome: d.arquivo_nome,
+      recebido_em: d.recebido_em,
+      lancamento_match: mapaLanc.get(d.id) ?? null,
+    }));
   });
 
 // Limpa o resultado de uma conciliação para permitir gerar de novo do zero.

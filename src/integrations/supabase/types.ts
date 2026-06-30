@@ -1014,7 +1014,11 @@ export type Database = {
           descricao: string | null
           documento_id: string | null
           documento_numero: string | null
+          documento_suporte_id: string | null
           empresa_id: string
+          enriquecido: boolean
+          fonte_extrato: boolean
+          participante: string | null
           historico_id: string | null
           id: string
           importado_em: string | null
@@ -1039,7 +1043,11 @@ export type Database = {
           descricao?: string | null
           documento_id?: string | null
           documento_numero?: string | null
+          documento_suporte_id?: string | null
           empresa_id: string
+          enriquecido?: boolean
+          fonte_extrato?: boolean
+          participante?: string | null
           historico_id?: string | null
           id?: string
           importado_em?: string | null
@@ -1064,7 +1072,11 @@ export type Database = {
           descricao?: string | null
           documento_id?: string | null
           documento_numero?: string | null
+          documento_suporte_id?: string | null
           empresa_id?: string
+          enriquecido?: boolean
+          fonte_extrato?: boolean
+          participante?: string | null
           historico_id?: string | null
           id?: string
           importado_em?: string | null

@@ -201,60 +201,22 @@ Deno.serve(async (req) => {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const ext = (doc.arquivo_nome ?? path).split(".").pop()?.toLowerCase() ?? "";
 
-  // Helper compartilhado: vincula este documento como extrato à conciliação
-  // da competência. Usado no trilho inicial (doc.tipo='extrato') e também
-  // quando a IA descobrir, depois da classificação, que o documento é um
-  // extrato mas foi importado com tipo errado.
-  type VincularExtras = { classificacao?: Record<string, unknown> };
-  async function vincularComoExtrato(extras?: VincularExtras): Promise<Response> {
-    const competenciaExtrato = doc.competencia ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+  // Sobe o arquivo pro bucket de conciliações e vincula como extrato_csv_url.
+  // Chamado quando confirmado (pelo upload OU pela IA) que o documento é
+  // EXTRATO BANCÁRIO. Não cria lançamentos aqui — isso acontece no pós-IA.
+  async function uploadExtratoBucket(competenciaExtrato: string): Promise<string | null> {
     const safeName = (doc.arquivo_nome ?? "extrato").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
     const concPath = `${doc.empresa_id}/${competenciaExtrato}/extrato-${crypto.randomUUID()}-${safeName}`;
     const { error: upErr } = await admin.storage.from("conciliacoes").upload(concPath, bytes, { upsert: false, cacheControl: "3600", contentType: file.type || "text/csv" });
-    if (upErr) return markErro(`Falha ao vincular extrato à conciliação: ${upErr.message}`);
+    if (upErr) { await markErro(`Falha ao vincular extrato à conciliação: ${upErr.message}`); return null; }
 
-    let concId: string | null = null;
-    const { data: existente } = await admin
-      .from("conciliacoes")
-      .select("id")
-      .eq("empresa_id", doc.empresa_id)
-      .eq("competencia", competenciaExtrato)
-      .maybeSingle();
+    const { data: existente } = await admin.from("conciliacoes").select("id").eq("empresa_id", doc.empresa_id).eq("competencia", competenciaExtrato).maybeSingle();
     if (existente) {
-      concId = existente.id;
-      await admin.from("conciliacoes").update({ extrato_csv_url: concPath, status: "em_andamento" }).eq("id", concId);
+      await admin.from("conciliacoes").update({ extrato_csv_url: concPath, status: "em_andamento" }).eq("id", existente.id);
     } else {
-      const { data: nova, error: cErr } = await admin
-        .from("conciliacoes")
-        .insert({ empresa_id: doc.empresa_id, competencia: competenciaExtrato, extrato_csv_url: concPath, status: "em_andamento" })
-        .select("id").single();
-      if (cErr) return markErro(`Falha ao criar conciliação: ${cErr.message}`);
-      concId = nova.id;
+      await admin.from("conciliacoes").insert({ empresa_id: doc.empresa_id, competencia: competenciaExtrato, extrato_csv_url: concPath, status: "em_andamento" });
     }
-
-    // Se já existiam lançamentos gerados por esta versão do documento (ex.: a IA
-    // tentou tratar como NF/planilha antes), limpa pra evitar duplicidade na razão.
-    await admin.from("lancamentos").delete().eq("documento_id", documento_id);
-
-    await admin.from("documentos").update({
-      tipo: "extrato",
-      status: "processado",
-      status_processamento: "classificado",
-      classificacao_ia: extras?.classificacao ?? {
-        tipo_documento: "extrato_bancario",
-        competencia: competenciaExtrato,
-        observacoes: "Extrato vinculado à Conciliação bancária da competência. Use 'Conciliar agora' na aba Conciliação.",
-      },
-      processado_em: new Date().toISOString(),
-      lancamentos_gerados: 0,
-    }).eq("id", documento_id);
-
-    return json(200, { ok: true, vinculado_conciliacao_id: concId, lancamentos_gerados: 0, tipo_ajustado: "extrato" });
-  }
-
-  // Trilho inicial: documento já chega marcado como extrato pelo upload.
-  if (doc.tipo === "extrato") {
-    return await vincularComoExtrato();
+    return concPath;
   }
 
   let contentBlock: Record<string, unknown>;
@@ -315,27 +277,41 @@ Deno.serve(async (req) => {
     return markErro(`Falha na Claude API: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Mapeia o tipo_documento que a IA retornou para o enum do banco. Se a IA
-  // descobriu que é EXTRATO (mesmo o upload tendo marcado como "outros"/
-  // "planilha_financeira"), redireciona para o trilho do extrato — vincula
-  // à conciliação e descarta lançamentos (que viriam errados na razão).
   const tipoMapeado = mapearTipoIa(classificacao.tipo_documento);
-  if (tipoMapeado === "extrato" && doc.tipo !== "extrato") {
-    return await vincularComoExtrato({ classificacao: classificacao as Record<string, unknown> });
-  }
-  // Se a IA sugeriu um tipo diferente do cadastrado (ex.: doc subiu como
-  // "outros" mas a IA reconheceu como darf/recibo/planilha), atualiza o tipo
-  // pra que filtros/contagens fiquem corretos. Mantém o tipo atual quando o
-  // mapeamento é null (sem confiança) ou igual.
-  if (tipoMapeado && tipoMapeado !== doc.tipo) {
-    await admin.from("documentos").update({ tipo: tipoMapeado }).eq("id", documento_id);
+  const isExtrato = doc.tipo === "extrato" || tipoMapeado === "extrato";
+  const tipoFinal = isExtrato ? "extrato" : (tipoMapeado && tipoMapeado !== doc.tipo ? tipoMapeado : doc.tipo);
+  if (tipoFinal !== doc.tipo) {
+    await admin.from("documentos").update({ tipo: tipoFinal }).eq("id", documento_id);
   }
 
   const competencia = (classificacao.competencia && /^\d{4}-\d{2}$/.test(classificacao.competencia))
     ? classificacao.competencia
     : (doc.competencia ?? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`);
 
-  // resolve contas e históricos por código (em lote)
+  // ─────────────── DOC SUPORTE (NF/recibo/planilha/comprovante) ───────────────
+  // Não gera lançamentos. Os dados extraídos serão usados para enriquecer as
+  // linhas do extrato quando ele chegar.
+  if (!isExtrato) {
+    await admin.from("documentos").update({
+      status: "processado",
+      status_processamento: "classificado",
+      classificacao_ia: classificacao,
+      dados_extraidos: classificacao,
+      processado_em: new Date().toISOString(),
+      lancamentos_gerados: 0,
+    }).eq("id", documento_id);
+
+    admin.functions.invoke("enriquecer-extrato", { body: { empresa_id: doc.empresa_id, competencia } })
+      .catch(() => { /* não-fatal */ });
+
+    return json(200, { ok: true, documento_suporte: true, lancamentos_gerados: 0, classificacao });
+  }
+
+  // ───────────────── EXTRATO BANCÁRIO (fonte única de verdade) ──────────────
+  const concPath = await uploadExtratoBucket(competencia);
+  if (!concPath) return fail("Falha ao vincular extrato.");
+  await admin.from("lancamentos").delete().eq("documento_id", documento_id);
+
   const contaCods = [...new Set((classificacao.lancamentos_sugeridos ?? []).map((s) => s.conta_codigo).filter(Boolean))];
   const histCods = [...new Set((classificacao.lancamentos_sugeridos ?? []).map((s) => s.historico_codigo).filter(Boolean) as string[])];
   const [{ data: contaRows }, { data: histRows }] = await Promise.all([
@@ -345,13 +321,11 @@ Deno.serve(async (req) => {
   const contaId = new Map((contaRows ?? []).map((c) => [c.codigo, c.id]));
   const histId = new Map((histRows ?? []).map((h) => [h.codigo, h.id]));
 
-  // Normaliza tipo_movimento (IA pode retornar 'D'/'C', 'débito'/'crédito',
-  // 'debit'/'credit', etc.) para 'debito' / 'credito'.
   function normMov(s?: string | null): string | null {
     if (!s) return null;
     const v = String(s).toLowerCase().trim();
-    if (v.startsWith("d")) return "debito";   // debito/débito/debit
-    if (v.startsWith("c")) return "credito";  // credito/crédito/credit
+    if (v.startsWith("d")) return "debito";
+    if (v.startsWith("c")) return "credito";
     return null;
   }
 
@@ -367,16 +341,19 @@ Deno.serve(async (req) => {
     status: "gerada" as const,
     confidence: typeof s.confidence === "number" ? s.confidence : null,
     documento_id,
+    fonte_extrato: true,
+    enriquecido: false,
   }));
 
   let lancCriados = 0;
   if (rows.length) {
     const { error: insErr, count } = await admin.from("lancamentos").insert(rows, { count: "exact" });
-    if (insErr) return markErro(`Falha ao inserir lançamentos: ${insErr.message}`);
+    if (insErr) return markErro(`Falha ao inserir lançamentos do extrato: ${insErr.message}`);
     lancCriados = count ?? rows.length;
   }
 
   await admin.from("documentos").update({
+    tipo: "extrato",
     status: "processado",
     status_processamento: "classificado",
     classificacao_ia: classificacao,
@@ -385,5 +362,14 @@ Deno.serve(async (req) => {
     lancamentos_gerados: lancCriados,
   }).eq("id", documento_id);
 
-  return json(200, { ok: true, lancamentos_gerados: lancCriados, classificacao });
+  admin.functions.invoke("enriquecer-extrato", { body: { empresa_id: doc.empresa_id, competencia } })
+    .catch(() => { /* não-fatal */ });
+
+  return json(200, {
+    ok: true,
+    extrato: true,
+    extrato_csv_url: concPath,
+    lancamentos_gerados: lancCriados,
+    classificacao,
+  });
 });
