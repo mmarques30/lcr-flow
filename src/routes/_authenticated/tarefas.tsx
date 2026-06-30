@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { PageHeader, ResumoTela } from "@/components/app-shell";
@@ -8,7 +8,7 @@ import { DndContext, useDraggable, useDroppable, type DragEndEvent, PointerSenso
 import { listTarefas, listConsultores, moverTarefa } from "@/lib/lcr.functions";
 import { TAREFA_TIPO_LABEL, formatCompetencia } from "@/lib/format";
 import { StatusPill } from "@/components/status-pill";
-import { Calendar, User, AlertTriangle } from "lucide-react";
+import { Calendar, User, AlertTriangle, ArrowRight, CheckCircle2, Phone, BookOpen, GitCompare } from "lucide-react";
 import { toast } from "sonner";
 import { requireAcesso } from "@/lib/guard";
 
@@ -16,7 +16,7 @@ type TarefaStatus = "now" | "doing" | "next" | "back" | "done";
 type TipoGrupo = "cobranca" | "lancamentos" | "conciliacao";
 type Tarefa = {
   id: string; tipo: string; status: string; titulo: string; prazo: string | null; competencia: string | null;
-  empresa: { razao_social: string } | null; consultor: { id: string; nome: string } | null;
+  empresa: { id: string; razao_social: string } | null; consultor: { id: string; nome: string } | null;
 };
 
 const COLUNAS: { key: TarefaStatus; label: string; variant: "now" | "doing" | "next" | "back" | "neutral" }[] = [
@@ -168,29 +168,87 @@ function Coluna({ colKey, label, variant, items }: { colKey: string; label: stri
   );
 }
 
+// Mapeia o tipo da tarefa do Gestta → tela de execução dentro do sistema.
+function executarTarefa(t: Tarefa): { href: string; params: Record<string, string>; label: string; icon: typeof Phone } | null {
+  const empresaId = t.empresa?.id;
+  if (!empresaId) return null;
+  const grupo = TIPO_GROUP[t.tipo];
+  if (grupo === "cobranca") return { href: "/clientes/$id", params: { id: empresaId }, label: "Cobrar cliente", icon: Phone };
+  if (grupo === "lancamentos") return { href: "/conciliacao/$empresaId", params: { empresaId }, label: "Lançar", icon: BookOpen };
+  if (grupo === "conciliacao") return { href: "/conciliacao/$empresaId", params: { empresaId }, label: "Conciliar", icon: GitCompare };
+  return null;
+}
+
 function CardTarefa({ t, done }: { t: Tarefa; done: boolean }) {
+  const qc = useQueryClient();
   const { setNodeRef, listeners, attributes, transform, isDragging } = useDraggable({ id: t.id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
   const atrasada = !done && t.prazo ? new Date(t.prazo) < new Date(new Date().toDateString()) : false;
+  const acao = executarTarefa(t);
+  const [busy, setBusy] = useState(false);
+
+  async function concluir(e: React.MouseEvent) {
+    e.preventDefault(); e.stopPropagation();
+    setBusy(true);
+    try {
+      await moverTarefa({ data: { id: t.id, status: "done" } });
+      qc.invalidateQueries({ queryKey: ["tarefas"] });
+      toast.success("Tarefa concluída.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally { setBusy(false); }
+  }
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
-      className={`rounded-lg border bg-card p-3 text-sm shadow-soft transition-shadow hover:shadow-card cursor-grab active:cursor-grabbing ${isDragging ? "opacity-50 shadow-elevated" : ""} ${atrasada ? "border-destructive/40" : "border-border"}`}
+      className={`rounded-lg border bg-card p-3 text-sm shadow-soft transition-shadow hover:shadow-card ${isDragging ? "opacity-50 shadow-elevated" : ""} ${atrasada ? "border-destructive/40" : "border-border"}`}
     >
-      <div className={`font-medium line-clamp-2 ${done ? "text-muted-foreground line-through" : "text-foreground"}`}>{t.titulo}</div>
-      <div className="text-xs text-muted-foreground mt-1 truncate">{t.empresa?.razao_social}</div>
-      <div className="flex items-center justify-between gap-2 mt-2 text-[11px] text-muted-foreground">
-        {t.prazo ? (
-          <span className={`inline-flex items-center gap-1 ${atrasada ? "font-medium text-destructive" : ""}`}>
-            {atrasada ? <AlertTriangle className="h-3 w-3" /> : <Calendar className="h-3 w-3" />}
-            {new Date(t.prazo).toLocaleDateString("pt-BR")}
-          </span>
-        ) : <span />}
-        {t.consultor ? <span className="inline-flex items-center gap-1"><User className="h-3 w-3" />{t.consultor.nome.split(" ")[0]}</span> : null}
+      {/* Handle de drag — só o cabeçalho (título + cliente) responde ao drag,
+          assim os botões abaixo são clicáveis sem conflito. */}
+      <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
+        <div className={`font-medium line-clamp-2 ${done ? "text-muted-foreground line-through" : "text-foreground"}`}>{t.titulo}</div>
+        <div className="text-xs text-muted-foreground mt-1 truncate">{t.empresa?.razao_social}</div>
+        <div className="flex items-center justify-between gap-2 mt-2 text-[11px] text-muted-foreground">
+          {t.prazo ? (
+            <span className={`inline-flex items-center gap-1 ${atrasada ? "font-medium text-destructive" : ""}`}>
+              {atrasada ? <AlertTriangle className="h-3 w-3" /> : <Calendar className="h-3 w-3" />}
+              {new Date(t.prazo).toLocaleDateString("pt-BR")}
+            </span>
+          ) : <span />}
+          {t.consultor ? <span className="inline-flex items-center gap-1"><User className="h-3 w-3" />{t.consultor.nome.split(" ")[0]}</span> : null}
+        </div>
       </div>
+
+      {/* Ações executáveis no próprio sistema (Fase 2 — sem voltar ao Gestta) */}
+      {!done && (
+        <div className="mt-3 flex items-center gap-1.5 border-t border-border/60 pt-2">
+          {acao && (
+            <Link
+              to={acao.href as "/clientes/$id" | "/conciliacao/$empresaId"}
+              params={acao.params as { id: string } & { empresaId: string }}
+              className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground transition-transform hover:scale-[1.02]"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <acao.icon className="h-3 w-3" />
+              {acao.label}
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          )}
+          <button
+            onClick={concluir}
+            onPointerDown={(e) => e.stopPropagation()}
+            disabled={busy}
+            className="inline-flex items-center justify-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+            title="Marcar como concluída"
+          >
+            <CheckCircle2 className="h-3 w-3" />
+            Concluir
+          </button>
+        </div>
+      )}
     </div>
   );
 }
