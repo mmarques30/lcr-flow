@@ -233,6 +233,33 @@ def montar_csv_extrato(transacoes: list) -> bytes:
     return ("\n".join(buf)).encode("utf-8")
 
 
+def ensure_conciliacao_extrato(empresa_id: str, competencia: str, competencia_id: str, transacoes: list):
+    """Persiste o extrato bancário do Gestta (TODAS as contas do mês juntas) como CSV
+    no bucket de conciliações e garante a linha `conciliacoes` com extrato_csv_url —
+    SEM rodar o motor (conciliar continua sendo passo humano). É o que habilita o botão
+    'Conciliar agora' a atuar sobre os registros extraídos, sem importação manual.
+    Requisito da Mariana (2026-06): cruzar razão (lançamentos) × extrato do Gestta."""
+    if not transacoes:
+        return None
+    csv_bytes = montar_csv_extrato(transacoes)
+    csv_path = f"{empresa_id}/{competencia}/extrato-gestta-{competencia}.csv"
+    sb_upload(BUCKET_CONC, csv_path, csv_bytes, "text/csv")
+    achados = sb_get("conciliacoes", {
+        "empresa_id": f"eq.{empresa_id}", "competencia": f"eq.{competencia}",
+        "select": "id", "limit": "1",
+    })
+    if achados:
+        sb_update("conciliacoes", {"id": achados[0]["id"]},
+                  {"extrato_csv_url": csv_path, "status": "em_andamento"})
+        return achados[0]["id"]
+    novo = sb_insert("conciliacoes", {
+        "empresa_id": empresa_id, "competencia": competencia,
+        "competencia_id": competencia_id, "extrato_csv_url": csv_path,
+        "status": "em_andamento",
+    })
+    return novo[0]["id"] if novo else None
+
+
 # ── Pipeline principal ───────────────────────────────────────────────────────
 def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, origem="gestta", finalizar_conciliacao=False):
     extrato_path = Path(extrato_path)
@@ -308,7 +335,7 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
         "classificacao_ia": classificacao_ia,
     })
 
-    resultado = {"documento_id": documento_id, "lancamentos": len(lancamentos)}
+    resultado = {"documento_id": documento_id, "lancamentos": len(lancamentos), "transacoes": transacoes}
 
     if finalizar_conciliacao:
         log("\n[6] Conciliação: upload do extrato CSV + edge function conciliar...")
@@ -510,6 +537,21 @@ def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt):
         except Exception as e:
             log(f"    ⚠️ extrato não processado ({Path(ext).name}): {str(e)[:120]}")
             resumo["extratos"].append({"arquivo": Path(ext).name, "erro": str(e)[:200], "status": "revisao_humana"})
+
+    # Prepara a conciliação (sem rodar o motor): junta as transações de TODAS as contas
+    # num CSV e cria a linha conciliacoes → habilita o botão "Conciliar agora" no front
+    # a atuar sobre os registros extraídos do Gestta (passo humano).
+    transacoes_extrato = [t for e in resumo["extratos"] for t in (e.get("transacoes") or [])]
+    if transacoes_extrato:
+        try:
+            competencia_id = ensure_competencia(empresa_id, competencia)
+            cid = ensure_conciliacao_extrato(empresa_id, competencia, competencia_id, transacoes_extrato)
+            resumo["conciliacao_id"] = cid
+            log(f"    conciliação preparada: {len(transacoes_extrato)} transação(ões) do extrato → conciliacoes={cid}")
+        except Exception as e:
+            log(f"    ⚠️ não consegui preparar a conciliação (extrato p/ botão): {str(e)[:160]}")
+    for e in resumo["extratos"]:
+        e.pop("transacoes", None)  # não carrega as transações cruas no resumo de retorno
 
     if outros:
         competencia_id = ensure_competencia(empresa_id, competencia)
