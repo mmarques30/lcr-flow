@@ -42,6 +42,18 @@ export function ladoConta(tipo: string | null): "debito" | "credito" {
   return "debito"; // fallback conservador (igual ao Python)
 }
 
+// Inversão automática contábil. O extrato bancário mostra D/C na perspectiva
+// do banco; a contabilidade precisa do oposto. O sinal do valor é a fonte de
+// verdade:
+//   valor < 0  → saída do banco  → BANCO no crédito,  contrapartida no DÉBITO
+//   valor > 0  → entrada no banco → BANCO no débito,   contrapartida no CRÉDITO
+//   valor == 0 → cai no fallback por natureza da conta (ladoConta).
+export function ladoPorValor(valor: number, tipoConta: string | null): "debito" | "credito" {
+  if (valor < 0) return "debito";   // contrapartida (despesa/passivo) vai no débito
+  if (valor > 0) return "credito";  // contrapartida (receita) vai no crédito
+  return ladoConta(tipoConta);
+}
+
 function fmtData(d: string | null): number | string {
   if (!d) return "";
   const m = String(d).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -57,7 +69,10 @@ export function linhasSci(lancs: SciLanc[], bancoSci: number | string | "") {
     .map((l) => {
       const conta = codSci(l.conta!);
       const banco: number | string = bancoSci;
-      const ld = ladoConta(l.conta!.tipo);
+      const valor = Number(l.valor ?? 0);
+      // Inversão automática contábil: sinal do valor decide o lado da
+      // contrapartida (perspectiva do banco vs perspectiva contábil).
+      const ld = ladoPorValor(valor, l.conta!.tipo);
       const debito = ld === "debito" ? conta : banco;
       const credito = ld === "debito" ? banco : conta;
       return {
@@ -66,7 +81,9 @@ export function linhasSci(lancs: SciLanc[], bancoSci: number | string | "") {
         "CRÉDITO": credito,
         "PART DÉB,": "",
         "PART, CRED": "",
-        "VALOR": Number(l.valor ?? 0),
+        // SCI espera valor absoluto na coluna VALOR — o sinal já foi
+        // refletido no posicionamento débito/crédito acima.
+        "VALOR": Math.abs(valor),
         "HISTÓRICO": l.historico?.codigo ?? "",
         "COMPLEMENTO": (l.descricao ?? "").slice(0, 80),
         "DOCUMENTO": "",
@@ -131,12 +148,13 @@ export function linhasSciPreview(
     .map((l) => {
       const conta: SciCelula = { codigo: codSci(l.conta!), nome: l.conta!.descricao };
       const banco: SciCelula = { codigo: bancoSci, nome: bancoNome || "Banco" };
-      const ld = ladoConta(l.conta!.tipo);
+      const valor = Number(l.valor ?? 0);
+      const ld = ladoPorValor(valor, l.conta!.tipo);
       return {
         data: fmtData(l.data_lancamento),
         debito: ld === "debito" ? conta : banco,
         credito: ld === "debito" ? banco : conta,
-        valor: Number(l.valor ?? 0),
+        valor: Math.abs(valor),
         historico: {
           codigo: l.historico?.codigo ?? "",
           apelido: l.historico?.sci_apelido ?? "",
