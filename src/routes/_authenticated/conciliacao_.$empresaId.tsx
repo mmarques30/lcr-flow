@@ -45,32 +45,8 @@ async function baixar(path: string) {
 // Rota standalone (continua acessível); reaproveita os mesmos blocos do Painel do Cliente.
 function ConciliacaoCliente() {
   const { empresaId } = Route.useParams();
-  const qc = useQueryClient();
   const { data } = useSuspenseQuery({ queryKey: ["conciliacao-detalhe", empresaId], queryFn: () => getConciliacaoDetalhe({ data: { empresa_id: empresaId } }) });
   const competencia = data.competencia;
-  const conc = data.conciliacao;
-  const temExtrato = !!conc?.extrato_csv_url;
-  const [busy, setBusy] = useState(false);
-
-  // Botão "Conciliar agora" (topo da página): roda o motor sobre os registros já
-  // extraídos do Gestta (razão = lançamentos × extrato), sem importação manual.
-  async function conciliar() {
-    if (!conc) return;
-    setBusy(true);
-    try {
-      const { data: res, error } = await supabase.functions.invoke("conciliar", { body: { conciliacao_id: conc.id } });
-      if (error) throw new Error(error.message);
-      if (res && res.ok === false) throw new Error(res.error ?? "Falha na conciliação");
-      await qc.invalidateQueries({ queryKey: ["conciliacao-detalhe", empresaId] });
-      await qc.invalidateQueries({ queryKey: ["conciliacoes"] });
-      await qc.invalidateQueries({ queryKey: ["lanc-conc", empresaId] });
-      toast.success(`Conciliação concluída — ${res.conciliados} conciliados, ${res.divergencias_count} divergência(s).`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <>
@@ -81,17 +57,6 @@ function ConciliacaoCliente() {
         <div>
           <h1 className="font-display text-3xl">{data.empresa.razao_social}</h1>
           <p className="mt-1 text-sm text-soft-foreground">Competência {formatCompetencia(competencia)}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill variant={temExtrato ? "now" : "next"}>{temExtrato ? "Extrato do Gestta disponível" : "Aguardando extrato do Gestta"}</StatusPill>
-          {temExtrato && (
-            <Button variant="ghost" size="sm" onClick={() => conc?.extrato_csv_url && baixar(conc.extrato_csv_url)}>
-              <Download className="mr-1 h-4 w-4" />Baixar extrato
-            </Button>
-          )}
-          <Button disabled={!temExtrato || busy} onClick={conciliar} title={temExtrato ? "Cruza os lançamentos extraídos com o extrato do Gestta" : "Aguardando o extrato ser extraído do Gestta"}>
-            <Wand2 className="mr-1.5 h-4 w-4" />{busy ? "Conciliando..." : "Conciliar agora"}
-          </Button>
         </div>
       </div>
 
@@ -294,6 +259,32 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
 
   return (
     <>
+      {/* Ação no topo: extrato (vem do Gestta) + Conciliar agora */}
+      <Card className="mb-6">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+              <FileText className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <div className="font-medium leading-tight">Extrato bancário</div>
+              <div className="text-xs text-muted-foreground">{temExtrato ? "Extraído do Gestta" : "Aguardando extração do Gestta"}</div>
+            </div>
+            <StatusPill variant={temExtrato ? "now" : "next"}>{temExtrato ? "Disponível" : "Pendente"}</StatusPill>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {temExtrato && (
+              <Button variant="ghost" size="sm" onClick={() => conc?.extrato_csv_url && baixar(conc.extrato_csv_url)}>
+                <Download className="mr-1 h-4 w-4" />Baixar
+              </Button>
+            )}
+            <Button disabled={!temExtrato || busy === "conciliar"} onClick={conciliar}>
+              <Wand2 className="mr-1.5 h-4 w-4" />{busy === "conciliar" ? "Conciliando..." : "Conciliar agora"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Aviso: documentos não classificados (sem lançamento) — tratar manualmente */}
       {docsErro.length > 0 && (
         <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4">
@@ -366,8 +357,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </CardContent>
       </Card>
 
-      <h2 className="mb-1 font-display text-xl">Conciliar com extrato bancário</h2>
-      <p className="mb-6 text-sm text-soft-foreground">A razão são os lançamentos extraídos acima. O extrato bancário vem do Gestta na automação — use o botão <strong>“Conciliar agora”</strong> no topo da página para cruzar os dois.</p>
+      <h2 className="mb-3 mt-2 font-display text-xl">Resultado da conciliação</h2>
 
       {!resultado ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
