@@ -45,9 +45,12 @@ function nomeCurtoDoc(d: { arquivo_nome?: string | null; classificacao_ia?: unkn
 }
 
 // ---------------------------------------------------------------- Documentos
-export function DocumentosTab({ empresaId }: { empresaId: string }) {
+export function DocumentosTab({ empresaId, competencia }: { empresaId: string; competencia?: string }) {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["documentos", empresaId], queryFn: () => listDocumentos({ data: { empresa_id: empresaId } }) });
+  const { data, isLoading } = useQuery({
+    queryKey: ["documentos", empresaId, competencia ?? "all"],
+    queryFn: () => listDocumentos({ data: { empresa_id: empresaId, competencia } }),
+  });
   const docs = data ?? [];
   const [processando, setProcessando] = useState<string | null>(null);
   const [aberto, setAberto] = useState<string | null>(null);
@@ -74,8 +77,11 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
   return (
     <div className="space-y-5">
     <div className="flex items-center justify-between">
-      <p className="text-sm text-muted-foreground">{docs.length} documento(s)</p>
-      <UploadDocDialog empresaId={empresaId} />
+      <p className="text-sm text-muted-foreground">
+        {docs.length} documento(s)
+        {competencia && <span className="ml-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">{formatCompetencia(competencia)}</span>}
+      </p>
+      <UploadDocDialog empresaId={empresaId} competenciaPadrao={competencia} />
     </div>
     <Card>
       <CardContent className="p-0">
@@ -141,11 +147,11 @@ export function DocumentosTab({ empresaId }: { empresaId: string }) {
 
 // Upload manual de documento para ESTE cliente (mesma lógica da tela Documentos:
 // sobe ao bucket, registra o documento e dispara o processamento da IA).
-function UploadDocDialog({ empresaId }: { empresaId: string }) {
+function UploadDocDialog({ empresaId, competenciaPadrao }: { empresaId: string; competenciaPadrao?: string }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [tipo, setTipo] = useState("extrato");
-  const [competencia, setCompetencia] = useState(competenciaAtual());
+  const [competencia, setCompetencia] = useState(competenciaPadrao ?? competenciaAtual());
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
 

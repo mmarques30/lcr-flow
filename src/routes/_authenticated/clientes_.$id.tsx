@@ -78,7 +78,7 @@ function ClienteDetalhe() {
           <VisaoGeralCliente empresaId={id} empresa={empresa} competencia={competencia} />
         </TabsContent>
 
-        <TabsContent value="documentos" className="mt-4"><DocumentosTab empresaId={id} /></TabsContent>
+        <TabsContent value="documentos" className="mt-4"><DocumentosTab empresaId={id} competencia={competencia} /></TabsContent>
         <TabsContent value="razao" className="mt-4"><RazaoContabil empresaId={id} competencia={competencia} /></TabsContent>
         <TabsContent value="conciliacao" className="mt-4"><ConciliacaoBancaria empresaId={id} competencia={competencia} /></TabsContent>
         <TabsContent value="sci" className="mt-4"><PlanilhaSciTab empresaId={id} empresaNome={empresa.razao_social} competencia={competencia} /></TabsContent>

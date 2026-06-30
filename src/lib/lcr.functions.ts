@@ -543,7 +543,12 @@ export const deleteEmpresa = createServerFn({ method: "POST" })
 
 export const listDocumentos = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d?: { empresa_id?: string }) => z.object({ empresa_id: z.string().uuid().optional() }).parse(d ?? {}))
+  .inputValidator((d?: { empresa_id?: string; competencia?: string }) =>
+    z.object({
+      empresa_id: z.string().uuid().optional(),
+      competencia: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    }).parse(d ?? {}),
+  )
   .handler(async ({ context, data }) => {
     let q = context.supabase
       .from("documentos")
@@ -553,6 +558,7 @@ export const listDocumentos = createServerFn({ method: "GET" })
     // Escopa por empresa quando informado (evita que o limite global de 500
     // esconda os documentos de um cliente quando há muitos no total).
     if (data.empresa_id) q = q.eq("empresa_id", data.empresa_id);
+    if (data.competencia) q = q.eq("competencia", data.competencia);
     const { data: rows, error } = await q;
     if (error) throw new Error(error.message);
     return rows ?? [];
