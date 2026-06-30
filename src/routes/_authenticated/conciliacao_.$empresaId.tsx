@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { StatusPill } from "@/components/status-pill";
-import { getConciliacaoDetalhe, listLancamentosConciliacao, conciliarParManual, editarLancamento, createLancamento, deleteLancamento, listPlanoContas, listDocumentos } from "@/lib/lcr.functions";
+import { getConciliacaoDetalhe, listLancamentosConciliacao, conciliarParManual, editarLancamento, createLancamento, deleteLancamento, limparConciliacao, listPlanoContas, listDocumentos } from "@/lib/lcr.functions";
 import { formatCompetencia } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
@@ -454,7 +454,30 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </CardContent>
       </Card>
 
-      <h2 className="mb-3 mt-2 font-display text-xl">Resultado da conciliação</h2>
+      <div className="mb-3 mt-2 flex items-center justify-between gap-3">
+        <h2 className="font-display text-xl">Resultado da conciliação</h2>
+        {resultado && conc && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={acting}
+            onClick={async () => {
+              if (!confirm("Limpar o resultado da conciliação? Os lançamentos voltam ao estado “não conciliados” para você rodar de novo.")) return;
+              setActing(true);
+              try {
+                await limparConciliacao({ data: { conciliacao_id: conc.id } });
+                await qc.invalidateQueries({ queryKey: key });
+                await qc.invalidateQueries({ queryKey: lancKey });
+                toast.success("Resultado da conciliação limpo.");
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Erro");
+              } finally { setActing(false); }
+            }}
+          >
+            <Trash2 className="mr-1 h-4 w-4" /> Limpar resultado
+          </Button>
+        )}
+      </div>
 
       {!resultado ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">

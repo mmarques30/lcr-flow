@@ -780,7 +780,7 @@ export const listLancamentosConciliacao = createServerFn({ method: "GET" })
     const { data: empresa } = await context.supabase.from("empresas").select("id, razao_social, nome_fantasia").eq("id", data.empresa_id).maybeSingle();
     const { data: rows, error } = await context.supabase
       .from("lancamentos")
-      .select("id, data_lancamento, valor, descricao, documento_numero, natureza_movimento, conciliado, confidence, status, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
+      .select("id, data_lancamento, valor, descricao, documento_numero, part_deb, part_cred, natureza_movimento, conciliado, confidence, status, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
       .eq("empresa_id", data.empresa_id)
       .eq("competencia", data.competencia)
       .not("valor", "is", null)
@@ -859,6 +859,34 @@ export const conciliarParManual = createServerFn({ method: "POST" })
     return { ok: true, divergencias_count };
   });
 
+// Limpa o resultado de uma conciliação para permitir gerar de novo do zero.
+// Mantém o extrato vinculado — só zera resultado, contadores e status.
+// Útil quando a primeira rodada gerou muitas divergências erradas e o usuário
+// quer reprocessar depois de editar lançamentos.
+export const limparConciliacao = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ conciliacao_id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { data: conc } = await context.supabase
+      .from("conciliacoes").select("empresa_id, competencia, extrato_csv_url").eq("id", data.conciliacao_id).maybeSingle();
+    if (!conc) throw new Error("Conciliação não encontrada.");
+    const proximoStatus = conc.extrato_csv_url ? "em_andamento" : "nao_iniciada";
+    const { error } = await context.supabase
+      .from("conciliacoes")
+      .update({ resultado: null, divergencias_count: 0, concluido_em: null, status: proximoStatus })
+      .eq("id", data.conciliacao_id);
+    if (error) throw new Error(error.message);
+    // Volta todos os lançamentos DA EMPRESA/COMPETÊNCIA para "não conciliados"
+    // para que rodem de novo na próxima execução do "Conciliar agora".
+    await context.supabase
+      .from("lancamentos")
+      .update({ conciliado: false })
+      .eq("empresa_id", conc.empresa_id)
+      .eq("competencia", conc.competencia)
+      .eq("conciliado", true);
+    return { ok: true };
+  });
+
 // Edita um lançamento: atribuir/corrigir a conta contábil e ajustar data/valor/
 // descrição. Usado na revisão humana (aba Conciliação bancária) e para acertar
 // uma divergência antes de reconciliar. Ao definir a conta, marca confiança alta
@@ -872,12 +900,16 @@ export const editarLancamento = createServerFn({ method: "POST" })
     descricao: z.string().max(200).optional(),
     conta_codigo: z.string().max(40).optional(),
     documento_numero: z.string().max(80).nullable().optional(),
+    part_deb: z.string().max(40).nullable().optional(),
+    part_cred: z.string().max(40).nullable().optional(),
   }).parse(d))
   .handler(async ({ context, data }) => {
     const patch: Record<string, unknown> = {};
     if (data.data_lancamento) patch.data_lancamento = data.data_lancamento;
     if (typeof data.valor === "number") patch.valor = Math.abs(data.valor);
     if (data.descricao != null) patch.descricao = data.descricao;
+    if (data.part_deb !== undefined) patch.part_deb = data.part_deb;
+    if (data.part_cred !== undefined) patch.part_cred = data.part_cred;
     if (data.documento_numero !== undefined) patch.documento_numero = data.documento_numero;
 
     // Atribuir/corrigir conta: resolve o código → conta_id no escopo da empresa

@@ -1020,6 +1020,8 @@ export type Database = {
           importado_em: string | null
           linhas_count: number | null
           natureza_movimento: string | null
+          part_cred: string | null
+          part_deb: string | null
           planilha_url: string | null
           status: Database["public"]["Enums"]["lancamento_status"]
           total_lancamentos: number
@@ -1043,6 +1045,8 @@ export type Database = {
           importado_em?: string | null
           linhas_count?: number | null
           natureza_movimento?: string | null
+          part_cred?: string | null
+          part_deb?: string | null
           planilha_url?: string | null
           status?: Database["public"]["Enums"]["lancamento_status"]
           total_lancamentos?: number
@@ -1066,6 +1070,8 @@ export type Database = {
           importado_em?: string | null
           linhas_count?: number | null
           natureza_movimento?: string | null
+          part_cred?: string | null
+          part_deb?: string | null
           planilha_url?: string | null
           status?: Database["public"]["Enums"]["lancamento_status"]
           total_lancamentos?: number

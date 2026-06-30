@@ -23,6 +23,8 @@ export type SciLanc = {
   valor: number | null;
   descricao: string | null;
   documento_numero?: string | null;
+  part_deb?: string | null;
+  part_cred?: string | null;
   natureza_movimento?: string | null;
   conta: { codigo: string; tipo: string | null; sci_apelido?: string | null } | null;
   historico: { codigo: string } | null;
@@ -96,8 +98,8 @@ export function linhasSci(lancs: SciLanc[], bancoSci: number | string | "") {
         "DATA": fmtData(l.data_lancamento),
         "DÉBITO": debito,
         "CRÉDITO": credito,
-        "PART DÉB,": "",
-        "PART, CRED": "",
+        "PART DÉB,": l.part_deb ?? "",
+        "PART, CRED": l.part_cred ?? "",
         // SCI espera valor absoluto na coluna VALOR — o sinal já foi
         // refletido no posicionamento débito/crédito acima.
         "VALOR": Math.abs(valor),
@@ -133,6 +135,8 @@ export type SciLancRico = {
   valor: number | null;
   descricao: string | null;
   documento_numero?: string | null;
+  part_deb?: string | null;
+  part_cred?: string | null;
   natureza_movimento?: string | null;
   conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido?: string | null } | null;
   historico: { codigo: string; descricao: string; sci_apelido?: string | null } | null;
@@ -148,6 +152,8 @@ export type SciPreviewRow = {
   historico: { codigo: string; apelido: string; nome: string };
   complemento: string;
   documento: string;
+  part_deb: string;
+  part_cred: string;
 };
 
 /** Código SCI da conta: apelido do de-para quando existir, senão o código LCR. */
@@ -185,6 +191,8 @@ export function linhasSciPreview(
         },
         complemento: (l.descricao ?? "").slice(0, 80),
         documento: (l.documento_numero ?? "").slice(0, 80),
+        part_deb: (l.part_deb ?? "").slice(0, 40),
+        part_cred: (l.part_cred ?? "").slice(0, 40),
       };
     });
 }

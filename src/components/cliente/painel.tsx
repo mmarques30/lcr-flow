@@ -240,6 +240,8 @@ function exportarCsv(empresa: string, competencia: string, linhas: SciLinha[]) {
 type SciLancDet = {
   id: string; data_lancamento: string | null; valor: number | null; descricao: string | null;
   documento_numero?: string | null;
+  part_deb?: string | null;
+  part_cred?: string | null;
   natureza_movimento?: string | null;
   conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido: string | null } | null;
   historico: { codigo: string; descricao: string; sci_apelido: string | null } | null;
@@ -259,7 +261,7 @@ function CelSci({ cel }: { cel: SciCelula }) {
 // Persiste no blur via editarLancamento e invalida o cache da prévia.
 function CelEditavel({ id, initial, campo, placeholder, maxLength = 80, mono = false }: {
   id?: string; initial: string;
-  campo: "descricao" | "documento_numero";
+  campo: "descricao" | "documento_numero" | "part_deb" | "part_cred";
   placeholder: string; maxLength?: number; mono?: boolean;
 }) {
   const qc = useQueryClient();
@@ -271,7 +273,7 @@ function CelEditavel({ id, initial, campo, placeholder, maxLength = 80, mono = f
     if (!id || val === initial) return;
     setBusy(true);
     try {
-      await editarLancamento({ data: { id, [campo]: val || "" } as { id: string; descricao?: string; documento_numero?: string } });
+      await editarLancamento({ data: { id, [campo]: val || "" } as { id: string; descricao?: string; documento_numero?: string; part_deb?: string; part_cred?: string } });
       qc.invalidateQueries({ queryKey: ["lanc-conc"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar");
@@ -364,7 +366,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
           <h4 className="font-display text-lg">Prévia da planilha SCI</h4>
           <span className="text-xs text-muted-foreground">· layout de importação · {previewRows.length} lançamento(s)</span>
           <span className="ml-auto rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
-            Edite Complemento e Documento direto na tabela — salva automaticamente
+            Edite Part Déb, Part Cred, Complemento e Documento direto na tabela — salva automaticamente
           </span>
         </div>
         <CardContent className="p-0">
@@ -391,8 +393,12 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
                     <TableCell className="whitespace-nowrap font-mono text-xs">{r.data}</TableCell>
                     <CelSci cel={r.debito} />
                     <CelSci cel={r.credito} />
-                    <TableCell className="text-center text-muted-foreground">—</TableCell>
-                    <TableCell className="text-center text-muted-foreground">—</TableCell>
+                    <TableCell className="w-24 p-1.5">
+                      <CelEditavel id={r.id} initial={r.part_deb} campo="part_deb" placeholder="part déb" maxLength={40} mono />
+                    </TableCell>
+                    <TableCell className="w-24 p-1.5">
+                      <CelEditavel id={r.id} initial={r.part_cred} campo="part_cred" placeholder="part cred" maxLength={40} mono />
+                    </TableCell>
                     <TableCell className="text-right font-mono text-sm">{brl(r.valor)}</TableCell>
                     <TableCell className="text-sm">
                       <span className="font-mono text-xs">{r.historico.codigo || "—"}{r.historico.apelido && ` · ${r.historico.apelido}`}</span>
