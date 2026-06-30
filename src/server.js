@@ -138,8 +138,19 @@ app.get('/monitor', (req, res) => {
     return res.status(401).type('html').send('<body style="font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2rem"><h2>401</h2><p>Use <code>/monitor?token=…</code> com o token do monitor.</p></body>');
   }
   const tk = encodeURIComponent(req.query.token);
-  const runs = lerRunsRecentes(12);
+  const runs = lerRunsRecentes(24);
   const ultimo = runs[0];
+  // Agrega erros de todas as execuções recentes (não só a última), com motivo completo.
+  const SHOT_RE = /screenshots[\/\\]([\w.\-]+\.png)/;
+  const erros = [];
+  for (const r of runs) {
+    for (const t of (r.tarefas || [])) {
+      if (t.status === 'erro') {
+        const m = String(t.motivo || '').match(SHOT_RE);
+        erros.push({ quando: r.gerado_em, cliente: t.cliente, motivo: t.motivo || '(sem detalhe)', shot: m ? m[1] : null });
+      }
+    }
+  }
   const memTot = os.totalmem() / 1048576, memFree = os.freemem() / 1048576, memUso = memTot - memFree;
   const memPct = Math.round((memUso / memTot) * 100);
   const memCor = memPct >= 85 ? '#dc2626' : memPct >= 70 ? '#d97706' : '#16a34a';
@@ -153,7 +164,16 @@ app.get('/monitor', (req, res) => {
     return `<tr><td><span class="dot" style="background:${cor}"></span>${esc(t.status)}</td><td>${esc(t.cliente)}</td><td class="muted">${esc(String(extra).slice(0, 80))}</td></tr>`;
   }).join('') || '<tr><td colspan="3" class="muted">sem tarefas</td></tr>';
 
-  const linhasHist = runs.map((r) => `<tr><td class="muted">${brDate(r.gerado_em)}</td><td>${r.total ?? '—'}</td><td>${chips(r.contagem)}</td></tr>`).join('');
+  const linhasHist = runs.slice(0, 12).map((r) => `<tr><td class="muted">${brDate(r.gerado_em)}</td><td>${r.total ?? '—'}</td><td>${chips(r.contagem)}</td></tr>`).join('');
+
+  const blocoErros = erros.length === 0
+    ? '<div class="muted">Nenhum erro nas últimas execuções. 🎉</div>'
+    : erros.slice(0, 40).map((e) => `<div class="erro">
+        <div><span class="dot" style="background:#dc2626"></span><b>${esc(e.cliente)}</b> <span class="muted">· ${brDate(e.quando)}</span>
+        ${e.shot ? ` · <a href="/monitor/shot?token=${tk}&f=${encodeURIComponent(e.shot)}" target="_blank">📷 screenshot</a>` : ''}</div>
+        <pre class="motivo">${esc(e.motivo)}</pre></div>`).join('');
+
+  const stderrTail = (!estado.running && estado.stderr_tail) ? esc(estado.stderr_tail) : '';
 
   const html = `<!doctype html><html lang="pt-br"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -172,6 +192,9 @@ h1{font-size:1.2rem;margin:0}h2{font-size:.95rem;margin:0 0 .6rem;color:#94a3b8;
 table{width:100%;border-collapse:collapse;font-size:.85rem}td,th{text-align:left;padding:.35rem .5rem;border-bottom:1px solid #2b3a52}th{color:#94a3b8;font-weight:600}
 .bar{height:10px;background:#334155;border-radius:999px;overflow:hidden;margin-top:6px}.bar>div{height:100%}
 a{color:#60a5fa}
+.erro{border-left:3px solid #dc2626;background:#2a1a1f;border-radius:6px;padding:8px 12px;margin-bottom:8px}
+.motivo{margin:6px 0 0;white-space:pre-wrap;word-break:break-word;font-size:.78rem;color:#fca5a5;background:#1b1116;padding:8px;border-radius:6px;max-height:160px;overflow:auto}
+.count{background:#dc2626;color:#fff;border-radius:999px;padding:.05rem .5rem;font-size:.8rem;margin-left:6px}
 </style></head><body>
 <div class="top"><h1>🩺 LCR PROC-001 · Monitor <span class="muted" style="font-size:.8rem">VPS 206.189.229.35</span></h1>
 <div class="muted">${brDate(new Date().toISOString())} · atualiza a cada 60s</div></div>
@@ -200,11 +223,27 @@ a{color:#60a5fa}
   <table><thead><tr><th>Status</th><th>Cliente</th><th>Detalhe</th></tr></thead><tbody>${linhasUltimo}</tbody></table>
 </div>
 
+<div class="card" style="margin-bottom:14px"><h2>Erros recentes ${erros.length ? `<span class="count">${erros.length}</span>` : ''}<span class="muted" style="text-transform:none;letter-spacing:0"> · últimas 24 execuções</span></h2>
+  ${blocoErros}
+</div>
+
+${stderrTail ? `<div class="card" style="margin-bottom:14px"><h2>stderr da última execução</h2><pre class="motivo" style="color:#cbd5e1;max-height:240px">${stderrTail}</pre></div>` : ''}
+
 <div class="card"><h2>Histórico (últimas ${runs.length} execuções)</h2>
   <table><thead><tr><th>Quando</th><th>Tarefas</th><th>Resultado</th></tr></thead><tbody>${linhasHist}</tbody></table>
 </div>
 </body></html>`;
   res.type('html').send(html);
+});
+
+// Serve um screenshot de erro do Gestta (só-leitura, validado contra path traversal).
+app.get('/monitor/shot', (req, res) => {
+  if (!MONITOR_TOKEN || req.query.token !== MONITOR_TOKEN) return res.status(401).send('unauthorized');
+  const f = String(req.query.f || '');
+  if (!/^[\w.\-]+\.png$/.test(f)) return res.status(400).send('arquivo inválido');
+  const fp = path.join(ROOT, 'screenshots', f);
+  if (!fp.startsWith(path.join(ROOT, 'screenshots') + path.sep) || !fs.existsSync(fp)) return res.status(404).send('não encontrado');
+  res.type('png').sendFile(fp);
 });
 
 // HTTPS se TLS_CERT/TLS_KEY existirem (cert self-signed no VPS), senão HTTP.

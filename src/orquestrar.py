@@ -167,7 +167,7 @@ def processar_tarefa(t: dict, competencia: str, comp_g: str, jwt: str) -> dict:
     try:
         suf = gestta("analisarSuficienciaDocumentos", tarefa_id, comp_g)
     except Exception as e:
-        return {**base, "status": "erro", "motivo": f"suficiência: {str(e)[:160]}"}
+        return {**base, "status": "erro", "motivo": f"suficiência: {str(e)[:600]}"}
     try:
         ia = avaliar_suficiencia_documentos(suf.get("observacao", ""), suf.get("documentos", []), comp_g)
     except Exception:
@@ -182,7 +182,7 @@ def processar_tarefa(t: dict, competencia: str, comp_g: str, jwt: str) -> dict:
     try:
         resumo = bf.processar_via_gestta(empresa_id, competencia, None, tarefa_id, banco, jwt, competencia_front=comp_mov)
     except Exception as e:
-        return {**base, "status": "erro", "motivo": f"etapa4: {str(e)[:200]}"}
+        return {**base, "status": "erro", "motivo": f"etapa4: {str(e)[:600]}"}
 
     # Vincula o consultor responsável (processar_via_gestta com tarefa_id não resolve responsavel)
     if resp:
