@@ -115,7 +115,7 @@ function Dashboard() {
 
       {/* HERO — painel principal navy com KPIs grandes + sparkline integrada */}
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="relative overflow-hidden rounded-3xl bg-primary p-7 text-primary-foreground lg:col-span-2">
+        <div className="relative overflow-hidden rounded-3xl bg-deep p-7 text-primary-foreground lg:col-span-2">
           {/* Gradient glow ao fundo (marca azul) */}
           <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-primary/40 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-24 -left-10 h-64 w-64 rounded-full bg-accent-lime/20 blur-3xl" />
@@ -548,7 +548,7 @@ function Dashboard() {
                   })}
                 </div>
 
-                <div className="mt-6 rounded-2xl bg-primary p-4 text-primary-foreground">
+                <div className="mt-6 rounded-2xl bg-deep p-4 text-primary-foreground">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-[10px] uppercase tracking-wider text-primary-foreground/70">Próximo passo</div>

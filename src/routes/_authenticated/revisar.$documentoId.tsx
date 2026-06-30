@@ -9,9 +9,10 @@ import { getDocumentoRevisao, aprovarDocumento, limparLancamentosDocumento } fro
 import { DOC_TIPO_LABEL, formatCompetencia } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
-import { ChevronLeft, CheckCircle2, Sparkles, AlertTriangle, FileText, Loader2 } from "lucide-react";
+import { ChevronLeft, CheckCircle2, Sparkles, AlertTriangle, FileText, Loader2, GitCompare, ArrowRight, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import * as XLSX from "xlsx";
 
 export const Route = createFileRoute("/_authenticated/revisar/$documentoId")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "documentos", "/documentos"),
@@ -127,6 +128,8 @@ export function DocumentoRevisaoView({ documentoId, onAprovado }: { documentoId:
   const ext = (storagePath ?? "").split(".").pop()?.toLowerCase() ?? "";
   const isPdf = ext === "pdf";
   const isImg = ["png", "jpg", "jpeg", "webp", "gif"].includes(ext);
+  const isSheet = ["csv", "xlsx", "xls"].includes(ext);
+  const isExtrato = doc.tipo === "extrato";
 
   return (
     <>
@@ -151,6 +154,8 @@ export function DocumentoRevisaoView({ documentoId, onAprovado }: { documentoId:
               <iframe src={url} title="Documento" className="h-[70vh] w-full" />
             ) : isImg ? (
               <div className="max-h-[70vh] overflow-auto p-4"><img src={url} alt="Documento" className="mx-auto max-w-full" /></div>
+            ) : isSheet ? (
+              <PlanilhaPreview url={url} ext={ext} />
             ) : (
               <div className="flex h-[40vh] flex-col items-center justify-center gap-3 text-muted-foreground">
                 <p>Pré-visualização indisponível para .{ext}</p>
@@ -196,43 +201,70 @@ export function DocumentoRevisaoView({ documentoId, onAprovado }: { documentoId:
             </CardContent>
           </Card>
 
-          <Card>
-            <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-6 py-3">
-              <h3 className="font-display text-lg">Lançamentos sugeridos</h3>
-              <span className="text-xs text-muted-foreground">· {sugestoes.length}</span>
-            </div>
-            <CardContent className="p-0">
-              <div className="max-h-80 overflow-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-20">Data</TableHead>
-                      <TableHead>Conta</TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead className="text-right">Valor</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sugestoes.map((s, i) => {
-                      const baixa = typeof s.confidence === "number" && s.confidence < 0.7;
-                      return (
-                        <TableRow key={i} className={cn(baixa && "bg-amber-50")}>
-                          <TableCell className="text-xs">{s.data_lancamento ?? "—"}</TableCell>
-                          <TableCell className="font-mono text-xs">{s.conta_codigo ?? "—"}</TableCell>
-                          <TableCell className="max-w-[14rem] truncate text-sm" title={s.descricao ?? ""}>
-                            {s.descricao}
-                            {baixa && <span className="ml-1 text-[10px] text-amber-700">({Math.round((s.confidence ?? 0) * 100)}%)</span>}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm">{typeof s.valor === "number" ? brl(s.valor) : "—"}</TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {sugestoes.length === 0 && <TableRow><TableCell colSpan={4} className="py-6 text-center text-muted-foreground">Nenhum lançamento sugerido.</TableCell></TableRow>}
-                  </TableBody>
-                </Table>
+          {isExtrato && sugestoes.length === 0 ? (
+            // Extratos não geram lançamentos sugeridos — eles alimentam a
+            // conciliação bancária. Mostra um card explicativo claro.
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="space-y-3 p-5">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground"><GitCompare className="h-5 w-5" /></span>
+                  <div>
+                    <h3 className="font-display text-lg leading-tight">Extrato vinculado à conciliação bancária</h3>
+                    <p className="mt-1 text-sm text-soft-foreground">
+                      Extratos bancários não geram lançamentos sugeridos aqui — eles entram diretamente como fonte de
+                      comparação na <strong>Conciliação bancária</strong> da competência {formatCompetencia(doc.competencia)}.
+                      Clique em <strong>"Conciliar agora"</strong> lá para casar com a razão.
+                    </p>
+                  </div>
+                </div>
+                {doc.empresa_id && (
+                  <Button asChild className="w-full sm:w-auto">
+                    <Link to="/conciliacao/$empresaId" params={{ empresaId: doc.empresa_id }}>
+                      Abrir conciliação bancária <ArrowRight className="ml-1.5 h-4 w-4" />
+                    </Link>
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-6 py-3">
+                <h3 className="font-display text-lg">Lançamentos sugeridos</h3>
+                <span className="text-xs text-muted-foreground">· {sugestoes.length}</span>
               </div>
-            </CardContent>
-          </Card>
+              <CardContent className="p-0">
+                <div className="max-h-80 overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-20">Data</TableHead>
+                        <TableHead>Conta</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sugestoes.map((s, i) => {
+                        const baixa = typeof s.confidence === "number" && s.confidence < 0.7;
+                        return (
+                          <TableRow key={i} className={cn(baixa && "bg-amber-50")}>
+                            <TableCell className="text-xs">{s.data_lancamento ?? "—"}</TableCell>
+                            <TableCell className="font-mono text-xs">{s.conta_codigo ?? "—"}</TableCell>
+                            <TableCell className="max-w-[14rem] truncate text-sm" title={s.descricao ?? ""}>
+                              {s.descricao}
+                              {baixa && <span className="ml-1 text-[10px] text-amber-700">({Math.round((s.confidence ?? 0) * 100)}%)</span>}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm">{typeof s.valor === "number" ? brl(s.valor) : "—"}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {sugestoes.length === 0 && <TableRow><TableCell colSpan={4} className="py-6 text-center text-muted-foreground">Nenhum lançamento sugerido.</TableCell></TableRow>}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={aprovar} disabled={busy !== null}>
@@ -260,6 +292,75 @@ function Campo({ label, valor }: { label: string; valor: string }) {
     <div>
       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-0.5 text-sm text-foreground">{valor}</div>
+    </div>
+  );
+}
+
+// Pré-visualização de CSV/XLSX via biblioteca xlsx (suporta ambos formatos).
+// Limita a 200 linhas para manter responsivo.
+function PlanilhaPreview({ url, ext }: { url: string; ext: string }) {
+  const [rows, setRows] = useState<string[][] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [truncado, setTruncado] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setRows(null); setErr(null); setTruncado(false);
+    fetch(url)
+      .then((r) => r.arrayBuffer())
+      .then((buf) => {
+        if (!active) return;
+        try {
+          const wb = XLSX.read(buf, { type: "array" });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const data: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" });
+          const lim = data.slice(0, 200).map((r) => r.map((c) => String(c ?? "")));
+          setRows(lim);
+          setTruncado(data.length > 200);
+        } catch (e) {
+          setErr(e instanceof Error ? e.message : "Falha ao ler planilha");
+        }
+      })
+      .catch((e) => { if (active) setErr(e.message); });
+    return () => { active = false; };
+  }, [url]);
+
+  if (err) {
+    return (
+      <div className="flex h-[40vh] flex-col items-center justify-center gap-3 text-muted-foreground">
+        <p>Não foi possível pré-visualizar a planilha: {err}</p>
+        <Button variant="outline" size="sm" asChild><a href={url} target="_blank" rel="noopener noreferrer">Abrir arquivo</a></Button>
+      </div>
+    );
+  }
+  if (!rows) {
+    return <div className="flex h-[40vh] items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Carregando planilha…</div>;
+  }
+  const header = rows[0] ?? [];
+  const body = rows.slice(1);
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+        <FileSpreadsheet className="h-3.5 w-3.5 text-primary" />
+        <span>Planilha .{ext} · {rows.length} linha(s){truncado ? " (primeiras 200)" : ""}</span>
+        <a href={url} target="_blank" rel="noopener noreferrer" className="ml-auto text-primary hover:underline">Baixar original</a>
+      </div>
+      <div className="max-h-[70vh] overflow-auto">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-muted/60 backdrop-blur">
+            <tr>
+              {header.map((h, i) => <th key={i} className="border-b border-border px-2 py-1.5 text-left font-medium text-foreground">{h || `Col ${i + 1}`}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {body.map((row, i) => (
+              <tr key={i} className={i % 2 ? "bg-muted/20" : ""}>
+                {header.map((_, j) => <td key={j} className="border-b border-border/60 px-2 py-1 align-top">{row[j] ?? ""}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
