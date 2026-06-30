@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { Markdown } from "@/components/markdown";
-import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, getEmpresa, type SciLinha } from "@/lib/lcr.functions";
+import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, getEmpresa, listPlanoContas, type SciLinha } from "@/lib/lcr.functions";
 import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, type SciCelula } from "@/lib/sci-xls";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
@@ -204,8 +204,8 @@ function exportarCsv(empresa: string, competencia: string, linhas: SciLinha[]) {
 
 type SciLancDet = {
   id: string; data_lancamento: string | null; valor: number | null; descricao: string | null;
-  conta: { codigo: string; descricao: string; tipo: string | null } | null;
-  historico: { codigo: string; descricao: string } | null;
+  conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido: string | null } | null;
+  historico: { codigo: string; descricao: string; sci_apelido: string | null } | null;
 };
 
 function KpiSci({ label, value, tone }: { label: string; value: string; tone?: "ok" | "muted" }) {
@@ -243,7 +243,16 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
   const contasBanc = (emp as { contas_bancarias?: { banco: string | null }[] } | undefined)?.contas_bancarias ?? [];
   const bancoCodigo = bancoCodigoDe(contasBanc[0]?.banco ?? null);
   const bancoNome = contasBanc[0]?.banco ?? "";
-  const previewRows = linhasSciPreview(lancs, bancoCodigo, bancoNome);
+  // Apelido SCI do banco (de-para): resolve via plano de contas; cai no código LCR se não houver.
+  const { data: planoContas } = useQuery({ queryKey: ["plano-contas"], queryFn: () => listPlanoContas(), staleTime: 5 * 60_000 });
+  const sciApelidoBanco: number | string = (() => {
+    if (bancoCodigo == null) return "";
+    const pc = ((planoContas ?? []) as { codigo: string; sci_apelido: string | null }[]).find((c) => String(c.codigo) === String(bancoCodigo));
+    const v = pc?.sci_apelido?.trim() || String(bancoCodigo);
+    const n = Number(v);
+    return Number.isNaN(n) ? v : n;
+  })();
+  const previewRows = linhasSciPreview(lancs, sciApelidoBanco, bancoNome);
 
   function baixarXls() {
     const n = baixarPlanilhaSciXls(empresaNome, competencia, lancs, bancoCodigo);
@@ -326,7 +335,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
                     <TableCell className="text-center text-muted-foreground">—</TableCell>
                     <TableCell className="text-right font-mono text-sm">{brl(r.valor)}</TableCell>
                     <TableCell className="text-sm">
-                      <span className="font-mono text-xs">{r.historico.codigo || "—"}</span>
+                      <span className="font-mono text-xs">{r.historico.codigo || "—"}{r.historico.apelido && ` · ${r.historico.apelido}`}</span>
                       {r.historico.nome && <div className="text-xs text-muted-foreground">{r.historico.nome}</div>}
                     </TableCell>
                     <TableCell className="max-w-[16rem] truncate text-sm" title={r.complemento}>{r.complemento}</TableCell>

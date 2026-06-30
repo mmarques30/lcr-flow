@@ -95,8 +95,8 @@ export type SciLancRico = {
   data_lancamento: string | null;
   valor: number | null;
   descricao: string | null;
-  conta: { codigo: string; descricao: string; tipo: string | null } | null;
-  historico: { codigo: string; descricao: string } | null;
+  conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido?: string | null } | null;
+  historico: { codigo: string; descricao: string; sci_apelido?: string | null } | null;
 };
 
 export type SciCelula = { codigo: number | string; nome: string };
@@ -105,29 +105,41 @@ export type SciPreviewRow = {
   debito: SciCelula;
   credito: SciCelula;
   valor: number;
-  historico: { codigo: string; nome: string };
+  historico: { codigo: string; apelido: string; nome: string };
   complemento: string;
 };
 
-/** Monta as linhas da prévia (uma por lançamento), reproduzindo o layout do modelo
- *  com código + nome nas colunas mapeadas (débito/crédito/histórico). */
+/** Código SCI da conta: apelido do de-para quando existir, senão o código LCR. */
+function codSci(c: { codigo: string; sci_apelido?: string | null }): number | string {
+  const v = c.sci_apelido && c.sci_apelido.trim() ? c.sci_apelido.trim() : c.codigo;
+  const n = Number(v);
+  return Number.isNaN(n) ? v : n;
+}
+
+/** Monta as linhas da prévia (uma por lançamento), reproduzindo o layout do modelo.
+ *  Débito/crédito usam o apelido SCI (de-para) quando disponível; `bancoSci` já vem
+ *  resolvido para o apelido do banco. */
 export function linhasSciPreview(
   lancs: SciLancRico[],
-  bancoCodigo: number | null,
+  bancoSci: number | string | "",
   bancoNome: string,
 ): SciPreviewRow[] {
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
-      const conta: SciCelula = { codigo: Number(l.conta!.codigo), nome: l.conta!.descricao };
-      const banco: SciCelula = { codigo: bancoCodigo ?? "", nome: bancoNome || "Banco" };
+      const conta: SciCelula = { codigo: codSci(l.conta!), nome: l.conta!.descricao };
+      const banco: SciCelula = { codigo: bancoSci, nome: bancoNome || "Banco" };
       const ld = ladoConta(l.conta!.tipo);
       return {
         data: fmtData(l.data_lancamento),
         debito: ld === "debito" ? conta : banco,
         credito: ld === "debito" ? banco : conta,
         valor: Number(l.valor ?? 0),
-        historico: { codigo: l.historico?.codigo ?? "", nome: l.historico?.descricao ?? "" },
+        historico: {
+          codigo: l.historico?.codigo ?? "",
+          apelido: l.historico?.sci_apelido ?? "",
+          nome: l.historico?.descricao ?? "",
+        },
         complemento: (l.descricao ?? "").slice(0, 80),
       };
     });

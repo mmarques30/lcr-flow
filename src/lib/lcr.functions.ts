@@ -489,7 +489,7 @@ export const listLancamentosConciliacao = createServerFn({ method: "GET" })
     const { data: empresa } = await context.supabase.from("empresas").select("id, razao_social, nome_fantasia").eq("id", data.empresa_id).maybeSingle();
     const { data: rows, error } = await context.supabase
       .from("lancamentos")
-      .select("id, data_lancamento, valor, descricao, conciliado, confidence, status, conta:conta_id(codigo, descricao, tipo), historico:historico_id(codigo, descricao)")
+      .select("id, data_lancamento, valor, descricao, conciliado, confidence, status, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
       .eq("empresa_id", data.empresa_id)
       .eq("competencia", data.competencia)
       .not("valor", "is", null)
@@ -882,7 +882,7 @@ export const listPlanoContas = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("plano_contas")
-      .select("codigo, descricao, tipo, ativo")
+      .select("codigo, descricao, tipo, ativo, sci_apelido")
       .order("codigo")
       .range(0, 4999);
     if (error) throw new Error(error.message);
