@@ -357,10 +357,21 @@ export const getEmpresaPainel = createServerFn({ method: "GET" })
     docs.forEach((d) => { tipoCount[d.tipo] = (tipoCount[d.tipo] ?? 0) + 1; });
     const docsByTipo = Object.entries(tipoCount).map(([tipo, total]) => ({ tipo, total })).sort((a, b) => b.total - a.total);
 
-    // Documentos esperados com status no mês selecionado.
+    // Documentos esperados com status: cruza com docs do mês primeiro, e se
+    // não houver no mês, marca como "recebido em outra competência" caso já
+    // tenha aparecido alguma vez para o cliente (evita o falso 0% quando o
+    // extrato foi enviado mas para outro mês).
     const esperadosMes = (esperados.data ?? []).map((e) => {
-      const recebido = docsMes.find((d) => d.tipo === e.tipo);
-      return { id: e.id, tipo: e.tipo, recebido: !!recebido, status: recebido?.status ?? null, recebido_em: recebido?.recebido_em ?? null };
+      const noMes = docsMes.find((d) => d.tipo === e.tipo);
+      if (noMes) {
+        return { id: e.id, tipo: e.tipo, recebido: true, no_mes: true, status: noMes.status, recebido_em: noMes.recebido_em, competencia_recebido: noMes.competencia as string | null };
+      }
+      // Fallback: doc desse tipo já recebido em outra competência.
+      const outroMes = docs.find((d) => d.tipo === e.tipo);
+      if (outroMes) {
+        return { id: e.id, tipo: e.tipo, recebido: true, no_mes: false, status: outroMes.status, recebido_em: outroMes.recebido_em, competencia_recebido: outroMes.competencia as string | null };
+      }
+      return { id: e.id, tipo: e.tipo, recebido: false, no_mes: false, status: null as string | null, recebido_em: null as string | null, competencia_recebido: null as string | null };
     });
 
     // Bancos detectados via nomes de arquivo dos extratos / documentos recebidos.
@@ -792,6 +803,55 @@ export const editarLancamento = createServerFn({ method: "POST" })
 
     if (Object.keys(patch).length === 0) return { ok: true };
     const { error } = await context.supabase.from("lancamentos").update(patch as never).eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// Inclusão manual de lançamento na competência (botão "incluir" na conciliação).
+export const createLancamento = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({
+    empresa_id: z.string().uuid(),
+    competencia: z.string().regex(/^\d{4}-\d{2}$/),
+    data_lancamento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    valor: z.number(),
+    descricao: z.string().max(200).optional(),
+    conta_codigo: z.string().max(40).optional(),
+  }).parse(d))
+  .handler(async ({ context, data }) => {
+    let conta_id: string | null = null;
+    if (data.conta_codigo) {
+      const { data: contas } = await context.supabase
+        .from("plano_contas").select("id, empresa_id, codigo").eq("codigo", data.conta_codigo);
+      const lista = (contas ?? []) as { id: string; empresa_id: string | null; codigo: string }[];
+      const conta = lista.find((c) => c.empresa_id === data.empresa_id) ?? lista.find((c) => c.empresa_id === null) ?? lista[0];
+      if (!conta) throw new Error(`Conta "${data.conta_codigo}" não encontrada no plano de contas.`);
+      conta_id = conta.id;
+    }
+    const { data: comp } = await context.supabase
+      .from("competencias").select("id").eq("empresa_id", data.empresa_id).eq("periodo", data.competencia).maybeSingle();
+    const insert = {
+      empresa_id: data.empresa_id,
+      competencia: data.competencia,
+      competencia_id: (comp as { id?: string } | null)?.id ?? null,
+      data_lancamento: data.data_lancamento ?? null,
+      valor: Math.abs(data.valor),
+      descricao: data.descricao ?? null,
+      conta_id,
+      status: "validado" as const,
+      confidence: 1,
+      total_lancamentos: 1,
+    };
+    const { data: novo, error } = await context.supabase.from("lancamentos").insert(insert as never).select("id").maybeSingle();
+    if (error) throw new Error(error.message);
+    return { ok: true, id: (novo as { id?: string } | null)?.id };
+  });
+
+export const deleteLancamento = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { error } = await context.supabase.from("lancamentos").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });

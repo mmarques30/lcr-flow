@@ -112,7 +112,9 @@ function VisaoGeralCliente({ empresaId, empresa, competencia }: { empresaId: str
   const esperadosCad = empresa.documentos_esperados ?? [];
 
   const ultimoDocRel = kpis.ultimoDoc?.recebido_em ? new Date(kpis.ultimoDoc.recebido_em).toLocaleDateString("pt-BR") : "—";
-  const recebidosPct = esperadosCad.length === 0 ? 0 : Math.round((docsEsperadosMes.filter((e) => e.recebido).length / esperadosCad.length) * 100);
+  const recebidosNoMes = docsEsperadosMes.filter((e) => e.no_mes).length;
+  const recebidosForaMes = docsEsperadosMes.filter((e) => e.recebido && !e.no_mes).length;
+  const recebidosPct = esperadosCad.length === 0 ? 0 : Math.round((recebidosNoMes / esperadosCad.length) * 100);
 
   return (
     <div className="space-y-5">
@@ -186,22 +188,37 @@ function VisaoGeralCliente({ empresaId, empresa, competencia }: { empresaId: str
 
             <div className="my-5 flex flex-col items-center">
               <span className="font-display text-5xl font-bold">{recebidosPct}%</span>
-              <span className="text-xs text-muted-foreground mt-1">{docsEsperadosMes.filter((e) => e.recebido).length} de {esperadosCad.length} recebidos</span>
+              <span className="text-xs text-muted-foreground mt-1">{recebidosNoMes} de {esperadosCad.length} recebidos no mês</span>
+              {recebidosForaMes > 0 && (
+                <span className="mt-1 text-[11px] text-accent-lime font-medium">+{recebidosForaMes} já recebido(s) antes</span>
+              )}
             </div>
 
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
               {esperadosCad.length === 0 && <p className="text-xs text-center text-muted-foreground">Nenhum documento configurado como esperado.</p>}
-              {docsEsperadosMes.map((e) => (
-                <div key={e.id} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-1.5 text-xs">
-                  <span className="flex items-center gap-2">
-                    {e.recebido ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" /> : <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />}
-                    {DOC_TIPO_LABEL[e.tipo as keyof typeof DOC_TIPO_LABEL]}
-                  </span>
-                  <span className={e.recebido ? "font-medium text-primary" : "text-muted-foreground"}>
-                    {e.recebido ? (e.status ? DOC_STATUS_LABEL[e.status as keyof typeof DOC_STATUS_LABEL] : "ok") : "aguardando"}
-                  </span>
-                </div>
-              ))}
+              {docsEsperadosMes.map((e) => {
+                const icon = e.no_mes
+                  ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                  : e.recebido
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-accent-lime" />
+                    : <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />;
+                const label = e.no_mes
+                  ? (e.status ? DOC_STATUS_LABEL[e.status as keyof typeof DOC_STATUS_LABEL] : "recebido")
+                  : e.recebido
+                    ? `recebido em ${e.competencia_recebido ? formatCompetencia(e.competencia_recebido) : "outro mês"}`
+                    : "aguardando";
+                return (
+                  <div key={e.id} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-1.5 text-xs">
+                    <span className="flex items-center gap-2">
+                      {icon}
+                      {DOC_TIPO_LABEL[e.tipo as keyof typeof DOC_TIPO_LABEL]}
+                    </span>
+                    <span className={e.no_mes ? "font-medium text-primary" : e.recebido ? "text-accent-lime" : "text-muted-foreground"}>
+                      {label}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>

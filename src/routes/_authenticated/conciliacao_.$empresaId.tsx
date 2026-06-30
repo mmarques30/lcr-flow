@@ -10,11 +10,11 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { StatusPill } from "@/components/status-pill";
-import { getConciliacaoDetalhe, listLancamentosConciliacao, conciliarParManual, editarLancamento, listPlanoContas, listDocumentos } from "@/lib/lcr.functions";
+import { getConciliacaoDetalhe, listLancamentosConciliacao, conciliarParManual, editarLancamento, createLancamento, deleteLancamento, listPlanoContas, listDocumentos } from "@/lib/lcr.functions";
 import { formatCompetencia } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
-import { ChevronLeft, Download, CheckCircle2, Sparkles, Wand2, ListChecks, AlertTriangle, FileText, Link2, Pencil, ChevronsUpDown, Check } from "lucide-react";
+import { ChevronLeft, Download, CheckCircle2, Sparkles, Wand2, ListChecks, AlertTriangle, FileText, Link2, Pencil, ChevronsUpDown, Check, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -206,10 +206,11 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
     }
   }
 
-  // seleção para pareamento manual + edição de lançamento
+  // seleção para pareamento manual + edição/inclusão de lançamento
   const [selRazao, setSelRazao] = useState<number | null>(null);
   const [selExtrato, setSelExtrato] = useState<number | null>(null);
   const [edit, setEdit] = useState<{ id: string; data: string; valor: string; descricao: string; conta_codigo: string } | null>(null);
+  const [novo, setNovo] = useState<{ data: string; valor: string; descricao: string; conta_codigo: string } | null>(null);
   const [acting, setActing] = useState(false);
 
   function abrirEdicao(l: LancConc) {
@@ -220,6 +221,50 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       descricao: l.descricao ?? "",
       conta_codigo: l.conta?.codigo ?? "",
     });
+  }
+
+  function abrirNovo(descPrefill?: string, valorPrefill?: number, dataPrefill?: string) {
+    setNovo({
+      data: dataPrefill ?? new Date().toISOString().slice(0, 10),
+      valor: valorPrefill != null ? String(Math.abs(valorPrefill)) : "",
+      descricao: descPrefill ?? "",
+      conta_codigo: "",
+    });
+  }
+
+  async function salvarNovo() {
+    if (!novo) return;
+    if (!novo.valor) { toast.error("Informe o valor."); return; }
+    setActing(true);
+    try {
+      await createLancamento({ data: {
+        empresa_id: empresaId,
+        competencia,
+        data_lancamento: novo.data || undefined,
+        valor: Number(novo.valor.replace(",", ".")),
+        descricao: novo.descricao || undefined,
+        conta_codigo: novo.conta_codigo || undefined,
+      } });
+      setNovo(null);
+      await qc.invalidateQueries({ queryKey: lancKey });
+      if (temExtrato) { toast.success("Lançamento incluído. Reconciliando…"); await conciliar(); }
+      else toast.success("Lançamento incluído.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally { setActing(false); }
+  }
+
+  async function excluirLancamento(id: string, descricao?: string | null) {
+    if (!confirm(`Excluir o lançamento "${descricao ?? id}"? Esta ação não pode ser desfeita.`)) return;
+    setActing(true);
+    try {
+      await deleteLancamento({ data: { id } });
+      await qc.invalidateQueries({ queryKey: lancKey });
+      if (temExtrato) { toast.success("Lançamento excluído. Reconciliando…"); await conciliar(); }
+      else toast.success("Lançamento excluído.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+    } finally { setActing(false); }
   }
 
   async function conciliarManual() {
@@ -301,7 +346,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </div>
       )}
 
-      {/* Registros extraídos — revisão e edição humana (todos os lançamentos da IA) */}
+      {/* Registros extraídos — revisão, inclusão e edição humana */}
       <Card className="mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-3">
           <div className="flex items-center gap-2">
@@ -309,7 +354,10 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             <h3 className="font-display text-lg">Registros extraídos · revisão e edição</h3>
             <span className="text-xs text-muted-foreground">· {lancs.length} lançamento(s)</span>
           </div>
-          {aRever > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"><AlertTriangle className="h-3 w-3" /> {aRever} a revisar</span>}
+          <div className="flex items-center gap-2">
+            {aRever > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"><AlertTriangle className="h-3 w-3" /> {aRever} a revisar</span>}
+            <Button size="sm" onClick={() => abrirNovo()}><Plus className="mr-1 h-3.5 w-3.5" />Incluir lançamento</Button>
+          </div>
         </div>
         <CardContent className="p-0">
           <div className="max-h-[28rem] overflow-y-auto">
@@ -321,7 +369,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                   <TableHead>Descrição</TableHead>
                   <TableHead className="text-right">Valor</TableHead>
                   <TableHead className="w-36">Status</TableHead>
-                  <TableHead className="w-16 text-right">Editar</TableHead>
+                  <TableHead className="w-24 text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -342,14 +390,19 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                       <TableCell className="text-right font-mono text-sm">{l.valor == null ? "—" : brl(l.valor)}</TableCell>
                       <TableCell><StatusPill variant={st.variant}>{st.label}</StatusPill></TableCell>
                       <TableCell className="text-right">
-                        <button type="button" onClick={() => abrirEdicao(l)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar / classificar">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="inline-flex items-center gap-1">
+                          <button type="button" onClick={() => abrirEdicao(l)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar / classificar">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button type="button" disabled={acting} onClick={() => excluirLancamento(l.id, l.descricao)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" title="Excluir lançamento">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
                 })}
-                {!lancLoading && lancs.length === 0 && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nenhum lançamento nesta competência.</TableCell></TableRow>}
+                {!lancLoading && lancs.length === 0 && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nenhum lançamento nesta competência. Use “Incluir lançamento” para adicionar manualmente.</TableCell></TableRow>}
                 {lancLoading && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
               </TableBody>
             </Table>
@@ -403,19 +456,25 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                     <p className="mt-0.5 text-xs text-muted-foreground">Cruza os lançamentos da razão com o extrato — por regras (valor + data ±3 dias) e, no que sobrar, por IA. O que resta aqui é ajuste manual.</p>
                   </div>
                 </div>
-                <Button size="sm" disabled={acting || selRazao === null || selExtrato === null} onClick={conciliarManual}>
-                  <Link2 className="mr-1 h-4 w-4" /> Conciliar par selecionado
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => abrirNovo()}><Plus className="mr-1 h-4 w-4" /> Incluir lançamento</Button>
+                  <Button size="sm" disabled={acting || selRazao === null || selExtrato === null} onClick={conciliarManual}>
+                    <Link2 className="mr-1 h-4 w-4" /> Conciliar par selecionado
+                  </Button>
+                </div>
               </div>
               <CardContent className="grid grid-cols-1 gap-5 p-5 lg:grid-cols-2">
                 <DivergCol
                   titulo="Na razão, sem par no extrato" linhas={resultado.divergencias_razao}
                   sel={selRazao} onSel={(i) => setSelRazao(selRazao === i ? null : i)}
                   onEdit={(l) => setEdit({ id: l.id ?? "", data: l.data ?? "", valor: String(l.valor ?? ""), descricao: l.descricao ?? "", conta_codigo: "" })}
+                  onDelete={(l) => l.id && excluirLancamento(l.id, l.descricao)}
+                  acting={acting}
                 />
                 <DivergCol
                   titulo="No extrato, sem par na razão" linhas={resultado.divergencias_extrato}
                   sel={selExtrato} onSel={(i) => setSelExtrato(selExtrato === i ? null : i)}
+                  onAdd={(l) => abrirNovo(l.descricao, l.valor, l.data ?? undefined)}
                 />
               </CardContent>
               <div className="px-6 pb-4 text-xs text-muted-foreground">
@@ -425,6 +484,27 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
           )}
         </div>
       )}
+
+      <Dialog open={!!novo} onOpenChange={(o) => !o && setNovo(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle className="font-display text-2xl">Incluir lançamento</DialogTitle></DialogHeader>
+          {novo && (
+            <div className="space-y-4">
+              <div className="space-y-1.5"><Label>Conta contábil</Label><ContaCombobox value={novo.conta_codigo} onChange={(codigo) => setNovo({ ...novo, conta_codigo: codigo })} /></div>
+              <div className="space-y-1.5"><Label>Descrição</Label><Input value={novo.descricao} onChange={(e) => setNovo({ ...novo, descricao: e.target.value })} placeholder="Ex: Pagto fornecedor X" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5"><Label>Data (AAAA-MM-DD)</Label><Input value={novo.data} onChange={(e) => setNovo({ ...novo, data: e.target.value })} placeholder="2026-06-30" /></div>
+                <div className="space-y-1.5"><Label>Valor</Label><Input value={novo.valor} onChange={(e) => setNovo({ ...novo, valor: e.target.value })} placeholder="1234.56" /></div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">O lançamento entra como <strong>validado</strong> na competência {formatCompetencia(competencia)}.</p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNovo(null)}>Cancelar</Button>
+            <Button disabled={acting} onClick={salvarNovo}>{acting ? "Salvando…" : "Incluir"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
         <DialogContent>
@@ -449,10 +529,12 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
   );
 }
 
-// Coluna de divergências com seleção (radio) e edição opcional do lançamento.
-function DivergCol({ titulo, linhas, sel, onSel, onEdit }: {
+// Coluna de divergências com seleção (radio), edição/exclusão (lado da razão)
+// e botão "Incluir como lançamento" (lado do extrato).
+function DivergCol({ titulo, linhas, sel, onSel, onEdit, onDelete, onAdd, acting }: {
   titulo: string; linhas: Linha[]; sel: number | null;
   onSel: (i: number) => void; onEdit?: (l: Linha) => void;
+  onDelete?: (l: Linha) => void; onAdd?: (l: Linha) => void; acting?: boolean;
 }) {
   return (
     <div className="rounded-xl border border-border">
@@ -462,18 +544,30 @@ function DivergCol({ titulo, linhas, sel, onSel, onEdit }: {
       </div>
       <div className="max-h-72 divide-y divide-border overflow-y-auto">
         {linhas.map((l, i) => (
-          <div key={i} className={cn("flex items-center gap-3 px-4 py-2.5 text-sm", sel === i && "bg-primary/10")}>
+          <div key={i} className={cn("flex items-center gap-2 px-4 py-2.5 text-sm", sel === i && "bg-primary/10")}>
             <input type="radio" checked={sel === i} onChange={() => onSel(i)} className="h-4 w-4 cursor-pointer accent-[var(--color-primary)]" />
-            <button type="button" onClick={() => onSel(i)} className="flex-1 text-left">
+            <button type="button" onClick={() => onSel(i)} className="flex-1 min-w-0 text-left">
               <div className="truncate" title={l.descricao}>{l.descricao}</div>
               <div className="text-xs text-muted-foreground">{l.data ?? "—"}</div>
             </button>
-            <span className={cn("font-mono text-sm", l.valor < 0 ? "text-destructive" : "text-primary-hover")}>{brl(Math.abs(l.valor))}</span>
-            {onEdit && l.id && (
-              <button type="button" onClick={() => onEdit(l)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar lançamento">
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-            )}
+            <span className={cn("font-mono text-sm shrink-0", l.valor < 0 ? "text-destructive" : "text-primary-hover")}>{brl(Math.abs(l.valor))}</span>
+            <div className="inline-flex items-center gap-0.5 shrink-0">
+              {onAdd && (
+                <button type="button" onClick={() => onAdd(l)} className="rounded p-1 text-muted-foreground hover:bg-primary/10 hover:text-primary" title="Incluir como lançamento">
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onEdit && l.id && (
+                <button type="button" onClick={() => onEdit(l)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar lançamento">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onDelete && l.id && (
+                <button type="button" disabled={acting} onClick={() => onDelete(l)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" title="Excluir lançamento">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         ))}
         {linhas.length === 0 && <div className="px-4 py-6 text-center text-xs text-muted-foreground">Sem divergências.</div>}
