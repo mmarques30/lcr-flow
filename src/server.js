@@ -24,6 +24,10 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const ROOT = path.join(__dirname, '..');
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const TOKEN = process.env.ORQUESTRAR_TOKEN || '';
+// Watchdog: tempo máximo de um run antes de ser encerrado à força (evita que um
+// processo travado deixe `running=true` pra sempre e bloqueie os disparos do n8n).
+const MAX_RUN_MIN = parseInt(process.env.MAX_RUN_MIN || '45', 10);
+const KILL_GRACE_MS = 10 * 1000; // espera após SIGTERM antes do SIGKILL
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -56,13 +60,31 @@ app.post('/orquestrar', auth, (req, res) => {
   if (cliente) args.push('--cliente', String(cliente));
 
   const env = { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' };
-  const proc = spawn(process.env.PYTHON_BIN || 'python3', args, { cwd: ROOT, env });
+  // detached: o filho vira líder de grupo → conseguimos matar a árvore toda
+  // (python + Node + chromium) de uma vez, sem deixar processo órfão.
+  const proc = spawn(process.env.PYTHON_BIN || 'python3', args, { cwd: ROOT, env, detached: true });
 
   estado = { running: true, started_at: new Date().toISOString(), last: null, args };
   let out = '', err = '';
+  let killedByTimeout = false;
+
+  // Mata a árvore de processos do run (grupo do líder = -pid).
+  function matarArvore(sig) {
+    try { process.kill(-proc.pid, sig); } catch (_) { try { proc.kill(sig); } catch (_) { /* já morreu */ } }
+  }
+
+  // Watchdog: encerra o run se exceder MAX_RUN_MIN.
+  const watchdog = setTimeout(() => {
+    killedByTimeout = true;
+    console.warn(`[server] run excedeu ${MAX_RUN_MIN}min — encerrando (SIGTERM → SIGKILL)`);
+    matarArvore('SIGTERM');
+    setTimeout(() => matarArvore('SIGKILL'), KILL_GRACE_MS);
+  }, MAX_RUN_MIN * 60 * 1000);
+
   proc.stdout.on('data', (d) => { out += d; });
   proc.stderr.on('data', (d) => { err += d; });
   proc.on('close', (code) => {
+    clearTimeout(watchdog);
     // tenta extrair o JSON final impresso pelo orquestrador
     let resumo = null;
     const linhas = out.trim().split('\n').filter(Boolean);
@@ -72,12 +94,13 @@ app.post('/orquestrar', auth, (req, res) => {
       started_at: estado.started_at,
       finished_at: new Date().toISOString(),
       exit_code: code,
+      timed_out: killedByTimeout,
       resumo,
-      stderr_tail: err.slice(-1000) || null,
+      stderr_tail: (killedByTimeout ? `[encerrado por timeout de ${MAX_RUN_MIN}min] ` : '') + (err.slice(-1000) || ''),
       args,
     };
   });
-  proc.on('error', (e) => { estado = { running: false, error: e.message, args }; });
+  proc.on('error', (e) => { clearTimeout(watchdog); estado = { running: false, error: e.message, args }; });
 
   return res.status(202).json({ ok: true, started: true, competencia, args });
 });

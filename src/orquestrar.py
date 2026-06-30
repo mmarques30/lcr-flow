@@ -19,6 +19,7 @@ Rode da raiz do repo, com PYTHONUTF8=1 no Windows.
 
 import sys
 import json
+import time
 import argparse
 import datetime as dt
 from pathlib import Path
@@ -201,6 +202,8 @@ def main():
     ap.add_argument("--competencia", required=True, help="YYYY-MM")
     ap.add_argument("--limite", type=int, default=None, help="máximo de tarefas por execução")
     ap.add_argument("--cliente", default=None, help="processa só um cliente (código/nome contém)")
+    ap.add_argument("--pausa", type=float, default=0,
+                    help="segundos de pausa entre tarefas (espalha a carga; ex.: 90 p/ rodar devagar à noite)")
     args = ap.parse_args()
 
     comp_g = bf.comp_to_gestta(args.competencia)
@@ -229,6 +232,9 @@ def main():
         r = processar_tarefa(t, args.competencia, comp_g, jwt)
         log(f"    → {r['status']}" + (f" ({r.get('motivo') or r.get('faltando') or ''})" if r['status'] != 'processada' else f" · {r.get('lancamentos_extrato',0)} lançamentos"))
         resultados.append(r)
+        if args.pausa and i < len(tarefas):
+            log(f"    (pausa {args.pausa:g}s antes da próxima)")
+            time.sleep(args.pausa)
 
     # Resumo + log por execução
     contagem = {}

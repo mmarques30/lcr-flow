@@ -3,10 +3,10 @@
   "nodes": [
     {
       "parameters": {
-        "rule": { "interval": [ { "field": "hours", "hoursInterval": 4 } ] }
+        "rule": { "interval": [ { "field": "hours", "hoursInterval": 1 } ] }
       },
       "id": "a1111111-1111-4111-8111-111111111111",
-      "name": "A cada 4h",
+      "name": "A cada 1h",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [240, 300]
@@ -34,7 +34,7 @@
     }
   ],
   "connections": {
-    "A cada 4h": {
+    "A cada 1h": {
       "main": [[{ "node": "Disparar orquestrador (VPS)", "type": "main", "index": 0 }]]
     }
   },

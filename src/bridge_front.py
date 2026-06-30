@@ -453,13 +453,21 @@ def processar_documento_edge(empresa_id, competencia, competencia_id, file_path,
     })
     documento_id = doc[0]["id"]
     res = chamar_edge("processar-documento", {"documento_id": documento_id}, jwt)
-    # Retry no rate limit (429) da Anthropic: aguarda a janela de 1 min e tenta de novo.
+    # Retry em erros transientes da Anthropic:
+    #  - 429/rate_limit: aguarda a janela de ~1 min (65s) e repete.
+    #  - 529/overloaded: API momentaneamente sobrecarregada → backoff curto crescente (15/30/45s).
     tentativas = 0
-    while (not res.get("ok")) and tentativas < 3 and \
-            any(k in str(res.get("error", "")) for k in ("429", "rate_limit", "rate limit")):
+    while (not res.get("ok")) and tentativas < 4:
+        err = str(res.get("error", ""))
+        is_rate = any(k in err for k in ("429", "rate_limit", "rate limit"))
+        is_overload = any(k in err for k in ("529", "overloaded", "overload"))
+        if not (is_rate or is_overload):
+            break
         tentativas += 1
-        log(f"    rate limit Anthropic — aguardando 65s e repetindo ({tentativas}/3)...")
-        time.sleep(65)
+        espera = 65 if is_rate else 15 * tentativas
+        motivo = "rate limit (429)" if is_rate else "sobrecarga (529)"
+        log(f"    {motivo} Anthropic — aguardando {espera}s e repetindo ({tentativas}/4)...")
+        time.sleep(espera)
         res = chamar_edge("processar-documento", {"documento_id": documento_id}, jwt)
     log(f"    {p.name} [{tipo}] → {json.dumps(res, ensure_ascii=False)[:160]}")
     return {"documento_id": documento_id, "tipo": tipo, "edge": res}
