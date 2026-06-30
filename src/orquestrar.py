@@ -36,6 +36,7 @@ from motor_classificacao import avaliar_suficiencia_documentos  # noqa: E402
 from gerar_planilha_supabase import BANCO_PARA_CODIGO       # noqa: E402
 
 OUT_DIR = ROOT / "outputs" / "orquestracao"
+LEDGER = OUT_DIR / "processadas.json"  # idempotência local (cobre 'processada' sem doc no front)
 BANCO_PADRAO = 657  # Itaú (fallback)
 COBRANCA_TEMPLATE = "614b4c905962410006a60e08"  # template "COBRANÇA DE MOVIMENTO MENSAL"
 GESTTA_SEARCH = "https://api.gestta.com.br/core/customer/task/search"
@@ -142,7 +143,31 @@ def resolver_banco(empresa_id: str):
     return None
 
 
+def _carregar_ledger() -> dict:
+    """Ledger local de tarefas já processadas (chave 'empresa_id:competencia')."""
+    try:
+        return json.loads(LEDGER.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def marcar_processada(empresa_id: str, competencia: str):
+    """Registra no ledger que (empresa, competência) foi processada — inclusive quando
+    rendeu 0 lançamentos/0 docs (caso que não cria linha em documentos e, sem isto,
+    seria reprocessado todo tick, consumindo um slot do lote à toa)."""
+    if not empresa_id:
+        return
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    led = _carregar_ledger()
+    led[f"{empresa_id}:{competencia}"] = dt.datetime.now().isoformat(timespec="seconds")
+    LEDGER.write_text(json.dumps(led, ensure_ascii=False, indent=0), encoding="utf-8")
+
+
 def ja_processada(empresa_id: str, competencia: str) -> bool:
+    # 1) Ledger local (cobre 'processada sem resultado', que não grava doc no front)
+    if f"{empresa_id}:{competencia}" in _carregar_ledger():
+        return True
+    # 2) Doc origem=gestta no front (cobre processamentos anteriores ao ledger)
     docs = bf.sb_get("documentos", {
         "select": "id", "empresa_id": f"eq.{empresa_id}",
         "competencia": f"eq.{competencia}", "origem": "eq.gestta", "limit": "1",
@@ -273,6 +298,8 @@ def main():
                  "tarefa_id": t.get("taskId"), "status": "erro",
                  "motivo": f"exceção não tratada: {str(e)[:600]}"}
         log(f"    → {r['status']}" + (f" ({r.get('motivo') or r.get('faltando') or ''})" if r['status'] != 'processada' else f" · {r.get('lancamentos_extrato',0)} lançamentos"))
+        if r.get("status") == "processada":
+            marcar_processada(r.get("empresa_id"), r.get("competencia_movimento") or args.competencia)
         resultados.append(r)
         if args.pausa and i < len(tarefas):
             log(f"    (pausa {args.pausa:g}s antes da próxima)")
