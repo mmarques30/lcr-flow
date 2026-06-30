@@ -19,11 +19,14 @@ const express = require('express');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 const ROOT = path.join(__dirname, '..');
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const TOKEN = process.env.ORQUESTRAR_TOKEN || '';
+// Token só-leitura do painel de monitor (separado do ORQUESTRAR_TOKEN).
+const MONITOR_TOKEN = process.env.MONITOR_TOKEN || '';
 // Watchdog: tempo máximo de um run antes de ser encerrado à força (evita que um
 // processo travado deixe `running=true` pra sempre e bloqueie os disparos do n8n).
 const MAX_RUN_MIN = parseInt(process.env.MAX_RUN_MIN || '45', 10);
@@ -103,6 +106,105 @@ app.post('/orquestrar', auth, (req, res) => {
   proc.on('error', (e) => { clearTimeout(watchdog); estado = { running: false, error: e.message, args }; });
 
   return res.status(202).json({ ok: true, started: true, competencia, args });
+});
+
+// ── Painel de monitor (HTML leve, auto-refresh, só dados locais) ─────────────
+function lerRunsRecentes(n) {
+  const dir = path.join(ROOT, 'outputs', 'orquestracao');
+  try {
+    return fs.readdirSync(dir)
+      .filter((f) => /^run-.*\.json$/.test(f))
+      .map((f) => ({ f, m: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m)
+      .slice(0, n)
+      .map(({ f }) => {
+        try {
+          const d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+          return { arquivo: f, gerado_em: d.gerado_em, total: d.total_tarefas, contagem: d.contagem || {}, tarefas: d.tarefas || [] };
+        } catch { return { arquivo: f, contagem: {}, tarefas: [] }; }
+      });
+  } catch { return []; }
+}
+
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const brDate = (iso) => { try { return new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }); } catch { return esc(iso); } };
+const CHIP_COR = { processada: '#16a34a', pulada_idempotencia: '#64748b', aguardando_docs: '#d97706', erro: '#dc2626' };
+function chips(contagem) {
+  return Object.entries(contagem).map(([k, v]) => `<span class="chip" style="background:${CHIP_COR[k] || '#475569'}">${esc(k)}: ${v}</span>`).join(' ') || '<span class="muted">—</span>';
+}
+
+app.get('/monitor', (req, res) => {
+  if (!MONITOR_TOKEN || req.query.token !== MONITOR_TOKEN) {
+    return res.status(401).type('html').send('<body style="font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2rem"><h2>401</h2><p>Use <code>/monitor?token=…</code> com o token do monitor.</p></body>');
+  }
+  const tk = encodeURIComponent(req.query.token);
+  const runs = lerRunsRecentes(12);
+  const ultimo = runs[0];
+  const memTot = os.totalmem() / 1048576, memFree = os.freemem() / 1048576, memUso = memTot - memFree;
+  const memPct = Math.round((memUso / memTot) * 100);
+  const memCor = memPct >= 85 ? '#dc2626' : memPct >= 70 ? '#d97706' : '#16a34a';
+  const load = os.loadavg().map((x) => x.toFixed(2)).join('  ');
+  const upH = (os.uptime() / 3600).toFixed(1);
+  const running = estado.running;
+
+  const linhasUltimo = (ultimo?.tarefas || []).map((t) => {
+    const cor = CHIP_COR[t.status] || '#475569';
+    const extra = t.motivo || (t.lancamentos_extrato != null ? `${t.lancamentos_extrato} lanç. extrato` : '');
+    return `<tr><td><span class="dot" style="background:${cor}"></span>${esc(t.status)}</td><td>${esc(t.cliente)}</td><td class="muted">${esc(String(extra).slice(0, 80))}</td></tr>`;
+  }).join('') || '<tr><td colspan="3" class="muted">sem tarefas</td></tr>';
+
+  const linhasHist = runs.map((r) => `<tr><td class="muted">${brDate(r.gerado_em)}</td><td>${r.total ?? '—'}</td><td>${chips(r.contagem)}</td></tr>`).join('');
+
+  const html = `<!doctype html><html lang="pt-br"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="60"><title>LCR PROC-001 · Monitor</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#e2e8f0;padding:18px;line-height:1.4}
+h1{font-size:1.2rem;margin:0}h2{font-size:.95rem;margin:0 0 .6rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em}
+.top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:14px}
+.muted{color:#64748b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:14px}
+.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px}
+.big{font-size:1.6rem;font-weight:700}
+.badge{display:inline-block;padding:.25rem .7rem;border-radius:999px;font-weight:700;font-size:.85rem}
+.run{background:#16a34a;color:#fff}.idle{background:#475569;color:#fff}
+.chip{display:inline-block;padding:.12rem .5rem;border-radius:999px;color:#fff;font-size:.74rem;margin:1px 0}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+table{width:100%;border-collapse:collapse;font-size:.85rem}td,th{text-align:left;padding:.35rem .5rem;border-bottom:1px solid #2b3a52}th{color:#94a3b8;font-weight:600}
+.bar{height:10px;background:#334155;border-radius:999px;overflow:hidden;margin-top:6px}.bar>div{height:100%}
+a{color:#60a5fa}
+</style></head><body>
+<div class="top"><h1>🩺 LCR PROC-001 · Monitor <span class="muted" style="font-size:.8rem">VPS 206.189.229.35</span></h1>
+<div class="muted">${brDate(new Date().toISOString())} · atualiza a cada 60s</div></div>
+
+<div class="grid">
+  <div class="card"><h2>Orquestrador</h2>
+    <span class="badge ${running ? 'run' : 'idle'}">${running ? '● RODANDO' : '○ ocioso'}</span>
+    <div style="margin-top:10px;font-size:.85rem">
+      ${running
+        ? `<div>Início: ${brDate(estado.started_at)}</div><div class="muted">args: ${esc((estado.args || []).join(' '))}</div>`
+        : `<div>Último: ${estado.finished_at ? brDate(estado.finished_at) : '—'}</div>
+           <div>exit: <b>${estado.exit_code ?? '—'}</b>${estado.timed_out ? ' <span style="color:#dc2626">(TIMEOUT)</span>' : ''}</div>
+           <div style="margin-top:6px">${chips((estado.resumo && estado.resumo.contagem) || {})}</div>`}
+    </div>
+  </div>
+  <div class="card"><h2>Recursos VPS</h2>
+    <div class="big" style="color:${memCor}">${memPct}% RAM</div>
+    <div class="muted">${memUso.toFixed(0)} / ${memTot.toFixed(0)} MB</div>
+    <div class="bar"><div style="width:${memPct}%;background:${memCor}"></div></div>
+    <div style="margin-top:10px;font-size:.85rem">load (1/5/15m): <b>${load}</b></div>
+    <div class="muted" style="font-size:.85rem">uptime: ${upH} h</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:14px"><h2>Última execução ${ultimo ? '· ' + brDate(ultimo.gerado_em) : ''}</h2>
+  <table><thead><tr><th>Status</th><th>Cliente</th><th>Detalhe</th></tr></thead><tbody>${linhasUltimo}</tbody></table>
+</div>
+
+<div class="card"><h2>Histórico (últimas ${runs.length} execuções)</h2>
+  <table><thead><tr><th>Quando</th><th>Tarefas</th><th>Resultado</th></tr></thead><tbody>${linhasHist}</tbody></table>
+</div>
+</body></html>`;
+  res.type('html').send(html);
 });
 
 // HTTPS se TLS_CERT/TLS_KEY existirem (cert self-signed no VPS), senão HTTP.
