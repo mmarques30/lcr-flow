@@ -111,12 +111,21 @@ def resolver_empresa(codigo: str, nome: str):
     for termo in (nome, codigo):
         if not termo:
             continue
-        t = termo.strip()
-        rows = bf.sb_get("empresas", {
-            "select": "id,razao_social,nome_fantasia,cnpj",
-            "or": f"(nome_fantasia.ilike.*{t}*,razao_social.ilike.*{t}*)",
-            "limit": "2",
-        })
+        # O valor vai entre aspas duplas: assim vírgula/parênteses do nome não são
+        # lidos como separadores da árvore lógica do or() do PostgREST (PGRST100).
+        # Aspas duplas embutidas quebrariam o quoting → viram espaço.
+        t = termo.strip().replace('"', " ")
+        if not t:
+            continue
+        try:
+            rows = bf.sb_get("empresas", {
+                "select": "id,razao_social,nome_fantasia,cnpj",
+                "or": f'(nome_fantasia.ilike."*{t}*",razao_social.ilike."*{t}*")',
+                "limit": "2",
+            })
+        except Exception as e:
+            log(f"    resolver_empresa: filtro falhou p/ '{t[:40]}' ({str(e)[:120]}) — tenta próximo termo")
+            continue
         if rows:
             return rows[0]
     return None
@@ -141,6 +150,33 @@ def ja_processada(empresa_id: str, competencia: str) -> bool:
     return bool(docs)
 
 
+def selecionar_pendentes(tarefas: list, competencia: str, limite: int) -> list:
+    """Varre a lista e devolve as próximas `limite` tarefas AINDA NÃO processadas,
+    já com a empresa resolvida (anexada em t['_empresa']).
+
+    Bug B: o n8n horário fatia `tarefas[:limite]` sempre do topo da lista; como as
+    já-processadas ficam no início e nunca somem, o lote ficava preso nas mesmas 5.
+    Pré-filtrar por idempotência aqui garante que cada tick avance em quem falta.
+    Tarefas cuja empresa não resolve seguem como pendentes (viram 'erro' visível no loop)."""
+    pend = []
+    for t in tarefas:
+        nome = t.get("clienteNome") or ""
+        codigo = t.get("clienteCodigo") or ""
+        try:
+            empresa = resolver_empresa(codigo, nome)
+        except Exception:
+            empresa = None
+        if empresa is not None:
+            comp_mov = t.get("competence") or competencia
+            if ja_processada(empresa["id"], comp_mov):
+                continue  # já feita → não consome slot do lote
+        t["_empresa"] = empresa
+        pend.append(t)
+        if len(pend) >= limite:
+            break
+    return pend
+
+
 # ── Processa uma tarefa (Etapas 1–4, sem escrever no Gestta) ──────────────────
 def processar_tarefa(t: dict, competencia: str, comp_g: str, jwt: str) -> dict:
     codigo = t.get("clienteCodigo") or ""
@@ -152,7 +188,7 @@ def processar_tarefa(t: dict, competencia: str, comp_g: str, jwt: str) -> dict:
     if not tarefa_id:
         return {**base, "status": "erro", "motivo": "tarefa sem taskId"}
 
-    empresa = resolver_empresa(codigo, nome)
+    empresa = t["_empresa"] if "_empresa" in t else resolver_empresa(codigo, nome)
     if not empresa:
         return {**base, "status": "erro", "motivo": f"empresa não encontrada no Supabase ('{nome or codigo}')"}
     empresa_id = empresa["id"]
@@ -223,13 +259,19 @@ def main():
                    if c in (t.get("clienteCodigo") or "").lower() or c in (t.get("clienteNome") or "").lower()]
         log(f"    filtro --cliente '{args.cliente}': {len(tarefas)} tarefa(s)")
     if args.limite:
-        tarefas = tarefas[:args.limite]
-        log(f"    --limite {args.limite}: processando {len(tarefas)}")
+        tarefas = selecionar_pendentes(tarefas, args.competencia, args.limite)
+        log(f"    --limite {args.limite}: {len(tarefas)} pendente(s) selecionada(s) (já-processadas puladas antes do corte)")
 
     resultados = []
     for i, t in enumerate(tarefas, 1):
         log(f"\n── [{i}/{len(tarefas)}] {t.get('clienteCodigo')} - {t.get('clienteNome')} ──")
-        r = processar_tarefa(t, args.competencia, comp_g, jwt)
+        try:
+            r = processar_tarefa(t, args.competencia, comp_g, jwt)
+        except Exception as e:
+            # Blindagem (Bug A): uma tarefa ruim nunca pode derrubar o run inteiro.
+            r = {"cliente": t.get("clienteNome") or t.get("clienteCodigo"),
+                 "tarefa_id": t.get("taskId"), "status": "erro",
+                 "motivo": f"exceção não tratada: {str(e)[:600]}"}
         log(f"    → {r['status']}" + (f" ({r.get('motivo') or r.get('faltando') or ''})" if r['status'] != 'processada' else f" · {r.get('lancamentos_extrato',0)} lançamentos"))
         resultados.append(r)
         if args.pausa and i < len(tarefas):
