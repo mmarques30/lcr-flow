@@ -345,18 +345,26 @@ function VisaoGeralCliente({ empresaId, empresa, competencia }: { empresaId: str
             </div>
             {docsRecentes.length === 0 ? <p className="text-sm text-muted-foreground">Sem documentos.</p> : (
               <ul className="divide-y divide-border">
-                {docsRecentes.map((d) => (
-                  <li key={d.id} className="py-2 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{DOC_TIPO_LABEL[d.tipo as keyof typeof DOC_TIPO_LABEL]}</div>
-                      <div className="text-[11px] text-muted-foreground">{formatCompetencia(d.competencia)} · <span className="uppercase">{d.origem}</span></div>
-                    </div>
-                    <div className="text-right">
-                      <StatusPill variant={variantFor(d.status)}>{DOC_STATUS_LABEL[d.status as keyof typeof DOC_STATUS_LABEL]}</StatusPill>
-                      <div className="mt-0.5 text-[10px] text-muted-foreground">{new Date(d.recebido_em).toLocaleDateString("pt-BR")}</div>
-                    </div>
-                  </li>
-                ))}
+                {docsRecentes.map((d) => {
+                  const tipoLabel = DOC_TIPO_LABEL[d.tipo as keyof typeof DOC_TIPO_LABEL];
+                  const titulo = d.nome_curto?.trim() || tipoLabel;
+                  const mostrarSubtipo = !!d.nome_curto?.trim();
+                  return (
+                    <li key={d.id} className="py-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate" title={d.arquivo_nome ?? titulo}>{titulo}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {mostrarSubtipo && <span>{tipoLabel} · </span>}
+                          {formatCompetencia(d.competencia)} · <span className="uppercase">{d.origem}</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <StatusPill variant={variantFor(d.status)}>{DOC_STATUS_LABEL[d.status as keyof typeof DOC_STATUS_LABEL]}</StatusPill>
+                        <div className="mt-0.5 text-[10px] text-muted-foreground">{new Date(d.recebido_em).toLocaleDateString("pt-BR")}</div>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </CardContent>
