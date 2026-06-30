@@ -99,10 +99,9 @@ function Dashboard() {
   const taxaUltimoMes = data.serieMensal[data.serieMensal.length - 1]?.taxa ?? 0;
 
   return (
-    <>
+    <Tabs defaultValue="operacao" className="space-y-5">
       <PageHeader
         title="Visão geral"
-        description="Operação contábil em tempo real — clientes, documentos, conciliação."
         actions={
           <Select value={comp} onValueChange={setComp}>
             <SelectTrigger className="w-44 rounded-full"><SelectValue placeholder="Competência" /></SelectTrigger>
@@ -113,8 +112,24 @@ function Dashboard() {
         }
       />
 
+      {/* Sub-abas logo abaixo do título */}
+      <TabsList className="h-auto rounded-full bg-card p-1.5 shadow-soft">
+        <TabsTrigger value="operacao" className="gap-1.5 rounded-full px-4 py-2 data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm">
+          <Activity className="h-3.5 w-3.5" /> Operação
+        </TabsTrigger>
+        <TabsTrigger value="carteira" className="gap-1.5 rounded-full px-4 py-2 data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm">
+          <Building2 className="h-3.5 w-3.5" /> Carteira
+        </TabsTrigger>
+        <TabsTrigger value="documentos" className="gap-1.5 rounded-full px-4 py-2 data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm">
+          <FileText className="h-3.5 w-3.5" /> Documentos
+        </TabsTrigger>
+        <TabsTrigger value="conciliacao" className="gap-1.5 rounded-full px-4 py-2 data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm">
+          <GitCompare className="h-3.5 w-3.5" /> Conciliação
+        </TabsTrigger>
+      </TabsList>
+
       {/* HERO — painel principal navy com KPIs grandes + sparkline integrada */}
-      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="relative overflow-hidden rounded-3xl bg-deep p-7 text-primary-foreground lg:col-span-2">
           {/* Gradient glow ao fundo (marca azul) */}
           <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-primary/40 blur-3xl" />
@@ -227,25 +242,8 @@ function Dashboard() {
         </Card>
       </div>
 
-      {/* TAB BAR */}
-      <Tabs defaultValue="operacao">
-        <TabsList className="h-auto rounded-full bg-card p-1.5 shadow-soft">
-          <TabsTrigger value="operacao" className="gap-1.5 rounded-full px-4 py-2 data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm">
-            <Activity className="h-3.5 w-3.5" /> Operação
-          </TabsTrigger>
-          <TabsTrigger value="carteira" className="gap-1.5 rounded-full px-4 py-2 data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm">
-            <Building2 className="h-3.5 w-3.5" /> Carteira
-          </TabsTrigger>
-          <TabsTrigger value="documentos" className="gap-1.5 rounded-full px-4 py-2 data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm">
-            <FileText className="h-3.5 w-3.5" /> Documentos
-          </TabsTrigger>
-          <TabsTrigger value="conciliacao" className="gap-1.5 rounded-full px-4 py-2 data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm">
-            <GitCompare className="h-3.5 w-3.5" /> Conciliação
-          </TabsTrigger>
-        </TabsList>
-
-        {/* OPERAÇÃO */}
-        <TabsContent value="operacao" className="mt-5">
+      {/* OPERAÇÃO */}
+      <TabsContent value="operacao" className="mt-5">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
             {/* Série mensal — lançamentos + taxa conclusão */}
             <Card className="rounded-3xl border-0 shadow-soft lg:col-span-2">
@@ -712,8 +710,7 @@ function Dashboard() {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
-      </Tabs>
-    </>
+      </TabsContent>
+    </Tabs>
   );
 }

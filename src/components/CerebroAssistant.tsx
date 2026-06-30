@@ -76,8 +76,6 @@ export function CerebroAssistant() {
     }
   }
 
-  const Icon = PERSONAS[persona].icon;
-
   if (!open) {
     return (
       <button
@@ -94,10 +92,7 @@ export function CerebroAssistant() {
   return (
     <div className="fixed bottom-6 right-6 z-40 flex h-[560px] max-h-[80vh] w-[400px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-elevated">
       <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Icon className={cn("h-5 w-5", PERSONAS[persona].cor)} />
-          <span className="font-display text-base">Cérebro LCR</span>
-        </div>
+        <span className="font-display text-base">Cérebro LCR</span>
         <div className="flex items-center gap-2">
           <Select
             value={persona}
