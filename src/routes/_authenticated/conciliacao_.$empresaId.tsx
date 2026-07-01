@@ -185,11 +185,12 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
   const lancs = (lancData?.lancamentos ?? []) as LancConc[];
   const aRever = lancs.filter(precisaRevisao).length;
 
-  // Documentos que a IA NÃO conseguiu classificar (status "erro") nesta competência:
-  // não geram lançamento, então não aparecem na lista — avisamos para não passarem batido.
+  // Extratos bancários que a IA NÃO conseguiu processar nesta competência.
+  // Só extrato conta aqui: docs contábeis (DARF, pro-labore, NFSe…) sem lançamento
+  // pertencem à tela de Documentos, não à conciliação bancária.
   const { data: docsData } = useQuery({ queryKey: ["documentos"], queryFn: () => listDocumentos() });
   const docsErro = ((docsData ?? []) as { id: string; competencia: string | null; status_processamento: string | null; arquivo_nome: string | null; tipo: string | null; empresa?: { id: string } | null }[])
-    .filter((d) => d.empresa?.id === empresaId && d.competencia === competencia && d.status_processamento === "erro");
+    .filter((d) => d.empresa?.id === empresaId && d.competencia === competencia && d.status_processamento === "erro" && d.tipo === "extrato");
 
   const conc = data?.conciliacao ?? null;
   const resultado = (conc?.resultado ?? null) as Resultado;
@@ -402,15 +403,15 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </Card>
       </div>
 
-      {/* Aviso: documentos não classificados (sem lançamento) — tratar manualmente */}
+      {/* Aviso: extratos que a IA não conseguiu processar — travam a conciliação */}
       {docsErro.length > 0 && (
         <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4">
           <div className="flex items-center gap-2 text-amber-800">
             <AlertTriangle className="h-4 w-4" />
-            <span className="font-medium">{docsErro.length} documento(s) não classificado(s) nesta competência</span>
+            <span className="font-medium">{docsErro.length} extrato(s) bancário(s) com falha de processamento</span>
           </div>
           <p className="mt-1 text-sm text-amber-700">
-            A IA não conseguiu extrair lançamentos destes documentos — eles <strong>não</strong> aparecem na lista abaixo e precisam de tratamento manual na aba <strong>Documentos</strong>:
+            A IA não conseguiu extrair os lançamentos — a conciliação fica travada até tratar manualmente na aba <strong>Documentos</strong>:
           </p>
           <ul className="mt-2 space-y-0.5 text-sm text-amber-800">
             {docsErro.map((d) => <li key={d.id} className="font-mono text-xs">• {d.arquivo_nome ?? d.tipo ?? d.id}</li>)}
