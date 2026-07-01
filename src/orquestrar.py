@@ -324,6 +324,16 @@ def processar_tarefa(t: dict, competencia: str, comp_g: str, jwt: str) -> dict:
         return {**base, "status": "aguardando_docs",
                 "faltando": ia.get("faltando") or suf.get("pendentes") or []}
 
+    # Suficiência OK, mas nada baixável (todos os documentos "desconsiderado" / 0
+    # arquivos). Não há o que baixar → status terminal BENIGNO (não é erro e vai
+    # pro ledger p/ NÃO reprocessar). Sem isso, o tick horário reprocessa esse
+    # cliente e falha "Nenhum documento baixado" pra sempre (poluindo o /monitor).
+    docs_sf = suf.get("documentos") or []
+    tem_baixavel = any((d.get("status") == "enviado") or (d.get("numArquivos") or 0) > 0 for d in docs_sf)
+    if docs_sf and not tem_baixavel:
+        return {**base, "status": "sem_documentos",
+                "motivo": "todos os documentos solicitados estão desconsiderados (nada a baixar)"}
+
     # Etapa 4 — baixa + classifica + envia ao front (sem concluir no Gestta)
     banco = resolver_banco(empresa_id) or BANCO_PADRAO
     try:
@@ -391,7 +401,7 @@ def main():
         # nunca derruba o run inteiro; tenta 1x novamente antes de desistir.
         r = processar_com_retry(t, args.competencia, comp_g, jwt)
         log(f"    → {r['status']}" + (f" ({r.get('motivo') or r.get('faltando') or ''})" if r['status'] != 'processada' else f" · {r.get('lancamentos_extrato',0)} lançamentos"))
-        if r.get("status") == "processada":
+        if r.get("status") in ("processada", "sem_documentos"):
             marcar_processada(r.get("empresa_id"), r.get("competencia_movimento") or args.competencia)
         resultados.append(r)
         if args.pausa and i < len(tarefas):
