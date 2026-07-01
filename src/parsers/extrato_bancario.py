@@ -136,6 +136,18 @@ def parsear_excel(caminho: str, banco: str) -> list:
         return parsear_excel_generico(caminho)
 
 
+def _idx_coluna(colunas, termos, excluir=(), default=None):
+    """Índice POSICIONAL da 1ª coluna cujo cabeçalho contém algum de `termos`
+    e nenhum de `excluir` (case-insensitive). Torna o parser robusto a layouts
+    que inserem/removem colunas (ex.: alguns exports do Itaú têm 'Documento'
+    entre Histórico e Valor). Retorna `default` se não encontrar."""
+    for i, c in enumerate(colunas):
+        h = str(c).strip().lower()
+        if any(t in h for t in termos) and not any(e in h for e in excluir):
+            return i
+    return default
+
+
 def parsear_itau_excel(caminho: str) -> list:
     """
     Layout típico do Itaú:
@@ -156,16 +168,22 @@ def parsear_itau_excel(caminho: str) -> list:
     if header_row is None:
         return parsear_excel_generico(caminho)
 
-    df.columns = df.iloc[header_row]
+    colunas = list(df.iloc[header_row])
     df = df.iloc[header_row + 1:].reset_index(drop=True)
     df = df.dropna(how='all')
+
+    # Localiza colunas por nome (layouts do Itaú variam: alguns exports têm
+    # "Documento" entre Histórico e Valor, deslocando as posições fixas).
+    i_data  = _idx_coluna(colunas, ('data',), default=0)
+    i_desc  = _idx_coluna(colunas, ('histór', 'descri', 'lanç', 'moviment'), default=1)
+    i_valor = _idx_coluna(colunas, ('valor',), excluir=('saldo',), default=2)
 
     transacoes = []
     for _, row in df.iterrows():
         try:
-            data_raw = str(row.iloc[0]).strip()
-            descricao = str(row.iloc[1]).strip()
-            valor_raw = row.iloc[2]
+            data_raw = str(row.iloc[i_data]).strip()
+            descricao = str(row.iloc[i_desc]).strip()
+            valor_raw = row.iloc[i_valor]
 
             if pd.isna(valor_raw) or not data_raw or data_raw == 'nan':
                 continue
@@ -209,14 +227,18 @@ def parsear_bradesco_excel(caminho: str) -> list:
     df = df.iloc[header_row + 1:].reset_index(drop=True)
     df = df.dropna(how='all')
 
+    colunas = list(df.columns)
+    i_data = _idx_coluna(colunas, ('data',), default=0)
+    i_desc = _idx_coluna(colunas, ('histór', 'descri', 'lanç', 'moviment'), default=1)
+
     transacoes = []
     for _, row in df.iterrows():
         try:
-            data_raw = str(row.iloc[0]).strip()
+            data_raw = str(row.iloc[i_data]).strip()
             if not data_raw or data_raw == 'nan':
                 continue
 
-            descricao = str(row.iloc[1]).strip()
+            descricao = str(row.iloc[i_desc]).strip()
 
             # Identifica colunas de crédito e débito
             credito = 0.0
@@ -278,15 +300,20 @@ def parsear_santander_excel(caminho: str) -> list:
     df = df.iloc[header_row + 1:].reset_index(drop=True)
     df = df.dropna(how='all')
 
+    colunas = list(df.columns)
+    i_data  = _idx_coluna(colunas, ('data',), default=0)
+    i_desc  = _idx_coluna(colunas, ('descri', 'histór', 'lanç', 'moviment'), default=1)
+    i_valor = _idx_coluna(colunas, ('valor',), excluir=('saldo',), default=2)
+
     transacoes = []
     for _, row in df.iterrows():
         try:
-            data_raw = str(row.iloc[0]).strip()
+            data_raw = str(row.iloc[i_data]).strip()
             if not data_raw or data_raw == 'nan':
                 continue
 
-            descricao = str(row.iloc[1]).strip()
-            valor_raw = row.iloc[2]
+            descricao = str(row.iloc[i_desc]).strip()
+            valor_raw = row.iloc[i_valor]
 
             if pd.isna(valor_raw):
                 continue
