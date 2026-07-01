@@ -25,6 +25,7 @@ import csv
 import json
 import re
 import time
+import hashlib
 import unicodedata
 import argparse
 import subprocess
@@ -263,10 +264,34 @@ def ensure_conciliacao_extrato(empresa_id: str, competencia: str, competencia_id
 
 
 # ── Pipeline principal ───────────────────────────────────────────────────────
+def _sha256_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def documento_existente(empresa_id: str, hash_sha256: str):
+    """Retorna o documento já gravado com o mesmo (empresa_id, hash) ou None.
+    Base da idempotência de upload — evita 2º documento/lançamentos duplicados
+    quando o mesmo arquivo reentra no pipeline."""
+    achados = sb_get("documentos", {
+        "empresa_id": f"eq.{empresa_id}", "hash_sha256": f"eq.{hash_sha256}",
+        "select": "id,storage_path,tipo", "limit": "1",
+    })
+    return achados[0] if achados else None
+
+
 def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, origem="gestta", finalizar_conciliacao=False):
     extrato_path = Path(extrato_path)
     if not extrato_path.exists():
         raise FileNotFoundError(extrato_path)
+
+    # Idempotência: se este arquivo (hash) já foi gravado p/ esta empresa, reusa.
+    conteudo = extrato_path.read_bytes()
+    hash_doc = _sha256_bytes(conteudo)
+    existente = documento_existente(empresa_id, hash_doc)
+    if existente:
+        log(f"    documento idempotente (hash já existe) → reusando {existente['id']}, pulando reprocessamento")
+        return {"documento_id": existente["id"], "lancamentos": 0, "transacoes": 0,
+                "status": "idempotente", "arquivo": extrato_path.name}
 
     comp_motor = f"{competencia[5:7]}/{competencia[0:4]}"  # 2026-06 -> 06/2026
 
@@ -287,12 +312,13 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
 
     log("\n[4] Upload do extrato + registro em documentos...")
     storage_path = f"{empresa_id}/{competencia}/{_safe_storage_name(extrato_path.name)}"
-    sb_upload(BUCKET_DOCS, storage_path, extrato_path.read_bytes(), "application/pdf")
+    sb_upload(BUCKET_DOCS, storage_path, conteudo, "application/pdf")
     doc = sb_insert("documentos", {
         "empresa_id": empresa_id, "tipo": "extrato", "competencia": competencia,
         "competencia_id": competencia_id, "origem": origem, "status": "recebido",
         "status_processamento": "pendente", "arquivo_nome": extrato_path.name,
         "storage_path": storage_path, "arquivo_url": storage_path,
+        "hash_sha256": hash_doc, "mime_type": "application/pdf", "tamanho_bytes": len(conteudo),
     })
     documento_id = doc[0]["id"]
     log(f"    documento_id={documento_id}")
@@ -484,6 +510,13 @@ def processar_documento_edge(empresa_id, competencia, competencia_id, file_path,
     else:
         conteudo, arquivo_nome, ctype = p.read_bytes(), p.name, mime_de(p)
 
+    # Idempotência: mesmo arquivo (hash) já gravado p/ esta empresa → reusa.
+    hash_doc = _sha256_bytes(conteudo)
+    existente = documento_existente(empresa_id, hash_doc)
+    if existente:
+        log(f"    documento idempotente (hash já existe) → reusando {existente['id']}, pulando edge")
+        return {"documento_id": existente["id"], "tipo": tipo, "status": "idempotente"}
+
     storage_path = f"{empresa_id}/{competencia}/{_safe_storage_name(arquivo_nome)}"
     sb_upload(BUCKET_DOCS, storage_path, conteudo, ctype)
     doc = sb_insert("documentos", {
@@ -491,6 +524,7 @@ def processar_documento_edge(empresa_id, competencia, competencia_id, file_path,
         "competencia_id": competencia_id, "origem": origem, "status": "recebido",
         "status_processamento": "pendente", "arquivo_nome": arquivo_nome,
         "storage_path": storage_path, "arquivo_url": storage_path,
+        "hash_sha256": hash_doc, "mime_type": ctype, "tamanho_bytes": len(conteudo),
     })
     documento_id = doc[0]["id"]
     res = chamar_edge("processar-documento", {"documento_id": documento_id}, jwt)
