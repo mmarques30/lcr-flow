@@ -251,7 +251,7 @@ async function baixarDocumentosCliente(tarefaId, competencia, destino) {
     if (!(await sessaoValida(page))) throw new Error('SESSAO_EXPIRADA');
 
     await humanDelay();
-    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'networkidle', timeout: 45000 });
     await humanDelay(2500, 4000);
 
     // ── Passo 1: Expande a seção "DOCUMENTOS SOLICITADOS" ─────────────────
@@ -551,7 +551,7 @@ async function concluirTarefaLancamentos(tarefaId, competencia = null) {
   try {
     if (!(await sessaoValida(page))) throw new Error('SESSAO_EXPIRADA');
 
-    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'networkidle', timeout: 45000 });
     await humanDelay(2000, 3000);
 
     await _concluirTarefa(page, tarefaId);
@@ -662,7 +662,7 @@ async function analisarSuficienciaDocumentos(tarefaId, competencia = null) {
   try {
     if (!(await sessaoValida(page))) throw new Error('SESSAO_EXPIRADA');
 
-    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'networkidle', timeout: 45000 });
     await humanDelay(2500, 4000);
 
     // ── 1. Lê Observação via modal Dados Cadastrais ───────────────────────
@@ -771,7 +771,7 @@ async function marcarChecklistEConcluir(tarefaId, competencia = null) {
   try {
     if (!(await sessaoValida(page))) throw new Error('SESSAO_EXPIRADA');
 
-    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(urlDetalhe(tarefaId, ano, mes), { waitUntil: 'networkidle', timeout: 45000 });
     await humanDelay(2500, 4000);
 
     // ── 1. Garante que o CHECKLIST está expandido ─────────────────────────
