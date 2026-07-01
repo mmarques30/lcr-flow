@@ -77,7 +77,9 @@ function ConsultivePage() {
 
       <ResumoTela itens={[
         { label: "Clientes", value: data.totais.clientes },
-        { label: "Insights abertos", value: data.totais.insights_abertos, tone: "ok" as const },
+        { label: "Margem bruta média", value: margemMedia == null ? "—" : `${margemMedia.toFixed(1)}%`, tone: "ok" as const },
+        { label: "Saudáveis", value: dist.find((d) => d.key === "s")?.value ?? 0, tone: "ok" as const },
+        { label: "Insights abertos", value: data.totais.insights_abertos },
         { label: "Insights críticos", value: data.totais.insights_criticos, tone: "warn" as const },
       ]} />
 

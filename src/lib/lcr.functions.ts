@@ -60,7 +60,10 @@ export const getDashboardStats = createServerFn({ method: "GET" })
       supabase.from("conciliacoes").select("competencia, status").in("competencia", seisMeses),
       supabase.from("lancamentos").select("id", { count: "exact", head: true }).eq("competencia", compAnterior),
       supabase.from("empresas").select("regime"),
-      supabase.from("lancamentos").select("empresa_id, empresas(razao_social)").in("competencia", competenciasSel).limit(2000),
+      // Top Clientes: só conta lançamentos que vieram de documento processado
+      // (documento_id NOT NULL). Isso evita que seeds de demonstração ou
+      // lançamentos manuais fictícios inflem o ranking.
+      supabase.from("lancamentos").select("empresa_id, empresas(razao_social)").in("competencia", competenciasSel).not("documento_id", "is", null).limit(2000),
     ]);
 
     const faseCounts: Record<string, number> = { cobranca: 0, lancamento: 0, conciliacao: 0, entregue: 0 };

@@ -325,16 +325,19 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     const n = Number(v);
     return Number.isNaN(n) ? v : n;
   })();
-  // Plano de Contas oficial LCR (Anexo 1) — set de códigos válidos p/ validação pré-envio.
+  // Plano de Contas oficial LCR (Anexo 1) — set de códigos válidos p/ validação
+  // pré-envio + mapa "requer_participante" para destacar contas que exigem
+  // participante manual.
   const { data: pdcLcr } = useQuery({
     queryKey: ["plano-de-contas-lcr-codigos"],
     queryFn: async () => {
-      const { data } = await supabase.from("plano_de_contas_lcr").select("codigo, apelido");
-      return (data ?? []) as { codigo: number; apelido: number | null }[];
+      const { data } = await supabase.from("plano_de_contas_lcr").select("codigo, apelido, requer_participante");
+      return (data ?? []) as { codigo: number; apelido: number | null; requer_participante: boolean }[];
     },
     staleTime: 10 * 60_000,
   });
   const codigosValidos = new Set<string>((pdcLcr ?? []).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
+  const requerParticipante = new Set<string>((pdcLcr ?? []).filter((c) => c.requer_participante).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
 
   // Plano de Históricos SCI (Anexo 2) — set de códigos com pula_complemento=true.
   const { data: histPula } = useQuery({
@@ -425,11 +428,11 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
                     <TableCell className="whitespace-nowrap font-mono text-xs">{r.data}</TableCell>
                     <CelSci cel={r.debito} />
                     <CelSci cel={r.credito} />
-                    <TableCell className="w-24 p-1.5">
-                      <CelEditavel id={r.id} initial={r.part_deb} campo="part_deb" placeholder="part déb" maxLength={40} mono />
+                    <TableCell className={cn("w-24 p-1.5", requerParticipante.has(String(r.debito.codigo)) && !r.part_deb && "bg-amber-50")}>
+                      <CelEditavel id={r.id} initial={r.part_deb} campo="part_deb" placeholder={requerParticipante.has(String(r.debito.codigo)) && !r.part_deb ? "obrigatório" : "part déb"} maxLength={40} mono />
                     </TableCell>
-                    <TableCell className="w-24 p-1.5">
-                      <CelEditavel id={r.id} initial={r.part_cred} campo="part_cred" placeholder="part cred" maxLength={40} mono />
+                    <TableCell className={cn("w-24 p-1.5", requerParticipante.has(String(r.credito.codigo)) && !r.part_cred && "bg-amber-50")}>
+                      <CelEditavel id={r.id} initial={r.part_cred} campo="part_cred" placeholder={requerParticipante.has(String(r.credito.codigo)) && !r.part_cred ? "obrigatório" : "part cred"} maxLength={40} mono />
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">{brl(r.valor)}</TableCell>
                     <TableCell className="text-sm">

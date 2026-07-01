@@ -601,7 +601,12 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                 />
               </CardContent>
               <div className="px-6 pb-4 text-xs text-muted-foreground">
-                Selecione uma linha de cada lado e clique em <strong>Conciliar par selecionado</strong> para casar manualmente. Ou edite o lançamento da razão (✏️) para corrigir valor/data e reconciliar automaticamente.
+                {resultado.divergencias_extrato.length === 0 && resultado.divergencias_razao.length > 0
+                  ? <>Sem contraparte no extrato. Use <strong>✏️</strong> para corrigir valor/data do lançamento, <strong>🗑️</strong> se ele não deveria existir, ou <strong>Adicionar manual</strong> se falta um lançamento do outro lado.</>
+                  : resultado.divergencias_razao.length === 0 && resultado.divergencias_extrato.length > 0
+                    ? <>Sem contraparte na razão. Use <strong>Adicionar manual</strong> em cada linha do extrato para criar o lançamento correspondente.</>
+                    : <>Selecione uma linha de cada lado e clique em <strong>Conciliar par selecionado</strong> para casar manualmente. Ou edite o lançamento da razão (✏️) para corrigir valor/data e reconciliar automaticamente.</>
+                }
               </div>
             </Card>
           )}

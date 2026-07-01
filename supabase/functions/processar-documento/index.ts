@@ -49,6 +49,14 @@ NÃO é extrato bancário:
 - Posição de investimentos/CDB/renda fixa/poupança (é 'planilha_financeira')
 - Fatura de cartão de crédito (é 'fatura')
 
+REGRA ESPECÍFICA — POSIÇÃO CONSOLIDADA DE INVESTIMENTO (planilha_financeira):
+Se o CSV/XLS contém QUALQUER uma destas colunas, é 'planilha_financeira' e
+lancamentos_sugeridos DEVE ser [] (posição de investimento é documento suporte,
+não gera lançamento contábil):
+   SaldoBruto, SaldoLiquido, RendimentoTotal, IRPorcentagem, ValorPrincipal,
+   Ativo (CDB, LCA, LCI, LC, LCF), Taxa (% do DI, CDI), Vencimento,
+   Cotas, ValorDaCota, PU, Quantidade
+
 DEFINIÇÕES ADICIONAIS:
 * 'planilha_financeira' = posição consolidada de investimentos (CDB, renda
   fixa, poupança), extratos de aplicações financeiras, fluxos de caixa em
