@@ -106,21 +106,11 @@ function urlListaTarefas(ano, mes) {
 }
 
 // Monta URL de detalhe de uma tarefa específica
-function urlDetalhe(tarefaId, ano, mes) {
-  const start = new Date(Date.UTC(ano, mes - 1, 1, 3, 0, 0, 0)).toISOString();
-  const end   = new Date(Date.UTC(ano, mes,     1, 2, 59, 59, 999)).toISOString();
-  const qs = [
-    'type=SERVICE_ORDER', 'type=RECURRENT', 'type=ACCOUNTING',
-    // sem filtro company_user → Todos os Usuários (todos os colaboradores)
-    `company_task=${COBRANCA_TEMPLATE}`,
-    `start_date=${encodeURIComponent(start)}`,
-    `end_date=${encodeURIComponent(end)}`,
-    'status=OPEN', 'date_type=DUE_DATE',
-    'overdue=0', 'downloaded=0', 'not_downloaded=0', 'fine=0', 'on_time=0',
-    'collaborator=0', 'no_owner=0', 'email_not_sent=0', 'document_request_sent=1',
-    'without_external_user=0', 'os_free=0', 'os_workflow=1',
-  ].join('&');
-  return `https://app.gestta.com.br/#/sidebar/task/overview/dashboard/${tarefaId}?${qs}`;
+function urlDetalhe(tarefaId /*, ano, mes */) {
+  // v2 do Gestta: URL de detalhe é minimalista, sem query strings.
+  // As query antigas (type/start_date/company_task/…) quebravam o SPA v2
+  // (renderizava página parcial ~800KB sem DOCUMENTOS SOLICITADOS).
+  return `https://app.gestta.com.br/#/sidebar/task/overview/dashboard/${tarefaId}`;
 }
 
 // ── FUNÇÃO 1: Buscar tarefas pendentes ────────────────────────────────────
