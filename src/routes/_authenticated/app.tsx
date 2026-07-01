@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { getDashboardStats } from "@/lib/lcr.functions";
-import { EMPRESA_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
+import { EMPRESA_STATUS_LABEL, formatCompetencia, competenciaAtual, calendarioParaCompetencia } from "@/lib/format";
 import {
   Building2, FileClock, BookOpen, GitCompare, AlertTriangle, ListTodo, ArrowRight,
   Activity, FileText, TrendingUp, TrendingDown, Sparkles, Crown, Scale, Calendar, ChevronDown, Check,
@@ -133,19 +133,23 @@ function MultiPicker<T extends number>({ icon, label, valueLabel, items, selecte
 const MESES_LABEL = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
 function Dashboard() {
-  const hoje = useState(competenciaAtual())[0];
-  const [yyAtual, mmAtual] = hoje.split("-").map(Number);
+  // Semântica do dropdown: MÊS DO CALENDÁRIO em que o trabalho contábil está
+  // sendo feito. Competência = mês selecionado - 1 (regime contábil brasileiro).
+  // Default = mês corrente do calendário. Exemplo: Jul/2026 → 2026-06.
+  const hojeDate = useState(new Date())[0];
+  const yyAtual = hojeDate.getFullYear();
+  const mmAtual = hojeDate.getMonth() + 1;
   const [meses, setMeses] = useState<Set<number>>(new Set([mmAtual]));
   const [anos, setAnos] = useState<Set<number>>(new Set([yyAtual]));
   // Anos disponíveis = ano atual e os 3 anteriores.
   const anosDisponiveis = [yyAtual, yyAtual - 1, yyAtual - 2, yyAtual - 3];
-  // Cross product mês × ano → lista de competências ordenadas. Garante pelo
-  // menos a competência atual se o usuário esvaziar tudo.
+  // Cross product mês × ano → competências. Aplica a regra "-1 mês" em cada par.
+  // Ex: seleciona Julho/2026 → filtra competência 2026-06.
   const competencias = (() => {
     const xs: string[] = [];
     const ms = meses.size > 0 ? [...meses] : [mmAtual];
     const ys = anos.size > 0 ? [...anos] : [yyAtual];
-    ys.forEach((y) => ms.forEach((m) => xs.push(`${y}-${String(m).padStart(2, "0")}`)));
+    ys.forEach((y) => ms.forEach((m) => xs.push(calendarioParaCompetencia(y, m))));
     return xs.sort();
   })();
   const compKey = competencias.join(",");

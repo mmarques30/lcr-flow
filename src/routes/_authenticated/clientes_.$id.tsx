@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { getEmpresa, getEmpresaPainel, updateEmpresa, listConsultores } from "@/lib/lcr.functions";
-import { EMPRESA_STATUS_LABEL, REGIME_LABEL, DOC_TIPO_LABEL, DOC_STATUS_LABEL, competenciaAtual, formatCompetencia, formatCNPJ } from "@/lib/format";
+import { EMPRESA_STATUS_LABEL, REGIME_LABEL, DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, formatCNPJ, calendarioParaCompetencia } from "@/lib/format";
 import { ChevronLeft, Pencil, TrendingUp, FileText, BookOpen, CalendarClock, Banknote, CheckCircle2, Building2 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { toast } from "sonner";
@@ -34,11 +34,14 @@ const MESES_CURTO = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Se
 function ClienteDetalhe() {
   const { id } = Route.useParams();
   const { data: empresa } = useSuspenseQuery({ queryKey: ["empresa", id], queryFn: () => getEmpresa({ data: { id } }) });
-  const [compAtual] = useState(competenciaAtual());
-  const [yyAtual, mmAtual] = compAtual.split("-").map(Number);
+  // Semântica do dropdown: MÊS DO CALENDÁRIO em que o trabalho contábil está
+  // sendo feito. Competência = mês selecionado - 1 (regime contábil brasileiro).
+  const [hojeDate] = useState(new Date());
+  const yyAtual = hojeDate.getFullYear();
+  const mmAtual = hojeDate.getMonth() + 1;
   const [mes, setMes] = useState<number>(mmAtual);
   const [ano, setAno] = useState<number>(yyAtual);
-  const competencia = `${ano}-${String(mes).padStart(2, "0")}`;
+  const competencia = calendarioParaCompetencia(ano, mes);
   const anosDisponiveis = [yyAtual, yyAtual - 1, yyAtual - 2, yyAtual - 3];
 
   return (
@@ -60,7 +63,7 @@ function ClienteDetalhe() {
         <div className="flex items-end gap-3">
           <EditarClienteDrawer empresa={empresa} />
           <div className="flex flex-col items-end gap-1">
-            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Competência</span>
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Mês de trabalho · competência {formatCompetencia(competencia)}</span>
             <div className="inline-flex items-center rounded-full bg-card p-1 shadow-soft">
               <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
                 <SelectTrigger className="h-9 w-[110px] rounded-full border-0 shadow-none px-3 text-xs font-medium focus:ring-0"><SelectValue /></SelectTrigger>
