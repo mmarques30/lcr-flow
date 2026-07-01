@@ -194,6 +194,10 @@ def linha_para_lancamento(linha: dict, banco_cod: int, conta_map: dict, hist_map
         "status": "gerada",
         "confidence": float(linha.get("confianca")) if linha.get("confianca") is not None else None,
         "conciliado": False,
+        # Razão binária: estes lançamentos vêm do EXTRATO (fonte da conciliação).
+        # A flag habilita o filtro do conciliar e o casamento do enriquecer-extrato.
+        "fonte_extrato": True,
+        "enriquecido": False,
     }, conta_id
 
 
@@ -614,6 +618,16 @@ def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt):
 
     if not extratos:  # ainda assim reflete a fase no painel
         sb_update("empresas", {"id": empresa_id}, {"status": "lancamento"})
+
+    # Enriquecimento (validação): casa os documentos de suporte (NF/recibo/etc.)
+    # com os lançamentos do extrato (fonte_extrato=true) por valor+data, preenchendo
+    # participante/nº nota. Só faz sentido se houve extrato processado com sucesso.
+    if any(not e.get("erro") for e in resumo["extratos"]):
+        try:
+            chamar_edge("enriquecer-extrato", {"empresa_id": empresa_id, "competencia": competencia}, jwt)
+            log("    enriquecer-extrato disparado (suporte → lançamentos do extrato)")
+        except Exception as e:
+            log(f"    ⚠️ enriquecer-extrato falhou (não-fatal): {str(e)[:160]}")
 
     return resumo
 
