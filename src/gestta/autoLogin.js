@@ -16,13 +16,16 @@ const PASSWORD = process.env.GESTTA_PASSWORD;
   const context = await browser.newContext({ locale: 'pt-BR',
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' });
   const page = await context.newPage();
-  await page.goto(URL, { waitUntil: 'domcontentloaded' });
-  console.log('URL inicial:', page.url());
-
-  // tenta preencher email — vários seletores possíveis
+  // seletores possíveis do formulário de login
   const emailSel = ['input[type="email"]','input[name="email"]','input[name="username"]','input[id*="email" i]','input[placeholder*="mail" i]'];
   const passSel  = ['input[type="password"]','input[name="password"]','input[id*="senha" i]','input[placeholder*="senha" i]'];
   const btnSel   = ['button[type="submit"]','button:has-text("Entrar")','button:has-text("Login")','button:has-text("Acessar")','input[type="submit"]'];
+
+  await page.goto(URL, { waitUntil: 'domcontentloaded' });
+  console.log('URL inicial:', page.url());
+  // AngularJS: o guard redireciona p/ login e SÓ ENTÃO renderiza o formulário.
+  // Sem esperar, os campos não existem no domcontentloaded → falsa "campo não encontrado".
+  await page.waitForSelector(emailSel.join(','), { timeout: 30000 }).catch(() => {});
 
   async function firstVisible(sels) {
     for (const s of sels) {
