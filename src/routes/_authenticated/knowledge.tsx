@@ -157,7 +157,31 @@ function KnowledgePage() {
         { label: "Artigos", value: data.artigos.length, tone: "ok" as const },
       ]} />
 
-      <Card className="mb-6">
+      {/* HERO — visão geral da base de conhecimento */}
+      <div className="mb-5 relative overflow-hidden rounded-3xl bg-deep p-7 text-primary-foreground">
+        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-primary/40 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-10 h-64 w-64 rounded-full bg-accent-lime/20 blur-3xl" />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-xs uppercase tracking-[0.18em] text-primary-foreground/70">Base de conhecimento LCR</div>
+            <div className="mt-3 flex items-end gap-3">
+              <span className="font-display text-6xl font-bold leading-none">{data.processos.length}</span>
+              <span className="mb-2 text-xs text-primary-foreground/70">processos catalogados</span>
+            </div>
+            <div className="mt-2 text-xs text-primary-foreground/70">{data.areas.length} áreas · {data.artigos.length} artigo(s)</div>
+          </div>
+          <div className="grid max-w-md grid-cols-2 gap-2">
+            {data.areas.slice(0, 6).map((a) => (
+              <div key={a.area} className="rounded-xl bg-primary-foreground/8 px-3 py-2 text-xs">
+                <div className="uppercase tracking-wider text-primary-foreground/60">{a.area}</div>
+                <div className="mt-0.5 font-display text-lg font-bold">{a.total}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <Card className="mb-6 rounded-3xl border-0 shadow-soft overflow-hidden">
         <div className="grid grid-cols-1 gap-3 border-b border-border p-4 md:grid-cols-3">
           <div className="relative md:col-span-2">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />

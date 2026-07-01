@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { getConsultiveCarteira } from "@/lib/lcr.functions";
 import { formatCompetencia } from "@/lib/format";
 import { requireAcesso } from "@/lib/guard";
-import { Search, ArrowRight, TrendingUp, TrendingDown } from "lucide-react";
+import { Search, ArrowRight, TrendingUp, TrendingDown, Sparkles, LineChart as LineIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
@@ -81,34 +81,49 @@ function ConsultivePage() {
         { label: "Insights críticos", value: data.totais.insights_criticos, tone: "warn" as const },
       ]} />
 
-      <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Card className="p-5 lg:col-span-2">
-          <div className="mb-3 font-display text-lg">Saúde financeira da carteira</div>
-          <div className="flex flex-col items-center gap-6 sm:flex-row">
-            <div className="h-44 w-44 shrink-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={dist} dataKey="value" nameKey="name" innerRadius={48} outerRadius={70} paddingAngle={2} strokeWidth={0}>
-                    {dist.map((d) => <Cell key={d.key} fill={SAUDE_CORES[d.key as keyof typeof SAUDE_CORES]} />)}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+      {/* HERO — margem bruta média em destaque + distribuição por saúde */}
+      <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="relative overflow-hidden rounded-3xl bg-deep p-7 text-primary-foreground lg:col-span-2">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-primary/40 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-24 -left-10 h-64 w-64 rounded-full bg-accent-lime/20 blur-3xl" />
+          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-primary-foreground/70">
+                <Sparkles className="h-3.5 w-3.5" /> Margem bruta média · carteira
+              </div>
+              <div className="mt-3 flex items-end gap-3">
+                <span className="font-display text-6xl font-bold leading-none">{margemMedia == null ? "—" : `${margemMedia.toFixed(1)}`}</span>
+                {margemMedia != null && <span className="mb-2 font-display text-2xl text-primary-foreground/70">%</span>}
+              </div>
+              <div className="mt-2 text-xs text-primary-foreground/70">{data.totais.clientes} clientes · {data.totais.insights_criticos} insight(s) crítico(s)</div>
             </div>
-            <ul className="flex-1 space-y-2 self-stretch">
-              {dist.map((d) => (
-                <li key={d.key} className="flex items-center justify-between rounded-xl bg-muted/60 px-4 py-2.5 text-sm">
-                  <span className="flex items-center gap-2 text-soft-foreground"><span className="h-2.5 w-2.5 rounded-full" style={{ background: SAUDE_CORES[d.key as keyof typeof SAUDE_CORES] }} /> {d.name}</span>
-                  <span className="font-semibold text-foreground">{d.value}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="flex flex-col items-end gap-2 text-right">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-primary-foreground/60"><LineIcon className="h-3.5 w-3.5" /> Distribuição</div>
+              <div className="flex gap-3">
+                {dist.map((d) => (
+                  <div key={d.key} className="flex flex-col items-center">
+                    <div className="h-2.5 w-14 rounded-full" style={{ background: SAUDE_CORES[d.key as keyof typeof SAUDE_CORES] }} />
+                    <span className="mt-1 font-display text-2xl font-bold">{d.value}</span>
+                    <span className="text-[10px] uppercase tracking-wider text-primary-foreground/60">{d.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        </Card>
-        <Card className="flex flex-col justify-center p-5">
-          <div className="label-cat">Margem bruta média</div>
-          <div className="mt-2 font-display text-4xl">{margemMedia == null ? "—" : `${margemMedia.toFixed(1)}%`}</div>
-          <div className="mt-1 text-xs text-muted-foreground">média da carteira no período</div>
+        </div>
+
+        <Card className="rounded-3xl border-0 p-6 shadow-soft">
+          <div className="mb-3 font-display text-lg">Composição por saúde</div>
+          <div className="h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={dist} dataKey="value" nameKey="name" innerRadius={48} outerRadius={70} paddingAngle={2} strokeWidth={0}>
+                  {dist.map((d) => <Cell key={d.key} fill={SAUDE_CORES[d.key as keyof typeof SAUDE_CORES]} />)}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </Card>
       </div>
 
@@ -117,7 +132,7 @@ function ConsultivePage() {
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente" className="pl-8" />
       </div>
 
-      <Card>
+      <Card className="rounded-3xl border-0 shadow-soft overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>

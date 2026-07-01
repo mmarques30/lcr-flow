@@ -11,7 +11,7 @@ import { Markdown } from "@/components/markdown";
 import { getHistoricoCerebro } from "@/lib/lcr.functions";
 import { formatCompetencia } from "@/lib/format";
 import { requireAcesso } from "@/lib/guard";
-import { Search, Brain, LineChart, HeartHandshake } from "lucide-react";
+import { Search, Brain, LineChart, HeartHandshake, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/historico")({
   beforeLoad: ({ context }) => requireAcesso(context.queryClient, "historico", "/historico"),
@@ -63,7 +63,37 @@ function HistoricoPage() {
         { label: "Cuidador", value: porPersona("cuidador") },
       ]} />
 
-      <Card>
+      {/* HERO — total de interações + breakdown por persona */}
+      <div className="mb-5 relative overflow-hidden rounded-3xl bg-deep p-7 text-primary-foreground">
+        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-primary/40 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-10 h-64 w-64 rounded-full bg-accent-lime/20 blur-3xl" />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-primary-foreground/70">
+              <Sparkles className="h-3.5 w-3.5" /> Interações do cérebro · total
+            </div>
+            <div className="mt-3 flex items-end gap-3">
+              <span className="font-display text-6xl font-bold leading-none">{base.items.length}</span>
+              <span className="mb-2 text-xs text-primary-foreground/70">análises geradas</span>
+            </div>
+            <div className="mt-2 text-xs text-primary-foreground/70">{base.clientes.length} clientes cobertos · {periodos.length} período(s)</div>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            {(["mestre", "consultor", "cuidador"] as const).map((p) => {
+              const meta = PERSONA_META[p];
+              const Icon = meta.icon;
+              return (
+                <div key={p} className="rounded-2xl bg-primary-foreground/8 px-4 py-3 text-center">
+                  <div className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-primary-foreground/70"><Icon className="h-3 w-3" />{meta.label}</div>
+                  <div className="mt-1 font-display text-3xl font-bold">{porPersona(p)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <Card className="rounded-3xl border-0 shadow-soft overflow-hidden">
         <div className="space-y-3 border-b border-border p-4">
           <Tabs value={persona} onValueChange={setPersona}>
             <TabsList className="flex-wrap">
