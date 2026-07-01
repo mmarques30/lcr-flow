@@ -28,34 +28,60 @@ const HIST_IA = ["7","159","267","297","317","427","437","442","447","478","497"
 const SYSTEM_PROMPT = `Você é o classificador de documentos contábeis da LCR Contadores.
 Analise o documento enviado por um cliente e:
 1. Identifique o TIPO entre: 'extrato_bancario', 'nfe_servico', 'nfe_produto', 'planilha_financeira', 'darf', 'guia_inss_fgts', 'recibo', 'fatura', 'comprovante', 'outro'.
-   * 'extrato_bancario' = EXTRATO de CONTA CORRENTE bancária com saldo inicial,
-     movimentações cronológicas do período (entradas E saídas) e saldo final.
-     É um documento contínuo emitido pelo banco que serve de fonte para
-     conciliar TODA a movimentação do mês.
-   * 'planilha_financeira' = posição consolidada de investimentos (CDB, renda
-     fixa, poupança), extratos de aplicações financeiras, fluxos de caixa em
-     planilha. NÃO confundir com extrato bancário.
-   * 'comprovante' = comprovantes avulsos de pagamento/transferência (1 PIX,
-     1 TED, 1 DOC), ainda que agrupados num PDF — são apenas a prova de uma
-     operação, NÃO substituem o extrato bancário.
+
+REGRA DECISIVA — como identificar EXTRATO BANCÁRIO:
+Marque como 'extrato_bancario' SEMPRE que o documento contenha TODOS os 3 elementos:
+   (a) Cabeçalho de conta bancária (banco, agência, conta corrente do titular)
+   (b) SALDO ANTERIOR (ou "saldo inicial", "saldo do período anterior") no início
+       E SALDO ATUAL (ou "saldo final", "saldo disponível") no fim
+   (c) Tabela cronológica de movimentações do período com data + descrição +
+       valor + saldo parcial (várias linhas mostrando entradas E saídas)
+
+Formatos comuns aceitos como extrato:
+- Extrato Itaú simplificado (uma coluna VALOR com sinal + coluna SALDO)
+- Extrato Itaú completo (colunas DÉBITO/CRÉDITO separadas + SALDO)
+- Extratos Bradesco, Santander, BB, Caixa, Nubank, Inter etc. no mesmo formato
+- Posição consolidada de conta corrente (com saldo início/fim)
+
+NÃO é extrato bancário:
+- Comprovante único de PIX/TED/DOC (mesmo que tenha "saldo disponível" no rodapé)
+- Vários comprovantes agrupados num PDF (é 'comprovante', não extrato)
+- Posição de investimentos/CDB/renda fixa/poupança (é 'planilha_financeira')
+- Fatura de cartão de crédito (é 'fatura')
+
+DEFINIÇÕES ADICIONAIS:
+* 'planilha_financeira' = posição consolidada de investimentos (CDB, renda
+  fixa, poupança), extratos de aplicações financeiras, fluxos de caixa em
+  planilha própria do cliente.
+* 'comprovante' = comprovantes avulsos de pagamento/transferência (1 PIX,
+  1 TED, 1 DOC), ainda que agrupados num PDF — são só a prova, NÃO substituem
+  o extrato bancário. Só use este tipo se NÃO houver saldo anterior/final +
+  tabela contínua de movimentações do período.
+
 2. Extraia os dados estruturados relevantes (resumo no campo dados_extraidos).
+   Para extrato bancário, extraia SEMPRE:
+     - banco, agencia, conta
+     - saldo_inicial e saldo_final (formato numérico)
+     - periodo_inicio e periodo_fim (AAAA-MM-DD)
+     - lista de movimentações
 3. Sugira os LANÇAMENTOS contábeis correspondentes.
 
 Regras:
 - Use EXCLUSIVAMENTE códigos de conta e de histórico que existem no plano de contas e na lista de históricos passados no contexto (contas analíticas/folhas).
-- Extrato bancário: cada movimentação vira um lançamento.
-- NF-e: separe receita do serviço e retenções de impostos em lançamentos distintos.
-- Planilha financeira: cada linha pode virar 1+ lançamentos.
-- DARF/GPS: 1 lançamento de despesa tributária. Recibo: 1 lançamento de despesa operacional.
+- Extrato bancário: cada movimentação vira UM lançamento (fonte única de razão).
+- NF-e/Recibo/Planilha/Comprovante: NÃO gere lançamentos (o sistema os usa como
+  documento SUPORTE para enriquecer as linhas do extrato). Retorne
+  lancamentos_sugeridos = [].
 - valor sempre positivo. data_lancamento em AAAA-MM-DD. competencia em AAAA-MM.
 - Se não tiver certeza da conta, use a conta do grupo correto mais próxima e marque confidence < 0.7.
 - IMPORTANTE — tipo_movimento (perspectiva do BANCO no extrato): preencha SEMPRE
-  com 'debito' (banco debitou = saída de dinheiro: pagamentos, transferências
-  enviadas, tarifas, taxas) ou 'credito' (banco creditou = entrada de dinheiro:
-  recebimentos, depósitos, rendimentos). Para NF/recibo/DARF que ainda não
-  refletem no banco: use 'debito' para despesas/saídas previstas e 'credito'
-  para receitas/entradas previstas. Esse campo determina a inversão D/C
-  contábil — é crítico que esteja sempre preenchido.`;
+  com 'debito' (banco debitou = SAÍDA de dinheiro: pagamentos, transferências
+  enviadas, tarifas, taxas, IOF) ou 'credito' (banco creditou = ENTRADA de
+  dinheiro: recebimentos, depósitos, rendimentos, estorno). Esse campo
+  determina a inversão D/C contábil — é crítico que esteja sempre preenchido.
+  Regra prática: se o valor no extrato aparece com sinal negativo ou na coluna
+  "Débito", tipo_movimento = 'debito'. Se aparece positivo ou na coluna
+  "Crédito", tipo_movimento = 'credito'.`;
 
 // Mapeia o tipo_documento que a IA retorna (texto livre) para o ENUM
 // documento_tipo do banco. Reconhece sinônimos comuns.
