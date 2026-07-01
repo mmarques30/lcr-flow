@@ -14,7 +14,7 @@ const TIPOS_CREDITO = ["passivo", "receita", "resultado", "patrimonio"];
 
 // Cabeçalho EXATO do modelo SCI (ordem e acentuação importam).
 const COLUNAS = [
-  "DATA", "DÉBITO", "CRÉDITO", "PART DÉB,", "PART, CRED", "VALOR",
+  "DATA", "DÉBITO", "CRÉDITO", "PART DÉB", "PART CRED", "VALOR",
   "HISTÓRICO", "COMPLEMENTO", "DOCUMENTO", "CENTRO DE CUSTO DÉB", "CENTRO DE CUSTO CRED",
 ];
 
@@ -27,7 +27,7 @@ export type SciLanc = {
   part_cred?: string | null;
   natureza_movimento?: string | null;
   conta: { codigo: string; tipo: string | null; sci_apelido?: string | null } | null;
-  historico: { codigo: string } | null;
+  historico: { codigo: string; pula_complemento?: boolean | null } | null;
 };
 
 /** Resolve o código LCR do banco a partir do nome da conta bancária. */
@@ -102,13 +102,15 @@ export function linhasSci(lancs: SciLanc[], bancoSci: number | string | "") {
         "DATA": fmtData(l.data_lancamento),
         "DÉBITO": debito,
         "CRÉDITO": credito,
-        "PART DÉB,": l.part_deb ?? "",
-        "PART, CRED": l.part_cred ?? "",
+        "PART DÉB": l.part_deb ?? "",
+        "PART CRED": l.part_cred ?? "",
         // SCI espera valor absoluto na coluna VALOR — o sinal já foi
         // refletido no posicionamento débito/crédito acima.
         "VALOR": Math.abs(valor),
-        "HISTÓRICO": l.historico?.codigo ?? "",
-        "COMPLEMENTO": (l.descricao ?? "").slice(0, 80),
+        // Histórico como número quando possível (SCI espera código numérico).
+        "HISTÓRICO": (() => { const c = l.historico?.codigo ?? ""; const n = Number(c); return c && !Number.isNaN(n) ? n : c; })(),
+        // Complemento dispensado quando o histórico tem PulaComplemento=Sim.
+        "COMPLEMENTO": l.historico?.pula_complemento ? "" : (l.descricao ?? "").slice(0, 80),
         "DOCUMENTO": l.documento_numero ?? "",
         "CENTRO DE CUSTO DÉB": "",
         "CENTRO DE CUSTO CRED": "",
@@ -143,8 +145,27 @@ export type SciLancRico = {
   part_cred?: string | null;
   natureza_movimento?: string | null;
   conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido?: string | null } | null;
-  historico: { codigo: string; descricao: string; sci_apelido?: string | null } | null;
+  historico: { codigo: string; descricao: string; sci_apelido?: string | null; pula_complemento?: boolean | null } | null;
 };
+
+// ── Validação pré-envio: bloqueia exportação se algum código de conta usado
+// nos lançamentos não existir no Plano de Contas oficial LCR (Anexo 1). O caller
+// consulta plano_de_contas_lcr e passa o set de códigos válidos.
+export type SciInvalido = { id?: string; codigo: string; descricao: string | null };
+export function validarLancamentosSci(
+  lancs: Array<{ id?: string; conta: { codigo: string; descricao?: string | null } | null }>,
+  codigosValidos: Set<string>,
+): SciInvalido[] {
+  const out: SciInvalido[] = [];
+  for (const l of lancs) {
+    const c = l.conta?.codigo;
+    if (!c) continue;
+    if (!codigosValidos.has(String(c))) {
+      out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null });
+    }
+  }
+  return out;
+}
 
 export type SciCelula = { codigo: number | string; nome: string };
 export type SciPreviewRow = {

@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { Markdown } from "@/components/markdown";
 import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, getEmpresa, listPlanoContas, editarLancamento, type SciLinha } from "@/lib/lcr.functions";
-import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, type SciCelula } from "@/lib/sci-xls";
+import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, validarLancamentosSci, type SciCelula } from "@/lib/sci-xls";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { Sparkles, Loader2, ClipboardCheck, Download, FileSpreadsheet, X, Plus, Eye, ChevronRight } from "lucide-react";
@@ -325,10 +325,42 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     const n = Number(v);
     return Number.isNaN(n) ? v : n;
   })();
-  const previewRows = linhasSciPreview(lancs, sciApelidoBanco, bancoNome);
+  // Plano de Contas oficial LCR (Anexo 1) — set de códigos válidos p/ validação pré-envio.
+  const { data: pdcLcr } = useQuery({
+    queryKey: ["plano-de-contas-lcr-codigos"],
+    queryFn: async () => {
+      const { data } = await supabase.from("plano_de_contas_lcr").select("codigo, apelido");
+      return (data ?? []) as { codigo: number; apelido: number | null }[];
+    },
+    staleTime: 10 * 60_000,
+  });
+  const codigosValidos = new Set<string>((pdcLcr ?? []).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
+
+  // Plano de Históricos SCI (Anexo 2) — set de códigos com pula_complemento=true.
+  const { data: histPula } = useQuery({
+    queryKey: ["historicos-sci-pula-complemento"],
+    queryFn: async () => {
+      const { data } = await supabase.from("historicos_sci_lcr").select("codigo").eq("pula_complemento", true);
+      return new Set<string>((data ?? []).map((r) => String((r as { codigo: number }).codigo)));
+    },
+    staleTime: 10 * 60_000,
+  });
+  const lancsComPula = lancs.map((l) => l.historico?.codigo && histPula?.has(String(l.historico.codigo))
+    ? { ...l, historico: { ...l.historico, pula_complemento: true } }
+    : l);
+
+  const previewRows = linhasSciPreview(lancsComPula, sciApelidoBanco, bancoNome);
 
   function baixarXls() {
-    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancs, sciApelidoBanco);
+    if (codigosValidos.size > 0) {
+      const invalidos = validarLancamentosSci(lancsComPula, codigosValidos);
+      if (invalidos.length > 0) {
+        const primeiros = invalidos.slice(0, 5).map((i) => `${i.codigo}${i.descricao ? ` (${i.descricao})` : ""}`).join(", ");
+        toast.error(`Exportação bloqueada: ${invalidos.length} lançamento(s) usam código de conta fora do Plano de Contas oficial LCR — ${primeiros}${invalidos.length > 5 ? "…" : ""}`);
+        return;
+      }
+    }
+    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, sciApelidoBanco);
     if (n === 0) toast.warning("Nenhum lançamento com conta para exportar.");
     else toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);
   }

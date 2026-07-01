@@ -804,6 +804,27 @@ export type Database = {
           },
         ]
       }
+      historicos_sci_lcr: {
+        Row: {
+          apelido: string | null
+          codigo: number
+          nome: string
+          pula_complemento: boolean
+        }
+        Insert: {
+          apelido?: string | null
+          codigo: number
+          nome: string
+          pula_complemento?: boolean
+        }
+        Update: {
+          apelido?: string | null
+          codigo?: number
+          nome?: string
+          pula_complemento?: boolean
+        }
+        Relationships: []
+      }
       integracoes: {
         Row: {
           atualizado_em: string
@@ -1018,7 +1039,6 @@ export type Database = {
           empresa_id: string
           enriquecido: boolean
           fonte_extrato: boolean
-          participante: string | null
           historico_id: string | null
           id: string
           importado_em: string | null
@@ -1026,6 +1046,7 @@ export type Database = {
           natureza_movimento: string | null
           part_cred: string | null
           part_deb: string | null
+          participante: string | null
           planilha_url: string | null
           status: Database["public"]["Enums"]["lancamento_status"]
           total_lancamentos: number
@@ -1047,7 +1068,6 @@ export type Database = {
           empresa_id: string
           enriquecido?: boolean
           fonte_extrato?: boolean
-          participante?: string | null
           historico_id?: string | null
           id?: string
           importado_em?: string | null
@@ -1055,6 +1075,7 @@ export type Database = {
           natureza_movimento?: string | null
           part_cred?: string | null
           part_deb?: string | null
+          participante?: string | null
           planilha_url?: string | null
           status?: Database["public"]["Enums"]["lancamento_status"]
           total_lancamentos?: number
@@ -1076,7 +1097,6 @@ export type Database = {
           empresa_id?: string
           enriquecido?: boolean
           fonte_extrato?: boolean
-          participante?: string | null
           historico_id?: string | null
           id?: string
           importado_em?: string | null
@@ -1084,6 +1104,7 @@ export type Database = {
           natureza_movimento?: string | null
           part_cred?: string | null
           part_deb?: string | null
+          participante?: string | null
           planilha_url?: string | null
           status?: Database["public"]["Enums"]["lancamento_status"]
           total_lancamentos?: number
@@ -1108,6 +1129,13 @@ export type Database = {
           {
             foreignKeyName: "lancamentos_documento_id_fkey"
             columns: ["documento_id"]
+            isOneToOne: false
+            referencedRelation: "documentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lancamentos_documento_suporte_id_fkey"
+            columns: ["documento_suporte_id"]
             isOneToOne: false
             referencedRelation: "documentos"
             referencedColumns: ["id"]
@@ -1200,6 +1228,59 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "empresas"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      plano_de_contas_lcr: {
+        Row: {
+          apelido: number | null
+          classificacao: string
+          codigo: number
+          comentarios: string | null
+          competencia: string | null
+          grupo: string | null
+          historico_padrao: number | null
+          nome: string
+          numero_documento: string | null
+          requer_historico_complementar: boolean
+          requer_participante: boolean
+          tipo: string | null
+        }
+        Insert: {
+          apelido?: number | null
+          classificacao: string
+          codigo: number
+          comentarios?: string | null
+          competencia?: string | null
+          grupo?: string | null
+          historico_padrao?: number | null
+          nome: string
+          numero_documento?: string | null
+          requer_historico_complementar?: boolean
+          requer_participante?: boolean
+          tipo?: string | null
+        }
+        Update: {
+          apelido?: number | null
+          classificacao?: string
+          codigo?: number
+          comentarios?: string | null
+          competencia?: string | null
+          grupo?: string | null
+          historico_padrao?: number | null
+          nome?: string
+          numero_documento?: string | null
+          requer_historico_complementar?: boolean
+          requer_participante?: boolean
+          tipo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plano_de_contas_lcr_historico_padrao_fkey"
+            columns: ["historico_padrao"]
+            isOneToOne: false
+            referencedRelation: "historicos_sci_lcr"
+            referencedColumns: ["codigo"]
           },
         ]
       }
