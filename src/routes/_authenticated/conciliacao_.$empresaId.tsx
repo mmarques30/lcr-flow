@@ -126,7 +126,7 @@ export function RazaoContabil({ empresaId, competencia }: { empresaId: string; c
         </div>
       </div>
       <CardContent className="p-0">
-        <div className="max-h-[28rem] overflow-y-auto">
+        <div className="max-h-[calc(100vh-16rem)] overflow-y-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -472,7 +472,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
           </div>
         </div>
         <CardContent className="p-0">
-          <div className="max-h-[28rem] overflow-y-auto">
+          <div className="max-h-[calc(100vh-16rem)] overflow-y-auto">
             <Table>
               <TableHeader>
                 <TableRow>
