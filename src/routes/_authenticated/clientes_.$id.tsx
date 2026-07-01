@@ -11,8 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { getEmpresa, getEmpresaPainel, updateEmpresa, listConsultores } from "@/lib/lcr.functions";
-import { EMPRESA_STATUS_LABEL, REGIME_LABEL, DOC_TIPO_LABEL, DOC_STATUS_LABEL, competenciaAtual, ultimasCompetencias, formatCompetencia, formatCNPJ } from "@/lib/format";
-import { ChevronLeft, Pencil, TrendingUp, FileText, BookOpen, CalendarClock, Banknote, CheckCircle2, AlertCircle, Building2 } from "lucide-react";
+import { EMPRESA_STATUS_LABEL, REGIME_LABEL, DOC_TIPO_LABEL, DOC_STATUS_LABEL, competenciaAtual, formatCompetencia, formatCNPJ } from "@/lib/format";
+import { ChevronLeft, Pencil, TrendingUp, FileText, BookOpen, CalendarClock, Banknote, CheckCircle2, Building2 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { toast } from "sonner";
 import { requireAcesso } from "@/lib/guard";
@@ -29,10 +29,17 @@ export const Route = createFileRoute("/_authenticated/clientes_/$id")({
   notFoundComponent: () => <div className="p-6">Cliente não encontrado.</div>,
 });
 
+const MESES_CURTO = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
 function ClienteDetalhe() {
   const { id } = Route.useParams();
   const { data: empresa } = useSuspenseQuery({ queryKey: ["empresa", id], queryFn: () => getEmpresa({ data: { id } }) });
-  const [competencia, setCompetencia] = useState(competenciaAtual());
+  const [compAtual] = useState(competenciaAtual());
+  const [yyAtual, mmAtual] = compAtual.split("-").map(Number);
+  const [mes, setMes] = useState<number>(mmAtual);
+  const [ano, setAno] = useState<number>(yyAtual);
+  const competencia = `${ano}-${String(mes).padStart(2, "0")}`;
+  const anosDisponiveis = [yyAtual, yyAtual - 1, yyAtual - 2, yyAtual - 3];
 
   return (
     <>
@@ -54,12 +61,21 @@ function ClienteDetalhe() {
           <EditarClienteDrawer empresa={empresa} />
           <div className="flex flex-col items-end gap-1">
             <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Competência</span>
-            <Select value={competencia} onValueChange={setCompetencia}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {ultimasCompetencias(12).map((c) => <SelectItem key={c} value={c}>{formatCompetencia(c)}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <div className="inline-flex items-center rounded-full bg-card p-1 shadow-soft">
+              <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
+                <SelectTrigger className="h-9 w-[110px] rounded-full border-0 shadow-none px-3 text-xs font-medium focus:ring-0"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {MESES_CURTO.map((label, i) => <SelectItem key={i + 1} value={String(i + 1)}>{label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <span className="mx-1 h-5 w-px bg-border" />
+              <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
+                <SelectTrigger className="h-9 w-[90px] rounded-full border-0 shadow-none px-3 text-xs font-medium focus:ring-0"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {anosDisponiveis.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       </div>
@@ -190,40 +206,33 @@ function VisaoGeralCliente({ empresaId, empresa, competencia }: { empresaId: str
               </div>
             </div>
 
-            <div className="my-5 flex flex-col items-center">
+            <div className="my-5 flex flex-1 flex-col items-center justify-center">
               <span className="font-display text-5xl font-bold">{recebidosPct}%</span>
               <span className="text-xs text-muted-foreground mt-1">{recebidosNoMes} de {esperadosCad.length} recebidos no mês</span>
               {recebidosForaMes > 0 && (
                 <span className="mt-1 text-[11px] text-accent-lime font-medium">+{recebidosForaMes} já recebido(s) antes</span>
               )}
+              {esperadosCad.length === 0 && (
+                <p className="mt-3 text-xs text-muted-foreground">Nenhum documento configurado como esperado.</p>
+              )}
             </div>
 
-            <div className="space-y-1.5 max-h-48 overflow-y-auto">
-              {esperadosCad.length === 0 && <p className="text-xs text-center text-muted-foreground">Nenhum documento configurado como esperado.</p>}
-              {docsEsperadosMes.map((e) => {
-                const icon = e.no_mes
-                  ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                  : e.recebido
-                    ? <CheckCircle2 className="h-3.5 w-3.5 text-accent-lime" />
-                    : <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />;
-                const label = e.no_mes
-                  ? (e.status ? DOC_STATUS_LABEL[e.status as keyof typeof DOC_STATUS_LABEL] : "recebido")
-                  : e.recebido
-                    ? `recebido em ${e.competencia_recebido ? formatCompetencia(e.competencia_recebido) : "outro mês"}`
-                    : "aguardando";
-                return (
-                  <div key={e.id} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-1.5 text-xs">
-                    <span className="flex items-center gap-2">
-                      {icon}
-                      {DOC_TIPO_LABEL[e.tipo as keyof typeof DOC_TIPO_LABEL]}
-                    </span>
-                    <span className={e.no_mes ? "font-medium text-primary" : e.recebido ? "text-accent-lime" : "text-muted-foreground"}>
-                      {label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            {esperadosCad.length > 0 && (
+              <div className="mt-auto grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl bg-primary/5 py-2">
+                  <div className="font-display text-lg font-bold text-primary">{recebidosNoMes}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">no mês</div>
+                </div>
+                <div className="rounded-xl bg-accent-lime/10 py-2">
+                  <div className="font-display text-lg font-bold text-accent-lime">{recebidosForaMes}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">antes</div>
+                </div>
+                <div className="rounded-xl bg-muted/60 py-2">
+                  <div className="font-display text-lg font-bold text-muted-foreground">{Math.max(0, esperadosCad.length - recebidosNoMes - recebidosForaMes)}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">pendentes</div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
