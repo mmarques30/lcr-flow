@@ -194,8 +194,11 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
   const conc = data?.conciliacao ?? null;
   const resultado = (conc?.resultado ?? null) as Resultado;
   const temExtrato = !!conc?.extrato_csv_url;
-  const extratoInfo = (data as unknown as { extrato?: { id: string; arquivo_nome: string | null; recebido_em: string; saldo_inicial: number | null; saldo_final: number | null } | null })?.extrato ?? null;
+  const extratoInfo = (data as unknown as { extrato?: { id: string; arquivo_nome: string | null; recebido_em: string; saldo_inicial: number | null; saldo_final: number | null; movimentacao_debito?: number; movimentacao_credito?: number; movimentacao_liquida?: number } | null })?.extrato ?? null;
   const outrosLancs = (data as unknown as { outros_lancamentos?: number })?.outros_lancamentos ?? 0;
+  const outrosValorLiquido = (data as unknown as { outros_valor_liquido?: number })?.outros_valor_liquido ?? 0;
+  const outrosValorDebito = (data as unknown as { outros_valor_debito?: number })?.outros_valor_debito ?? 0;
+  const outrosValorCredito = (data as unknown as { outros_valor_credito?: number })?.outros_valor_credito ?? 0;
 
   async function conciliar() {
     if (!conc) return;
@@ -359,9 +362,11 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             </div>
             <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground">Saldo inicial</div>
             <div className="font-display text-2xl leading-tight">
-              {extratoInfo?.saldo_inicial != null ? brl(extratoInfo.saldo_inicial) : <span className="text-muted-foreground">—</span>}
+              {extratoInfo?.saldo_inicial != null ? brl(extratoInfo.saldo_inicial) : <span className="text-muted-foreground text-lg">não extraído</span>}
             </div>
-            <div className="mt-1 text-[11px] text-muted-foreground">Abertura do extrato</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              {extratoInfo?.saldo_inicial != null ? "Abertura do extrato" : "IA não conseguiu ler do PDF"}
+            </div>
           </CardContent>
         </Card>
 
@@ -370,11 +375,23 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <ArrowUpFromLine className="h-4 w-4" />
             </div>
-            <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground">Saldo final</div>
-            <div className="font-display text-2xl leading-tight">
-              {extratoInfo?.saldo_final != null ? brl(extratoInfo.saldo_final) : <span className="text-muted-foreground">—</span>}
+            <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+              {extratoInfo?.saldo_final != null && extratoInfo.saldo_inicial != null ? "Saldo final" : "Movimentado no mês"}
             </div>
-            <div className="mt-1 text-[11px] text-muted-foreground">Fechamento do extrato</div>
+            <div className="font-display text-2xl leading-tight">
+              {extratoInfo?.saldo_final != null
+                ? brl(extratoInfo.saldo_final)
+                : extratoInfo?.movimentacao_liquida != null && extratoInfo.movimentacao_liquida !== 0
+                  ? <span className={extratoInfo.movimentacao_liquida >= 0 ? "text-emerald-600" : "text-rose-600"}>{extratoInfo.movimentacao_liquida >= 0 ? "+" : ""}{brl(extratoInfo.movimentacao_liquida)}</span>
+                  : <span className="text-muted-foreground text-lg">—</span>}
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              {extratoInfo?.saldo_final != null
+                ? "Fechamento do extrato"
+                : extratoInfo != null
+                  ? `↑ ${brl(extratoInfo.movimentacao_credito ?? 0)} · ↓ ${brl(extratoInfo.movimentacao_debito ?? 0)}`
+                  : "Sem extrato"}
+            </div>
           </CardContent>
         </Card>
 
@@ -389,8 +406,19 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
               </Button>
             </div>
             <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground">Outros lançamentos</div>
-            <div className="font-display text-2xl leading-tight">{outrosLancs.toLocaleString("pt-BR")}</div>
-            <div className="mt-1 text-[11px] text-muted-foreground">Manuais, NFs, recibos (sem extrato)</div>
+            <div className="font-display text-2xl leading-tight">
+              {outrosLancs.toLocaleString("pt-BR")}
+              {outrosLancs > 0 && outrosValorLiquido !== 0 && (
+                <span className={cn("ml-2 text-sm font-medium", outrosValorLiquido >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                  {outrosValorLiquido >= 0 ? "+" : ""}{brl(outrosValorLiquido)}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              {outrosLancs > 0
+                ? <>Manuais/NFs/recibos · ↑ {brl(outrosValorCredito)} · ↓ {brl(outrosValorDebito)}</>
+                : "Manuais, NFs, recibos (sem extrato)"}
+            </div>
           </CardContent>
         </Card>
       </div>

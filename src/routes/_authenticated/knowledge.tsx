@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
-import { PageHeader, ResumoTela } from "@/components/app-shell";
+import { PageHeader } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -150,12 +150,6 @@ function KnowledgePage() {
         description="Processos, padrões e procedimentos da LCR. Pergunte ao Mestre no assistente (canto inferior direito)."
         actions={<Button onClick={() => setImportOpen(true)}><Plus className="mr-1 h-4 w-4" /> Importar conhecimento</Button>}
       />
-
-      <ResumoTela itens={[
-        { label: "Processos", value: data.processos.length },
-        { label: "Áreas", value: data.areas.length },
-        { label: "Artigos", value: data.artigos.length, tone: "ok" as const },
-      ]} />
 
       {/* HERO — visão geral da base de conhecimento */}
       <div className="mb-5 relative overflow-hidden rounded-3xl bg-deep p-7 text-primary-foreground">

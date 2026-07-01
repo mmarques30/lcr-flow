@@ -2,9 +2,10 @@ import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard, Building2, ListChecks, Settings, LogOut, PanelLeftClose, PanelLeftOpen,
   Brain, LineChart, HeartHandshake, Plug, Users, ListTree, ChevronDown, Bell, UserPen, Camera,
-  History, Check, ChevronRight, Search, Activity, type LucideIcon,
+  History, Check, ChevronRight, Search, Activity, Info, type LucideIcon,
 } from "lucide-react";
 import { LcrLogo } from "./brand";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -484,13 +485,26 @@ export function AppShell({ children, userName, userRole, userAvatar, acessos }: 
 
 export function PageHeader({ title, emphasis, description, actions }: { title: string; emphasis?: string; description?: string; actions?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div>
+    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3">
         <h1 className="font-display text-3xl text-foreground sm:text-[2rem] leading-tight">
           {title}
           {emphasis ? <> <span className="emphasis">{emphasis}</span></> : null}
         </h1>
-        {description ? <p className="mt-2 max-w-2xl text-sm text-soft-foreground">{description}</p> : null}
+        {description ? (
+          <TooltipProvider delayDuration={100}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button aria-label="Sobre esta página" className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary">
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="start" className="max-w-sm text-xs leading-relaxed">
+                {description}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : null}
       </div>
       {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
     </div>

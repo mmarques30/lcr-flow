@@ -1217,7 +1217,7 @@ export const getConciliacaoDetalhe = createServerFn({ method: "GET" })
         .maybeSingle(),
       context.supabase
         .from("lancamentos")
-        .select("id, documento_id", { count: "exact", head: false })
+        .select("id, documento_id, valor, natureza_movimento", { count: "exact", head: false })
         .eq("empresa_id", data.empresa_id)
         .eq("competencia", competencia),
     ]);
@@ -1242,10 +1242,25 @@ export const getConciliacaoDetalhe = createServerFn({ method: "GET" })
       saldoFinal = pickNumero(dados, ["saldo_final", "saldo_atual", "saldo_disponivel", "closing_balance", "balance_end"]);
     }
 
-    // Outros lançamentos = total - os que vieram do documento extrato.
-    const totalLancs = lancsRes.data?.length ?? 0;
-    const extratoLancs = (lancsRes.data ?? []).filter((l) => l.documento_id === extratoDoc?.id).length;
-    const outrosLancs = Math.max(0, totalLancs - extratoLancs);
+    // Lançamentos por origem + soma considerando débito/crédito (não soma cega).
+    const rows = (lancsRes.data ?? []) as { id: string; documento_id: string | null; valor: number | string | null; natureza_movimento: string | null }[];
+    const totalLancs = rows.length;
+    const somaComDC = (arr: typeof rows) => arr.reduce((acc, l) => {
+      const v = Math.abs(Number(l.valor ?? 0));
+      if (!Number.isFinite(v) || v === 0) return acc;
+      if (l.natureza_movimento === "credito") { acc.credito += v; acc.liquido += v; }
+      else if (l.natureza_movimento === "debito") { acc.debito += v; acc.liquido -= v; }
+      // Sem natureza_movimento não entra no líquido (evita "soma cega").
+      return acc;
+    }, { debito: 0, credito: 0, liquido: 0 });
+
+    const extratoLancsRows = rows.filter((l) => l.documento_id === extratoDoc?.id);
+    const outrosLancsRows = rows.filter((l) => l.documento_id !== extratoDoc?.id);
+    const extratoSums = somaComDC(extratoLancsRows);
+    const outrosSums = somaComDC(outrosLancsRows);
+
+    // Fallback saldo final = saldo inicial + líquido do extrato (crédito - débito).
+    const saldoFinalCalc = saldoInicial != null ? saldoInicial + extratoSums.liquido : null;
 
     return {
       empresa,
@@ -1256,9 +1271,15 @@ export const getConciliacaoDetalhe = createServerFn({ method: "GET" })
         arquivo_nome: extratoDoc.arquivo_nome,
         recebido_em: extratoDoc.recebido_em,
         saldo_inicial: saldoInicial,
-        saldo_final: saldoFinal,
+        saldo_final: saldoFinal ?? saldoFinalCalc,
+        movimentacao_debito: extratoSums.debito,
+        movimentacao_credito: extratoSums.credito,
+        movimentacao_liquida: extratoSums.liquido,
       } : null,
-      outros_lancamentos: outrosLancs,
+      outros_lancamentos: outrosLancsRows.length,
+      outros_valor_debito: outrosSums.debito,
+      outros_valor_credito: outrosSums.credito,
+      outros_valor_liquido: outrosSums.liquido,
       total_lancamentos: totalLancs,
     };
   });
