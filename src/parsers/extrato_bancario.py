@@ -21,6 +21,22 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _parse_valor(v):
+    """Converte valor de célula Excel para float. Se pandas já leu como número,
+    usa direto (não bagunça separador decimal). Se veio string em formato BR
+    (1.234,56), interpreta corretamente."""
+    import pandas as _pd
+    if _pd.isna(v):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if not s:
+        return None
+    return float(s.replace('.', '').replace(',', '.'))
+
+
+
 # ─────────────────────────────────────────────
 # Detecção automática de banco e formato
 # ─────────────────────────────────────────────
@@ -155,7 +171,7 @@ def parsear_itau_excel(caminho: str) -> list:
                 continue
 
             data = normalizar_data(data_raw)
-            valor = float(str(valor_raw).replace('.', '').replace(',', '.'))
+            valor = _parse_valor(valor_raw)
 
             transacoes.append({
                 'data': data,
@@ -210,11 +226,11 @@ def parsear_bradesco_excel(caminho: str) -> list:
                 if 'créd' in col_lower or 'cred' in col_lower:
                     v = row[col]
                     if pd.notna(v):
-                        credito = float(str(v).replace('.', '').replace(',', '.'))
+                        credito = _parse_valor(v)
                 elif 'déb' in col_lower or 'deb' in col_lower:
                     v = row[col]
                     if pd.notna(v):
-                        debito = float(str(v).replace('.', '').replace(',', '.'))
+                        debito = _parse_valor(v)
 
             data = normalizar_data(data_raw)
 
@@ -275,7 +291,7 @@ def parsear_santander_excel(caminho: str) -> list:
             if pd.isna(valor_raw):
                 continue
 
-            valor = abs(float(str(valor_raw).replace('.', '').replace(',', '.')))
+            valor = abs(_parse_valor(valor_raw))
 
             # Santander geralmente tem coluna D/C
             tipo = 'credito'
@@ -286,7 +302,7 @@ def parsear_santander_excel(caminho: str) -> list:
                     break
             else:
                 # Se não tem coluna D/C, usa o sinal do valor original
-                valor_original = float(str(valor_raw).replace('.', '').replace(',', '.'))
+                valor_original = _parse_valor(valor_raw)
                 tipo = 'debito' if valor_original < 0 else 'credito'
 
             data = normalizar_data(data_raw)
@@ -366,7 +382,7 @@ def parsear_excel_generico(caminho: str) -> list:
             if pd.isna(valor_raw):
                 continue
 
-            valor = float(str(valor_raw).replace('.', '').replace(',', '.'))
+            valor = _parse_valor(valor_raw)
             data = normalizar_data(data_raw)
 
             transacoes.append({
