@@ -163,6 +163,7 @@ const SCHEMA = {
           historico_codigo: { type: "string" },
           descricao: { type: "string" },
           confidence: { type: "number" },
+          participante: { type: "string", description: "Nome/CNPJ do participante quando a conta exige (marcada com PARTICIPANTE no contexto). Vazio se não conseguir extrair." },
         },
         required: ["data_lancamento", "valor", "conta_codigo", "descricao"],
       },
@@ -251,19 +252,38 @@ Deno.serve(async (req) => {
   else if (TEXTUAL.has(ext)) contentBlock = { type: "text", text: `Conteúdo do arquivo (${ext}):\n\n${new TextDecoder().decode(bytes).slice(0, 100_000)}` };
   else return markErro(`Tipo .${ext} não suportado (use PDF, imagem ou XML/CSV).`);
 
-  // contexto: plano de contas + históricos
-  const [{ data: contas }, { data: historicos }] = await Promise.all([
-    admin.from("plano_contas").select("codigo, descricao, tipo").eq("ativo", true).in("codigo", CONTAS_IA),
-    admin.from("historicos_contabeis").select("codigo, descricao").in("codigo", HIST_IA),
+  // Contexto autoritativo: Plano de Contas oficial LCR + Plano de Históricos SCI
+  // (Anexos 1 e 2). CONTAS_IA/HIST_IA continuam curando o subconjunto para
+  // caber no limite de 10k tokens/min do Haiku, mas o conteúdo dos códigos
+  // agora vem das tabelas oficiais — inclui apelido SCI, grupo, histórico
+  // padrão sugerido e flag de participante.
+  const contasIaInt = CONTAS_IA.map((c) => Number(c)).filter((n) => !Number.isNaN(n));
+  const histIaInt = HIST_IA.map((c) => Number(c)).filter((n) => !Number.isNaN(n));
+  const [{ data: contasLcr }, { data: histLcr }] = await Promise.all([
+    admin.from("plano_de_contas_lcr").select("codigo, nome, grupo, apelido, historico_padrao, requer_participante").in("codigo", contasIaInt).order("codigo"),
+    admin.from("historicos_sci_lcr").select("codigo, nome, apelido").in("codigo", histIaInt).order("codigo"),
   ]);
+  const contasFmt = (contasLcr ?? []).map((c) => {
+    const parts = [String(c.codigo), c.nome, c.grupo ?? ""].filter(Boolean);
+    if (c.apelido) parts.push(`apelido ${c.apelido}`);
+    if (c.historico_padrao) parts.push(`hist.padrão ${c.historico_padrao}`);
+    if (c.requer_participante) parts.push("PARTICIPANTE");
+    return parts.join(" | ");
+  }).join("\n");
+  const histFmt = (histLcr ?? []).map((h) => {
+    const parts = [String(h.codigo), h.nome];
+    if (h.apelido) parts.push(`apelido ${h.apelido}`);
+    return parts.join(" | ");
+  }).join("\n");
   const ctx =
-    `Plano de contas (${(contas ?? []).length}):\n${(contas ?? []).map((c) => `${c.codigo} | ${c.descricao} | ${c.tipo}`).join("\n")}\n\n` +
-    `Históricos (${(historicos ?? []).length}):\n${(historicos ?? []).map((h) => `${h.codigo} | ${h.descricao}`).join("\n")}`;
+    `Plano de Contas oficial LCR (${(contasLcr ?? []).length} contas — use SEMPRE o código \`codigo\` da coluna 1):\n${contasFmt}\n\n` +
+    `Plano de Históricos SCI (${(histLcr ?? []).length} códigos):\n${histFmt}\n\n` +
+    `REGRA: cada conta pode ter "hist.padrão" — quando existir, use ele como historico_codigo padrão (a menos que a movimentação claramente peça outro). Contas marcadas com "PARTICIPANTE" exigem identificação do participante (cliente/fornecedor) — se conseguir extrair do extrato, coloque no campo participante do lançamento.`;
 
   let classificacao: {
     tipo_documento: string; competencia?: string; confidence_geral?: number;
     dados_extraidos?: string; observacoes?: string;
-    lancamentos_sugeridos: { data_lancamento: string; valor: number; tipo_movimento?: string; conta_codigo: string; historico_codigo?: string; descricao: string; confidence?: number }[];
+    lancamentos_sugeridos: { data_lancamento: string; valor: number; tipo_movimento?: string; conta_codigo: string; historico_codigo?: string; descricao: string; confidence?: number; participante?: string }[];
   };
   try {
     const reqBody = JSON.stringify({
@@ -338,6 +358,23 @@ Deno.serve(async (req) => {
   if (!concPath) return fail("Falha ao vincular extrato.");
   await admin.from("lancamentos").delete().eq("documento_id", documento_id);
 
+  // Fase 3: aplica defaults autoritativos ANTES de resolver ids per-empresa.
+  // Para cada lançamento sugerido, se a IA não informou histórico, usamos
+  // o historico_padrao da conta no plano oficial LCR. Também marcamos
+  // requer_participante para o front sinalizar edição manual.
+  const contaCodsInt = [...new Set((classificacao.lancamentos_sugeridos ?? [])
+    .map((s) => Number(s.conta_codigo)).filter((n) => !Number.isNaN(n)))];
+  const { data: pdcRows } = contaCodsInt.length
+    ? await admin.from("plano_de_contas_lcr").select("codigo, historico_padrao, requer_participante").in("codigo", contaCodsInt)
+    : { data: [] as { codigo: number; historico_padrao: number | null; requer_participante: boolean }[] };
+  const pdcByCod = new Map((pdcRows ?? []).map((r) => [String(r.codigo), r]));
+  for (const s of classificacao.lancamentos_sugeridos ?? []) {
+    const pdc = pdcByCod.get(String(s.conta_codigo));
+    if (pdc?.historico_padrao && !s.historico_codigo) {
+      s.historico_codigo = String(pdc.historico_padrao);
+    }
+  }
+
   const contaCods = [...new Set((classificacao.lancamentos_sugeridos ?? []).map((s) => s.conta_codigo).filter(Boolean))];
   const histCods = [...new Set((classificacao.lancamentos_sugeridos ?? []).map((s) => s.historico_codigo).filter(Boolean) as string[])];
   const [{ data: contaRows }, { data: histRows }] = await Promise.all([
@@ -355,21 +392,30 @@ Deno.serve(async (req) => {
     return null;
   }
 
-  const rows = (classificacao.lancamentos_sugeridos ?? []).map((s) => ({
-    empresa_id: doc.empresa_id,
-    conta_id: contaId.get(s.conta_codigo) ?? null,
-    historico_id: s.historico_codigo ? (histId.get(s.historico_codigo) ?? null) : null,
-    data_lancamento: /^\d{4}-\d{2}-\d{2}$/.test(s.data_lancamento) ? s.data_lancamento : null,
-    valor: Math.abs(Number(s.valor) || 0),
-    descricao: (s.descricao ?? "").slice(0, 200),
-    natureza_movimento: normMov(s.tipo_movimento),
-    competencia,
-    status: "gerada" as const,
-    confidence: typeof s.confidence === "number" ? s.confidence : null,
-    documento_id,
-    fonte_extrato: true,
-    enriquecido: false,
-  }));
+  const rows = (classificacao.lancamentos_sugeridos ?? []).map((s) => {
+    const pdc = pdcByCod.get(String(s.conta_codigo));
+    const pdcCodigo = pdc ? Number(s.conta_codigo) : null;
+    const histSciCodigo = s.historico_codigo && !Number.isNaN(Number(s.historico_codigo)) ? Number(s.historico_codigo) : null;
+    return {
+      empresa_id: doc.empresa_id,
+      conta_id: contaId.get(s.conta_codigo) ?? null,
+      historico_id: s.historico_codigo ? (histId.get(s.historico_codigo) ?? null) : null,
+      pdc_codigo: pdcCodigo,
+      hist_sci_codigo: histSciCodigo,
+      requer_participante: pdc?.requer_participante ?? false,
+      participante: s.participante ? s.participante.slice(0, 120) : null,
+      data_lancamento: /^\d{4}-\d{2}-\d{2}$/.test(s.data_lancamento) ? s.data_lancamento : null,
+      valor: Math.abs(Number(s.valor) || 0),
+      descricao: (s.descricao ?? "").slice(0, 200),
+      natureza_movimento: normMov(s.tipo_movimento),
+      competencia,
+      status: "gerada" as const,
+      confidence: typeof s.confidence === "number" ? s.confidence : null,
+      documento_id,
+      fonte_extrato: true,
+      enriquecido: false,
+    };
+  });
 
   let lancCriados = 0;
   if (rows.length) {
