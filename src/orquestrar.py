@@ -21,6 +21,7 @@ import sys
 import json
 import time
 import argparse
+import subprocess
 import datetime as dt
 from pathlib import Path
 
@@ -105,6 +106,67 @@ def gestta(fn: str, *args) -> object:
           ".then(r=>console.log(JSON.stringify(r)))"
           ".catch(e=>{console.error(e.message);process.exit(1)});")
     return json.loads(bf._node_eval(js))
+
+
+# ── Sessão do Gestta: healthcheck + relogin headless ─────────────────────────
+def relogin_gestta() -> bool:
+    """Relogin headless via autoLogin.js (usa GESTTA_EMAIL/PASSWORD do .env,
+    regrava sessions/gestta-session.json). True se recriou a sessão (exit 0)."""
+    log("    ↻ relogin Gestta (autoLogin headless)...")
+    try:
+        p = subprocess.run(["node", "src/gestta/autoLogin.js"],
+                           cwd=str(ROOT), capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        log("    ✗ relogin: timeout (180s)")
+        return False
+    if p.returncode == 0:
+        log("    ✓ sessão Gestta renovada")
+        return True
+    log(f"    ✗ relogin falhou (rc={p.returncode}): {(p.stderr or p.stdout).strip()[:200]}")
+    return False
+
+
+def garantir_sessao_gestta() -> bool:
+    """Healthcheck proativo: se a sessão do Gestta estiver inválida, reloga uma
+    vez. Evita que o lote inteiro queime quando a sessão expirou antes do run."""
+    try:
+        r = gestta("checarSessao")
+    except Exception as e:
+        log(f"  checarSessao falhou ({str(e)[:120]}) — tentando relogin")
+        r = {"valida": False}
+    if r.get("valida"):
+        log("  Sessão Gestta válida ✓")
+        return True
+    log("  Sessão Gestta inválida — relogando...")
+    return relogin_gestta()
+
+
+def processar_com_retry(t: dict, competencia: str, comp_g: str, jwt: str) -> dict:
+    """Processa a tarefa com até 1 retry. Se o erro for SESSAO_EXPIRADA, reloga
+    (headless) antes de retentar; erros transientes de navegação também ganham
+    1 nova tentativa. A idempotência (ledger + doc origem=gestta) evita duplicar
+    trabalho já concluído."""
+    def _uma_vez() -> dict:
+        try:
+            return processar_tarefa(t, competencia, comp_g, jwt)
+        except Exception as e:
+            return {"cliente": t.get("clienteNome") or t.get("clienteCodigo"),
+                    "tarefa_id": t.get("taskId"), "status": "erro",
+                    "motivo": f"exceção não tratada: {str(e)[:600]}"}
+
+    r = _uma_vez()
+    if r.get("status") != "erro":
+        return r
+
+    if "SESSAO_EXPIRADA" in str(r.get("motivo") or ""):
+        if not relogin_gestta():
+            r["tentativas"] = 1  # relogin falhou — não adianta retentar
+            return r
+
+    log("    ↻ retry da tarefa (1x)...")
+    r2 = _uma_vez()
+    r2["tentativas"] = 2
+    return r2
 
 
 # ── Resolução de empresa e banco ─────────────────────────────────────────────
@@ -274,6 +336,10 @@ def main():
     jwt = bf.obter_jwt()
     log("  JWT do usuário de serviço obtido ✓")
 
+    # Healthcheck proativo da sessão do Gestta (reloga headless se expirada) —
+    # a listagem e o processamento dependem dela; sem isso o lote inteiro queima.
+    garantir_sessao_gestta()
+
     log(f"\n[E1] Listando tarefas COBRANÇA via API ({args.competencia})...")
     tarefas = listar_cobrancas_api(args.competencia)
     log(f"    {len(tarefas)} tarefa(s) COBRANÇA encontradas (resolver direto, sem navegador)")
@@ -290,13 +356,9 @@ def main():
     resultados = []
     for i, t in enumerate(tarefas, 1):
         log(f"\n── [{i}/{len(tarefas)}] {t.get('clienteCodigo')} - {t.get('clienteNome')} ──")
-        try:
-            r = processar_tarefa(t, args.competencia, comp_g, jwt)
-        except Exception as e:
-            # Blindagem (Bug A): uma tarefa ruim nunca pode derrubar o run inteiro.
-            r = {"cliente": t.get("clienteNome") or t.get("clienteCodigo"),
-                 "tarefa_id": t.get("taskId"), "status": "erro",
-                 "motivo": f"exceção não tratada: {str(e)[:600]}"}
+        # Blindagem (Bug A) + retry por tarefa (relogin em SESSAO_EXPIRADA):
+        # nunca derruba o run inteiro; tenta 1x novamente antes de desistir.
+        r = processar_com_retry(t, args.competencia, comp_g, jwt)
         log(f"    → {r['status']}" + (f" ({r.get('motivo') or r.get('faltando') or ''})" if r['status'] != 'processada' else f" · {r.get('lancamentos_extrato',0)} lançamentos"))
         if r.get("status") == "processada":
             marcar_processada(r.get("empresa_id"), r.get("competencia_movimento") or args.competencia)

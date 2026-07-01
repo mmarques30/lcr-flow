@@ -62,6 +62,22 @@ async function sessaoValida(page) {
   }
 }
 
+// Healthcheck de sessão (standalone): abre um browser headless com a sessão
+// salva e retorna { valida }. Usado pelo orquestrador antes de processar o lote.
+async function checarSessao() {
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  try {
+    const context = await criarContexto(browser);
+    const page = await context.newPage();
+    const valida = await sessaoValida(page);
+    return { valida };
+  } catch (e) {
+    return { valida: false, erro: ((e && e.message) || '').slice(0, 200) };
+  } finally {
+    await browser.close();
+  }
+}
+
 // Extrai o ObjectID de 24 hex chars da URL do Gestta
 function extrairTaskId(url) {
   const match = url.match(/dashboard\/([0-9a-f]{24})/);
@@ -848,4 +864,5 @@ module.exports = {
   analisarSuficienciaDocumentos,
   marcarChecklistEConcluir,
   concluirTarefaLancamentos,
+  checarSessao,
 };

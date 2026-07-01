@@ -7,6 +7,7 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "save-session:gestta": "node src/gestta/saveSession.js",
+    "login:gestta": "node src/gestta/autoLogin.js",
     "save-session:sci": "node src/sci/saveSession.js",
     "save-session:leveldrive": "node src/sci/saveLevelDriveSession.js",
     "calibrar:sci": "node src/sci/calibrar_sci.js",
