@@ -274,7 +274,7 @@ Retorne um array JSON com um objeto por transacao (na mesma ordem):
 
 Responda APENAS com o array JSON, sem markdown."""
 
-    texto = _chamar_api_com_retry(prompt, max_tokens=4000)
+    texto = _chamar_api_com_retry(prompt, max_tokens=8000)
     texto = texto.replace('```json', '').replace('```', '').strip()
     return json.loads(texto)
 
@@ -299,35 +299,41 @@ def classificar_extrato(
     revisao_manual = []
     erros = []
 
-    print(f"Classificando {len(transacoes)} transacoes em batch ({len(mapa)} regras no mapa)...")
+    print(f"Classificando {len(transacoes)} transacoes ({len(mapa)} regras no mapa)...")
 
-    try:
-        resultados = classificar_extrato_batch(
-            transacoes, conta_banco, competencia, mapa, depara, historicos
-        )
+    CHUNK = 12  # lotes menores evitam resposta JSON truncada (max_tokens)
+    resultados = []
+    for ini in range(0, len(transacoes), CHUNK):
+        bloco = transacoes[ini:ini + CHUNK]
+        try:
+            parciais = classificar_extrato_batch(
+                bloco, conta_banco, competencia, mapa, depara, historicos
+            )
+            for k, linha in enumerate(parciais):
+                linha['idx'] = ini + k + 1  # idx global por ordem (não confia no idx do modelo)
+                resultados.append(linha)
+        except Exception as e:
+            print(f"  [X] Erro no lote {ini // CHUNK + 1}: {e}")
+            for transacao in bloco:
+                erros.append({'transacao': transacao, 'erro': str(e)})
 
-        for linha in resultados:
-            idx = linha.get('idx', 0) - 1
-            transacao = transacoes[idx] if 0 <= idx < len(transacoes) else {}
-            confianca = linha.get('confianca', 0)
-            desc = transacao.get('descricao', '')[:50]
+    for linha in resultados:
+        idx = linha.get('idx', 0) - 1
+        transacao = transacoes[idx] if 0 <= idx < len(transacoes) else {}
+        confianca = linha.get('confianca', 0)
+        desc = transacao.get('descricao', '')[:50]
 
-            regra = linha.get('regra_id', '?')
-            if confianca >= 0.80:
-                aprovadas.append(linha)
-                print(f"  [OK] {desc} | regra: {regra} ({confianca:.0%})")
-            else:
-                revisao_manual.append({
-                    'transacao_original': transacao,
-                    'classificacao_sugerida': linha,
-                    'motivo': f"Confianca baixa: {confianca:.0%}"
-                })
-                print(f"  [?]  {desc} | regra: {regra} ({confianca:.0%})")
-
-    except Exception as e:
-        print(f"  [X] Erro no batch: {e}")
-        for transacao in transacoes:
-            erros.append({'transacao': transacao, 'erro': str(e)})
+        regra = linha.get('regra_id', '?')
+        if confianca >= 0.80:
+            aprovadas.append(linha)
+            print(f"  [OK] {desc} | regra: {regra} ({confianca:.0%})")
+        else:
+            revisao_manual.append({
+                'transacao_original': transacao,
+                'classificacao_sugerida': linha,
+                'motivo': f"Confianca baixa: {confianca:.0%}"
+            })
+            print(f"  [?]  {desc} | regra: {regra} ({confianca:.0%})")
 
     return {
         'aprovadas': aprovadas,
