@@ -23,6 +23,12 @@ load_dotenv()
 
 client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
 
+# Modelo de classificação. Haiku 4.5 é ~5x mais barato que Sonnet no caminho de
+# extratos (alavanca de custo do backfill) e tem limite de tokens/min bem maior.
+# Para maior precisão contábil, defina LCR_MODELO_CLASSIFICACAO=claude-sonnet-4-6
+# no .env — itens de baixa confiança já caem em revisão humana no front.
+MODELO_CLASSIFICACAO = os.getenv('LCR_MODELO_CLASSIFICACAO', 'claude-haiku-4-5')
+
 # ─────────────────────────────────────────────
 # Carrega tabelas de referência
 # ─────────────────────────────────────────────
@@ -148,8 +154,13 @@ REGRAS IMPORTANTES:
 Responda APENAS com JSON válido, sem markdown, sem explicações fora do JSON."""
 
 
-def montar_contexto(mapa: list, depara: list, historicos: dict, conta_banco: int) -> str:
-    """Monta o contexto das tabelas para o prompt, priorizando o Mapa de Transações."""
+def montar_contexto(mapa: list, depara: list, historicos: dict) -> str:
+    """Tabelas de referência (Mapa, De-para, Históricos), priorizando o Mapa.
+
+    NÃO inclui a conta bancária do cliente: este bloco é IDÊNTICO entre todos os
+    extratos e clientes, então vai num bloco de sistema com cache_control p/ ser
+    reaproveitado (prompt caching) em todas as chamadas do backfill. A conta do
+    cliente entra no prompt volátil (por lote) em classificar_extrato_batch."""
 
     # Mapa de transações — referência primária (formato compacto)
     linhas_mapa = []
@@ -178,10 +189,7 @@ def montar_contexto(mapa: list, depara: list, historicos: dict, conta_banco: int
 
     historicos_resumido = {k: v for k, v in list(historicos.items())[:60]}
 
-    return f"""CONTA BANCÁRIA DESTE CLIENTE NO SCI: {conta_banco}
-(substitua qualquer referência a "Banco C6", "Banco Bradesco" ou similar pelo código {conta_banco})
-
-══════════════════════════════════════════
+    return f"""══════════════════════════════════════════
 MAPA DE TRANSAÇÕES TÍPICAS (referência primária)
 ══════════════════════════════════════════
 {chr(10).join(linhas_mapa)}
@@ -195,14 +203,20 @@ HISTÓRICOS DISPONÍVEIS:
 {json.dumps(historicos_resumido, ensure_ascii=False)}"""
 
 
-def _chamar_api_com_retry(prompt_usuario: str, max_tokens: int = 4000, tentativas: int = 4) -> str:
-    """Chama a API com retry exponencial em caso de rate limit."""
+def _chamar_api_com_retry(prompt_usuario: str, max_tokens: int = 4000, tentativas: int = 4,
+                          system=None) -> str:
+    """Chama a API com retry exponencial em caso de rate limit.
+
+    system: string OU lista de blocos de sistema (use blocos com cache_control p/
+    prompt caching). Default = SYSTEM_PROMPT simples (avaliar_suficiencia_documentos)."""
+    if system is None:
+        system = SYSTEM_PROMPT
     for tentativa in range(tentativas):
         try:
             response = client.messages.create(
-                model='claude-sonnet-4-6',
+                model=MODELO_CLASSIFICACAO,
                 max_tokens=max_tokens,
-                system=SYSTEM_PROMPT,
+                system=system,
                 messages=[{'role': 'user', 'content': prompt_usuario}]
             )
             return response.content[0].text.strip()
@@ -218,14 +232,17 @@ def classificar_extrato_batch(
     transacoes: list,
     conta_banco: int,
     competencia: str,
-    mapa: list,
-    depara: list,
-    historicos: dict
+    contexto: str
 ) -> list:
     """
     Classifica todas as transações em uma única chamada API (batch).
     Usa o Mapa de Transações Típicas como referência primária.
     Retorna lista de resultados na mesma ordem das transações.
+
+    `contexto` (tabelas de referência) vai num bloco de sistema com cache_control:
+    é byte-idêntico entre lotes e clientes, então só o 1º lote paga o input cheio;
+    os demais leem do cache (~90% mais barato) e o backfill inteiro reaproveita
+    (dentro da janela de 5 min, que um drain contínuo mantém quente).
     """
     lista_txs = []
     for i, t in enumerate(transacoes):
@@ -236,14 +253,22 @@ def classificar_extrato_batch(
 
     comp_fmt = competencia  # ex.: "05/2026"
 
+    # Sistema = prompt fixo + tabelas cacheadas (estável). A conta do cliente e as
+    # transações vão no prompt do usuário (voláteis) para não invalidar o cache.
+    system_blocks = [
+        {"type": "text", "text": SYSTEM_PROMPT},
+        {"type": "text", "text": contexto, "cache_control": {"type": "ephemeral"}},
+    ]
+
     prompt = f"""Classifique as transacoes bancarias abaixo para importacao no SCI Unico.
+
+CONTA BANCÁRIA DESTE CLIENTE NO SCI: {conta_banco}
+(substitua qualquer referência a "Banco C6", "Banco Bradesco" ou similar pelo código {conta_banco})
 
 Competencia: {comp_fmt}
 
 TRANSACOES:
 {chr(10).join(lista_txs)}
-
-{montar_contexto(mapa, depara, historicos, conta_banco)}
 
 INSTRUCOES:
 - Para cada transacao, identifique a regra correspondente no Mapa de Transacoes Tipicas
@@ -274,7 +299,7 @@ Retorne um array JSON com um objeto por transacao (na mesma ordem):
 
 Responda APENAS com o array JSON, sem markdown."""
 
-    texto = _chamar_api_com_retry(prompt, max_tokens=8000)
+    texto = _chamar_api_com_retry(prompt, max_tokens=8000, system=system_blocks)
     texto = texto.replace('```json', '').replace('```', '').strip()
     return json.loads(texto)
 
@@ -301,13 +326,17 @@ def classificar_extrato(
 
     print(f"Classificando {len(transacoes)} transacoes ({len(mapa)} regras no mapa)...")
 
+    # Contexto (tabelas) montado UMA vez e reusado em todos os lotes → o bloco
+    # cacheável de classificar_extrato_batch fica byte-idêntico entre lotes/clientes.
+    contexto = montar_contexto(mapa, depara, historicos)
+
     CHUNK = 12  # lotes menores evitam resposta JSON truncada (max_tokens)
     resultados = []
     for ini in range(0, len(transacoes), CHUNK):
         bloco = transacoes[ini:ini + CHUNK]
         try:
             parciais = classificar_extrato_batch(
-                bloco, conta_banco, competencia, mapa, depara, historicos
+                bloco, conta_banco, competencia, contexto
             )
             for k, linha in enumerate(parciais):
                 linha['idx'] = ini + k + 1  # idx global por ordem (não confia no idx do modelo)
