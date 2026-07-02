@@ -574,9 +574,13 @@ def vincular_consultor(empresa_id: str, nome_colaborador: str):
     return cid
 
 
-def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt):
+def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt,
+                       extrato_fallback_edge=False):
     """Roteia uma lista de arquivos: extrato → motor IA; demais → edge function.
-    Reutilizado pelo modo Gestta e pelo modo --docs (arquivos locais)."""
+    Reutilizado pelo modo Gestta e pelo modo --docs (arquivos locais).
+    extrato_fallback_edge (backfill): se o parser local não ler o extrato (layout
+    não-Itaú → 0 transações), roteia esse extrato para a edge (a IA lê layouts
+    diversos) em vez de mandar p/ revisão humana. O fluxo vivo passa False."""
     extratos = [a for a in arquivos if detectar_tipo(Path(a).name) == "extrato"]
     outros = [a for a in arquivos if a not in extratos]
     resumo = {"arquivos": len(arquivos), "extratos": [], "outros": []}
@@ -587,8 +591,15 @@ def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt):
         try:
             resumo["extratos"].append(processar_extrato(empresa_id, competencia, ext, banco_cod, jwt))
         except Exception as e:
-            log(f"    ⚠️ extrato não processado ({Path(ext).name}): {str(e)[:120]}")
-            resumo["extratos"].append({"arquivo": Path(ext).name, "erro": str(e)[:200], "status": "revisao_humana"})
+            if extrato_fallback_edge:
+                # Parser local falhou → a edge (IA) tenta ler o extrato. Cai no bloco
+                # de 'outros' abaixo com tipo detectado 'extrato' (a edge cria os
+                # lançamentos fonte_extrato=true + conciliação server-side).
+                log(f"    ↻ parser local falhou ({str(e)[:80]}) → roteando extrato p/ a edge (IA)")
+                outros.append(ext)
+            else:
+                log(f"    ⚠️ extrato não processado ({Path(ext).name}): {str(e)[:120]}")
+                resumo["extratos"].append({"arquivo": Path(ext).name, "erro": str(e)[:200], "status": "revisao_humana"})
 
     # Prepara a conciliação (sem rodar o motor): junta as transações de TODAS as contas
     # num CSV e cria a linha conciliacoes → habilita o botão "Conciliar agora" no front
@@ -616,7 +627,11 @@ def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt):
                 log(f"    ⚠️ documento não processado ({Path(doc).name}): {str(e)[:120]}")
                 resumo["outros"].append({"arquivo": Path(doc).name, "tipo": tipo, "erro": str(e)[:200], "status": "revisao_humana"})
 
-    if not extratos:  # ainda assim reflete a fase no painel
+    # Reflete a fase no painel quando NENHUM extrato foi processado pelo motor local
+    # (sem extrato-nomeado, ou todos caíram p/ a edge no fallback). Quando o motor
+    # local processa um extrato com sucesso, quem seta o status é processar_extrato.
+    extrato_local_ok = any(e.get("documento_id") and not e.get("erro") for e in resumo["extratos"])
+    if not extrato_local_ok:
         sb_update("empresas", {"id": empresa_id}, {"status": "lancamento"})
 
     # Enriquecimento (validação): casa os documentos de suporte (NF/recibo/etc.)

@@ -442,7 +442,8 @@ def processar_tarefa_api(t: dict, competencia: str, comp_g: str, jwt: str, jwt_g
         return {**base, "status": "sem_documentos", "motivo": "API: 0 arquivos baixáveis"}
 
     try:
-        resumo = bf.processar_arquivos(empresa_id, comp_mov, arquivos, banco, jwt)
+        # Backfill: extrato que o parser local não ler cai p/ a edge (IA lê layouts diversos).
+        resumo = bf.processar_arquivos(empresa_id, comp_mov, arquivos, banco, jwt, extrato_fallback_edge=True)
     except Exception as e:
         return {**base, "status": "erro", "motivo": f"etapa4(api): {str(e)[:600]}"}
 
