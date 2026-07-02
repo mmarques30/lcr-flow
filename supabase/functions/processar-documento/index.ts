@@ -317,8 +317,13 @@ Deno.serve(async (req) => {
       messages: [{
         role: "user",
         content: [
+          // Plano de contas + históricos: idêntico em toda chamada → primeiro bloco,
+          // com cache_control, p/ cortar ~90% dos tokens de input nas chamadas
+          // subsequentes e aliviar o rate limit (10k tokens/min). Precede o documento
+          // (volátil) para que o prefixo cacheado (system + ctx) seja reaproveitável.
+          { type: "text", text: ctx, cache_control: { type: "ephemeral" } },
           contentBlock,
-          { type: "text", text: `Empresa atual: ${empresa?.razao_social ?? "?"} (CNPJ ${empresa?.cnpj ?? "?"}).\n\n${ctx}\n\nClassifique este documento e sugira os lançamentos.` },
+          { type: "text", text: `Empresa atual: ${empresa?.razao_social ?? "?"} (CNPJ ${empresa?.cnpj ?? "?"}). Classifique este documento e sugira os lançamentos.` },
         ],
       }],
       output_config: { format: { type: "json_schema", schema: SCHEMA } },
@@ -330,7 +335,12 @@ Deno.serve(async (req) => {
     for (let tentativa = 0; tentativa < 4; tentativa++) {
       apiResp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": "prompt-caching-2024-07-31",
+          "content-type": "application/json",
+        },
         body: reqBody,
       });
       if (apiResp.ok || apiResp.status !== 529) break;
