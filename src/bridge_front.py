@@ -208,6 +208,21 @@ def _iso_data(yyyymmdd: str):
     return s or None
 
 
+_RE_COMPETENCIA_PREFIXO = re.compile(r"^\d{2}/\d{4}\s*")
+
+def _descricao_lancamento(linha: dict) -> str:
+    """Descrição legível do lançamento = histórico do banco (texto do extrato) +
+    complemento SCI quando agrega info (ex.: participante). O complemento sozinho
+    costuma ser só 'MM/AAAA' (competência) — inútil como descrição — por isso o
+    histórico do banco é primário. Fallback: complemento cru se não houver histórico."""
+    origem = (linha.get("descricao_origem") or "").strip()
+    compl = (linha.get("complemento") or "").strip()
+    extra = _RE_COMPETENCIA_PREFIXO.sub("", compl).strip()  # tira 'MM/AAAA' redundante
+    if origem and extra and extra.lower() not in origem.lower():
+        return f"{origem} · {extra}"[:200]
+    return (origem or compl)[:200]
+
+
 def linha_para_lancamento(linha: dict, banco_cod: int, conta_map: dict, hist_map: dict,
                           empresa_id: str, competencia: str, competencia_id: str, documento_id: str):
     """Converte a saída do motor (códigos LCR débito/crédito) no modelo do front
@@ -231,7 +246,7 @@ def linha_para_lancamento(linha: dict, banco_cod: int, conta_map: dict, hist_map
         "historico_id": hist_id,
         "data_lancamento": _iso_data(linha.get("data")),
         "valor": float(linha.get("valor") or 0),
-        "descricao": (linha.get("complemento") or "")[:200],
+        "descricao": _descricao_lancamento(linha),
         "status": "gerada",
         "confidence": float(linha.get("confianca")) if linha.get("confianca") is not None else None,
         "conciliado": False,
@@ -263,7 +278,7 @@ def sugestoes_motor(linhas: list, banco_cod: int) -> list:
             "tipo_movimento": "debito" if str(conta_cod) == str(l.get("debito")) else "credito",
             "conta_codigo": str(conta_cod) if conta_cod is not None else None,
             "historico_codigo": (str(l.get("historico")) if l.get("historico") not in (None, "", "None") else None),
-            "descricao": (l.get("complemento") or "")[:200],
+            "descricao": _descricao_lancamento(l),
             "confidence": (float(l.get("confianca")) if l.get("confianca") is not None else None),
             "justificativa": l.get("justificativa"),
         })

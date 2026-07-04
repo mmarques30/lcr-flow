@@ -349,6 +349,9 @@ def classificar_extrato(
     for linha in resultados:
         idx = linha.get('idx', 0) - 1
         transacao = transacoes[idx] if 0 <= idx < len(transacoes) else {}
+        # Histórico real do extrato (ex.: 'APLICACAO CDB DI') p/ a descrição do
+        # lançamento; sem isso o front mostra só o complemento SCI ('MM/AAAA').
+        linha['descricao_origem'] = transacao.get('descricao', '')
         confianca = linha.get('confianca', 0)
         desc = transacao.get('descricao', '')[:50]
 
