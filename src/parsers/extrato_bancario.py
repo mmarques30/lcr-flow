@@ -345,7 +345,7 @@ def parsear_excel(caminho: str, competencia: str = None) -> list:
 # ─────────────────────────────────────────────
 
 FILTROS_SALDO = re.compile(
-    r'(saldo\s+(anterior|total|dispon|period|atual|dia|final|inici)|'
+    r'(saldo\s+(anterior|total|dispon|period|atual|dia|final|inici|aplic|movimenta|bloq|invest)|'
     r'saldo\s*$|total\s+dispon)',
     re.IGNORECASE
 )
