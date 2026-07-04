@@ -112,6 +112,16 @@ def parsear_extrato(caminho: str, banco: str = None, competencia: str = None) ->
     else:
         raise ValueError(f"Formato não suportado: {extensao}")
 
+    # Varredura de aplicação automática (Itaú "APL/RES APLIC AUT MAIS" e afins):
+    # o banco aplica o saldo ocioso à noite e resgata de manhã — o par se anula no
+    # ciclo (~zero) e polui a razão com dezenas de linhas. Decisão contábil: não é
+    # movimento econômico → filtrar. Preserva 'RENDIMENTOS REND PAGO APLIC' (renda
+    # real) e 'APLICACAO CDB DI'/aplicações deliberadas (sem 'automática').
+    antes_aa = len(tr)
+    tr = [t for t in tr if not FILTRO_APLIC_AUTO.search(t.get('descricao') or '')]
+    if len(tr) != antes_aa:
+        print(f"  Filtro aplicação automática: {antes_aa - len(tr)} linha(s) de APL/RES automático descartada(s)")
+
     # Filtro de janela de competência aplicado AQUI (ponto único por onde TODOS os
     # formatos passam) → cobre Excel E PDF, e qualquer banco. Elimina contaminação
     # de extratos multi-ano/multi-mês (linhas de anos alheios na competência).
@@ -351,6 +361,16 @@ FILTROS_SALDO = re.compile(
 )
 _DATA_RE = re.compile(r'^\d{2}/\d{2}/\d{2,4}$')
 _VALOR_RE = re.compile(r'^-?[\d.]+,\d{2}$')
+
+# Aplicação automática (aplica saldo ocioso à noite / resgata de manhã — net ~zero).
+# Pega 'APL APLIC AUT MAIS' / 'RES APLIC AUT MAIS' e 'APLICACAO/RESGATE AUTOMÁTICA';
+# NÃO pega 'RENDIMENTOS REND PAGO APLIC' (renda real) nem 'APLICACAO CDB DI' (aplicação
+# deliberada, sem 'automática').
+FILTRO_APLIC_AUTO = re.compile(
+    r'^\s*(apl|res)\b.*aplic\.?\s*aut\.?\s*mais\b'
+    r'|^\s*(aplicac|aplicaç|resgate)\w*\s+autom',
+    re.IGNORECASE
+)
 
 
 def parsear_pdf(caminho: str, banco: str) -> list:
