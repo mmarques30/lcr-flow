@@ -180,6 +180,20 @@ def _parsear_planilha_df(df) -> list:
     i_valor   = _idx_coluna(colunas, ('valor', 'amount'), excluir=('saldo',))
     i_dc      = _idx_coluna(colunas, ('d/c', 'tipo', 'natur'))
 
+    # Coluna combinada "Entradas / Saídas" casa 'entrada' E 'saída' no MESMO índice:
+    # NÃO é par separado, é coluna única com sinal (+=entrada, -=saída). Sem isto,
+    # cada linha viraria 2 lançamentos (crédito+débito da mesma célula) → razão dobrada.
+    if i_credito is not None and i_credito == i_debito:
+        if i_valor is None:
+            i_valor = i_credito
+        i_credito = i_debito = None
+
+    # 'Data de lançamento' casa 'lanç' e rouba o i_desc do campo de data. Se a
+    # descrição colidir com a data, redetecta só pelos nomes fortes de descrição
+    # (que não casam a coluna de data).
+    if i_desc is not None and i_desc == i_data:
+        i_desc = _idx_coluna(colunas, ('descri', 'histór', 'moviment', 'memo'))
+
     # Esquema de valor: par crédito/débito em colunas separadas vs coluna única
     # 'valor'. Usa cred/déb quando há o PAR, ou quando há um dos lados e NÃO há
     # 'valor' (evita falso-positivo quando existe 'valor' + coluna que casa
