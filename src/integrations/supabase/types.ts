@@ -1703,8 +1703,10 @@ export type Database = {
         }[]
       }
       documentos_competencias: {
-        Args: Record<PropertyKey, never>
-        Returns: { competencia: string }[]
+        Args: never
+        Returns: {
+          competencia: string
+        }[]
       }
       is_admin: { Args: never; Returns: boolean }
       qualidade_carteira: {
