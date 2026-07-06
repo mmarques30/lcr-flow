@@ -410,7 +410,15 @@ function PlanilhaPreview({ url, ext }: { url: string; ext: string }) {
           }
           const sheet = wb.Sheets[wb.SheetNames[0]];
           const data: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" });
-          const lim = data.slice(0, 200).map((r) => r.map((c) => String(c ?? "")));
+          // Polimento de exibição (não altera o arquivo — "Baixar original" segue exato):
+          // decimais longos de export de pivot (ex.: -17721.203333333335) viram formato
+          // pt-BR de 2 casas; inteiros e anos ficam intactos (não thousand-separa 2023).
+          const lim = data.slice(0, 200).map((r) => r.map((c) => {
+            if (typeof c === "number" && Number.isFinite(c) && !Number.isInteger(c)) {
+              return c.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+            return String(c ?? "");
+          }));
           setRows(lim);
           setTruncado(data.length > 200);
         } catch (e) {
@@ -432,7 +440,9 @@ function PlanilhaPreview({ url, ext }: { url: string; ext: string }) {
   if (!rows) {
     return <div className="flex h-[40vh] items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Carregando planilha…</div>;
   }
-  const header = rows[0] ?? [];
+  // "Unnamed: N" é artefato de export (colunas de pivot sem cabeçalho, via pandas) —
+  // some do cabeçalho da prévia sem descartar a coluna (os dados dela seguem).
+  const header = (rows[0] ?? []).map((h) => /^unnamed:\s*\d+$/i.test(h) ? "" : h);
   const body = rows.slice(1);
   return (
     <div className="flex flex-col">
