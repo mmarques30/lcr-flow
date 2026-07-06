@@ -93,6 +93,78 @@ def detectar_banco(caminho: str) -> str:
     return 'desconhecido'
 
 
+# Identidade do extrato (banco+agência+conta) p/ dedup por conteúdo — o cabeçalho
+# que o parser normalmente descarta. Best-effort por layout; onde não achar, retorna
+# None (o caller então NÃO deduplica por identidade). Cobre rótulos completos
+# ('Agência:'/'Conta:') e abreviados ('ag 4465'/'cc 33033-2').
+_PATS_AGENCIA = [r"ag[eê]nc\w*\.?\s*[:\-]?\s*0*(\d{2,6})", r"\bag\.?\s*[:\-]?\s+0*(\d{3,6})"]
+_PATS_CONTA = [r"\bconta\s*(?:corrente)?\s*[:\-]?\s*(\d[\d.\-]{2,})",
+               r"\bc\.?\s*/?\s*c\.?\s*[:\-]?\s+(\d[\d.\-]{2,})"]
+
+
+def _so_digitos(s: str) -> str:
+    return re.sub(r"\D", "", s or "")
+
+
+def _primeiro_match(pats, texto):
+    for p in pats:
+        m = re.search(p, texto, re.IGNORECASE)
+        if m:
+            return m.group(1)
+    return None
+
+
+def extrair_identidade(caminho: str, banco: str = None) -> dict:
+    """Extrai (banco, agencia, conta) do CABEÇALHO do extrato p/ chave de dedup.
+    Lê só o topo (1ª página do PDF / 1ªs linhas do Excel/CSV). agência/conta são
+    normalizadas a só-dígitos SEM zeros à esquerda (ex.: '0033033-2' e '33033-2'
+    → '330332'). banco deve vir do caller (o nome do tempfile não tem o banco);
+    fallback p/ detectar_banco. Best-effort: campos não achados voltam None."""
+    ext = Path(caminho).suffix.lower()
+    texto = ""
+    try:
+        if ext == ".pdf":
+            with pdfplumber.open(caminho) as pdf:
+                # só o CABEÇALHO (1ªs linhas) — evita casar 'agência/conta' que
+                # aparecem no corpo (descrições, rodapé) e pegar o número errado.
+                texto = "\n".join((pdf.pages[0].extract_text() or "").splitlines()[:6])
+        elif ext in (".xlsx", ".xls") and not _e_html(caminho):
+            eng = "xlrd" if ext == ".xls" else "openpyxl"
+            df = pd.read_excel(caminho, engine=eng, sheet_name=0, header=None, dtype=str, nrows=15)
+            texto = df.to_string()
+        else:  # csv / html / .xls-que-é-html → primeiros bytes como texto
+            with open(caminho, "rb") as fh:
+                texto = fh.read(4096).decode("utf-8", "ignore")
+    except Exception:
+        texto = ""
+    ag = _primeiro_match(_PATS_AGENCIA, texto)
+    ct = _primeiro_match(_PATS_CONTA, texto)
+    ag = _so_digitos(ag).lstrip("0") or None if ag else None
+    ct = _so_digitos(ct).lstrip("0") or None if ct else None
+    return {
+        "banco": ((banco or detectar_banco(caminho)) or "").lower() or None,
+        "agencia": ag,
+        "conta": ct,
+    }
+
+
+def chave_extrato(identidade: dict, competencia: str) -> str:
+    """Chave canônica de dedup: 'agencia|conta|AAAA-MM'. O nº de conta (agência+
+    conta) já identifica o banco univocamente DENTRO de um cliente (a checagem é
+    escopada por empresa), então o banco não entra na chave — a detecção de banco
+    varia por layout e quebraria o match (ex.: o mesmo extrato Itaú vem sem 'itau'
+    numa das versões). Retorna None se agência OU conta faltarem (sem identidade
+    confiável → não deduplica; o backstop por sobreposição cobre)."""
+    if not identidade:
+        return None
+    ag = identidade.get("agencia")
+    ct = identidade.get("conta")
+    comp = (competencia or "")[:7]
+    if not (ag and ct and len(comp) == 7):
+        return None
+    return f"{ag}|{ct}|{comp}"
+
+
 def parsear_extrato(caminho: str, banco: str = None, competencia: str = None) -> list:
     """
     Ponto de entrada principal. Detecta o formato e parseia.

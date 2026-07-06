@@ -42,7 +42,7 @@ load_dotenv(ROOT / ".env")
 # Importa os módulos da automação já existentes (rodando a partir da raiz do repo)
 sys.path.insert(0, str(ROOT / "src" / "parsers"))
 sys.path.insert(0, str(ROOT / "src" / "ai"))
-from extrato_bancario import parsear_extrato            # noqa: E402
+from extrato_bancario import parsear_extrato, extrair_identidade, chave_extrato, detectar_banco  # noqa: E402
 from motor_classificacao import classificar_extrato      # noqa: E402
 
 # ── Config Supabase ───────────────────────────────────────────────────────────
@@ -339,6 +339,17 @@ def documento_existente(empresa_id: str, hash_sha256: str):
     return achados[0] if achados else None
 
 
+def _buscar_original_extrato(empresa_id: str, chave: str, excluir_id: str):
+    """Retorna o extrato ORIGINAL (não-duplicata) com esta identidade nesta empresa,
+    ou None. Base do dedup por identidade (mesmo banco/agência/conta/mês)."""
+    if not chave:
+        return None
+    a = sb_get("documentos", {"select": "id,arquivo_nome",
+                              "empresa_id": f"eq.{empresa_id}", "extrato_chave": f"eq.{chave}",
+                              "duplicata_de": "is.null", "id": f"neq.{excluir_id}", "limit": "1"})
+    return a[0] if a else None
+
+
 def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, origem="gestta", finalizar_conciliacao=False):
     extrato_path = Path(extrato_path)
     if not extrato_path.exists():
@@ -361,16 +372,8 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
     if not transacoes:
         raise RuntimeError("Nenhuma transação extraída do extrato.")
 
-    log(f"\n[2] Classificando com o motor IA (banco {banco_cod}, {comp_motor})...")
-    resultado = classificar_extrato(transacoes, conta_banco=banco_cod, competencia=comp_motor)
-    aprovadas = resultado["aprovadas"]
-    revisao = [r["classificacao_sugerida"] for r in resultado["revisao_manual"]]
-    log(f"    aprovadas={len(aprovadas)} revisão={len(revisao)} erros={resultado['resumo']['erros']}")
-
-    log("\n[3] Garantindo competência...")
+    log("\n[2] Garantindo competência + registrando documento...")
     competencia_id = ensure_competencia(empresa_id, competencia)
-
-    log("\n[4] Upload do extrato + registro em documentos...")
     storage_path = f"{empresa_id}/{competencia}/{_safe_storage_name(extrato_path.name)}"
     sb_upload(BUCKET_DOCS, storage_path, conteudo, "application/pdf")
     doc = sb_insert("documentos", {
@@ -382,6 +385,27 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
     })
     documento_id = doc[0]["id"]
     log(f"    documento_id={documento_id}")
+
+    # Dedup por IDENTIDADE (banco/agência/conta/mês = mesmo extrato). Se já existe um
+    # original com esta chave nesta empresa → marca ESTE como duplicata, NÃO gera razão
+    # (regra Rafa+Cleiton). Feito ANTES do motor IA p/ não gastar classificação à toa.
+    identidade = extrair_identidade(str(extrato_path), banco=detectar_banco(extrato_path.name))
+    chave = chave_extrato(identidade, competencia)
+    original = _buscar_original_extrato(empresa_id, chave, documento_id) if chave else None
+    if original:
+        log(f"    DUPLICATA de '{original.get('arquivo_nome')}' (chave {chave}) → não gera razão")
+        sb_update("documentos", {"id": documento_id}, {
+            "status_processamento": "duplicata", "duplicata_de": original["id"],
+            "extrato_chave": chave, "lancamentos_gerados": 0,
+        })
+        return {"documento_id": documento_id, "lancamentos": 0, "transacoes": [],
+                "status": "duplicata", "duplicata_de": original["id"], "arquivo": extrato_path.name}
+
+    log(f"\n[3] Classificando com o motor IA (banco {banco_cod}, {comp_motor})...")
+    resultado = classificar_extrato(transacoes, conta_banco=banco_cod, competencia=comp_motor)
+    aprovadas = resultado["aprovadas"]
+    revisao = [r["classificacao_sugerida"] for r in resultado["revisao_manual"]]
+    log(f"    aprovadas={len(aprovadas)} revisão={len(revisao)} erros={resultado['resumo']['erros']}")
 
     log("\n[5] Mapeando códigos → conta_id/historico_id e inserindo lançamentos...")
     conta_map = carregar_mapa_codigos("plano_contas")
@@ -421,6 +445,7 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
         "processado_em": dt.datetime.utcnow().isoformat() + "Z",
         "lancamentos_gerados": len(lancamentos),
         "classificacao_ia": classificacao_ia,
+        "extrato_chave": chave,  # identidade p/ dedup vivo dos próximos extratos
     })
 
     resultado = {"documento_id": documento_id, "lancamentos": len(lancamentos), "transacoes": transacoes}
