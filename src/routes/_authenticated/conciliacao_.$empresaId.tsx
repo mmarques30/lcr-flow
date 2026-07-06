@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -81,7 +81,12 @@ type LancConc = {
   historico: { codigo: string; descricao: string } | null;
 };
 
-const precisaRevisao = (l: LancConc) => (l.confidence != null && l.confidence < 0.7) || !l.conta;
+// Confiança mínima p/ um lançamento contar como revisado. Alinha com o motor
+// (classifica <80% como "aguardando revisão"). Rafa/Cleiton pediram trava
+// obrigatória: não deixar conciliar enquanto houver lançamento abaixo disso ou
+// sem conta. Aprovar/reclassificar no front seta confidence=1 → sai da revisão.
+const CONF_MIN_REVISAO = 0.8;
+const precisaRevisao = (l: LancConc) => (l.confidence != null && l.confidence < CONF_MIN_REVISAO) || !l.conta;
 function statusLancamento(l: LancConc): { label: string; variant: Parameters<typeof StatusPill>[0]["variant"] } {
   if (l.conciliado) return { label: "Conciliado", variant: "now" };
   if (precisaRevisao(l)) return { label: "Aguardando revisão", variant: "back" };
@@ -103,7 +108,7 @@ export function RazaoContabil({ empresaId, competencia }: { empresaId: string; c
   function revisarComIA() {
     if (lancs.length === 0) { toast.info("Nenhum lançamento nesta competência."); return; }
     if (aRever === 0) toast.success(`Revisão IA: os ${aprovados} lançamento(s) estão com conta sugerida e confiança alta. Nada a revisar. 🎉`);
-    else toast.warning(`Revisão IA: ${aprovados} aprovado(s) automaticamente. ${aRever} precisam da sua revisão (confiança < 70% ou sem conta) — destacados em amarelo.`);
+    else toast.warning(`Revisão IA: ${aprovados} aprovado(s) automaticamente. ${aRever} precisam da sua revisão (confiança < 80% ou sem conta) — destacados em amarelo.`);
   }
 
   return (
@@ -115,12 +120,12 @@ export function RazaoContabil({ empresaId, competencia }: { empresaId: string; c
           <span className="text-xs text-muted-foreground">· {lancs.length} lançamento(s) · {aprovados} aprovado(s)</span>
         </div>
         <div className="flex items-center gap-2">
-          <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+          <label className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 text-xs", aRever > 0 ? "bg-amber-100 font-medium text-amber-800 ring-1 ring-amber-300" : "text-muted-foreground")}>
             <input type="checkbox" checked={soARevisar} onChange={(e) => setSoARevisar(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer accent-[var(--color-primary)]" />
-            Mostrar só a revisar
+            Filtrar apenas a revisar
           </label>
           {aRever > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"><AlertTriangle className="h-3 w-3" /> {aRever} a revisar</span>}
-          <Button variant="outline" size="sm" disabled={lancs.length === 0} onClick={revisarComIA} title="A IA valida os lançamentos com conta sugerida e confiança alta (≥70%) e destaca os que precisam de revisão.">
+          <Button variant="outline" size="sm" disabled={lancs.length === 0} onClick={revisarComIA} title="A IA valida os lançamentos com conta sugerida e confiança alta (≥80%) e destaca os que precisam de revisão.">
             <Sparkles className="mr-1 h-4 w-4" /> Revisar com IA
           </Button>
         </div>
@@ -152,7 +157,7 @@ export function RazaoContabil({ empresaId, competencia }: { empresaId: string; c
                     <TableCell className="font-mono text-xs text-muted-foreground">{l.historico?.codigo ?? "—"}</TableCell>
                     <TableCell className="max-w-[18rem] truncate text-sm" title={l.descricao ?? ""}>
                       {l.descricao}
-                      {l.confidence != null && l.confidence < 0.7 && <span className="ml-1 text-[10px] text-amber-700">({Math.round(l.confidence * 100)}%)</span>}
+                      {l.confidence != null && l.confidence < CONF_MIN_REVISAO && <span className="ml-1 text-[10px] text-amber-700">({Math.round(l.confidence * 100)}%)</span>}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">{l.valor == null ? "—" : brl(l.valor)}</TableCell>
                     <TableCell><StatusPill variant={st.variant}>{st.label}</StatusPill></TableCell>
@@ -184,6 +189,17 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
   const { data: lancData, isLoading: lancLoading } = useQuery({ queryKey: lancKey, queryFn: () => listLancamentosConciliacao({ data: { empresa_id: empresaId, competencia } }) });
   const lancs = (lancData?.lancamentos ?? []) as LancConc[];
   const aRever = lancs.filter(precisaRevisao).length;
+  const aprovados = lancs.length - aRever;
+
+  // Trava de revisão (Rafa/Cleiton): não deixar conciliar com pendência. O
+  // filtro "só a revisar" + o scroll levam o usuário direto pra tabela editável.
+  const [soARevisar, setSoARevisar] = useState(false);
+  const tabelaRef = useRef<HTMLDivElement>(null);
+  function irParaRevisao() {
+    setSoARevisar(true);
+    requestAnimationFrame(() => tabelaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+  const visiveisLancs = soARevisar ? lancs.filter(precisaRevisao) : lancs;
 
   // Extratos bancários que a IA NÃO conseguiu processar nesta competência.
   // Só extrato conta aqui: docs contábeis (DARF, pro-labore, NFSe…) sem lançamento
@@ -203,6 +219,16 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
 
   async function conciliar() {
     if (!conc) return;
+    // Trava obrigatória: recomputa pendências com dados FRESCOS do cache (uma
+    // edição inline seta confidence=1 e chama conciliar() logo após invalidar —
+    // o `aRever` do closure ainda estaria defasado). Só usa o closure no fallback.
+    const fresh = qc.getQueryData<{ lancamentos: LancConc[] }>(lancKey);
+    const pendentes = (fresh?.lancamentos ?? lancs).filter(precisaRevisao).length;
+    if (pendentes > 0) {
+      toast.error(`Existem ${pendentes} lançamento(s) pendentes de revisão. Você precisa revisar antes de conciliar.`);
+      irParaRevisao();
+      return;
+    }
     setBusy("conciliar");
     try {
       const { data: res, error } = await supabase.functions.invoke("conciliar", { body: { conciliacao_id: conc.id } });
@@ -331,6 +357,31 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </div>
       )}
 
+      {/* Contador de revisão + trava obrigatória (Rafa/Cleiton): não deixa
+          conciliar enquanto houver lançamento pendente de revisão. */}
+      {lancs.length > 0 && (
+        <div className={cn("mb-4 rounded-2xl border px-5 py-3", aRever > 0 ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50")}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              {aRever > 0 ? <AlertTriangle className="h-4 w-4 text-amber-600" /> : <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+              <span className={cn("font-medium", aRever > 0 ? "text-amber-800" : "text-emerald-800")}>
+                {aprovados} aprovado{aprovados === 1 ? "" : "s"} · {aRever} aguardando revisão
+              </span>
+            </div>
+            {aRever > 0 && (
+              <Button variant="outline" size="sm" onClick={irParaRevisao} className="border-amber-400 text-amber-800 hover:bg-amber-100">
+                Ir para lista de revisão
+              </Button>
+            )}
+          </div>
+          {aRever > 0 && (
+            <p className="mt-1.5 text-sm text-amber-700">
+              A conciliação fica bloqueada até você revisar (aprovar ou reclassificar) todos os lançamentos pendentes.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* KPI strip: extrato + movimentado + outros lançamentos (3 cards) */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Card className="rounded-2xl border-0 shadow-soft">
@@ -381,7 +432,8 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <ListChecks className="h-4 w-4" />
               </div>
-              <Button size="sm" disabled={!temExtrato || busy === "conciliar"} onClick={conciliar} className="h-8">
+              <Button size="sm" disabled={!temExtrato || busy === "conciliar" || aRever > 0} onClick={conciliar} className="h-8"
+                title={aRever > 0 ? `${aRever} lançamento(s) pendentes de revisão — revise antes de conciliar` : (!temExtrato ? "Aguardando o extrato" : "Conciliar agora")}>
                 <Wand2 className="mr-1 h-3.5 w-3.5" />{busy === "conciliar" ? "Conciliando…" : "Conciliar"}
               </Button>
             </div>
@@ -420,14 +472,18 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       )}
 
       {/* Lançamentos do extrato — fonte única, com indicação de enriquecimento */}
-      <Card className="mb-6">
+      <Card className="mb-6" ref={tabelaRef}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-3">
           <div className="flex items-center gap-2">
             <ListChecks className="h-4 w-4 text-primary" />
             <h3 className="font-display text-lg">Lançamentos do extrato</h3>
-            <span className="text-xs text-muted-foreground">· {lancs.length} linha(s)</span>
+            <span className="text-xs text-muted-foreground">· {lancs.length} linha(s) · {aprovados} aprovado(s)</span>
           </div>
           <div className="flex items-center gap-2">
+            <label className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 text-xs", aRever > 0 ? "bg-amber-100 font-medium text-amber-800 ring-1 ring-amber-300" : "text-muted-foreground")}>
+              <input type="checkbox" checked={soARevisar} onChange={(e) => setSoARevisar(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer accent-[var(--color-primary)]" />
+              Filtrar apenas a revisar{aRever > 0 ? ` (${aRever})` : ""}
+            </label>
             {(() => {
               const semSuporte = lancs.filter((l) => l.fonte_extrato && !l.enriquecido).length;
               return semSuporte > 0 ? (
@@ -466,7 +522,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {lancs.map((l) => {
+                {visiveisLancs.map((l) => {
                   const alerta = precisaRevisao(l);
                   const isExtrato = !!l.fonte_extrato;
                   const semSuporte = isExtrato && !l.enriquecido;
@@ -485,7 +541,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                       </TableCell>
                       <TableCell className="max-w-[18rem] truncate text-sm" title={l.descricao ?? ""}>
                         {l.descricao}
-                        {l.confidence != null && l.confidence < 0.7 && <span className="ml-1 text-[10px] text-amber-700">({Math.round(l.confidence * 100)}%)</span>}
+                        {l.confidence != null && l.confidence < CONF_MIN_REVISAO && <span className="ml-1 text-[10px] text-amber-700">({Math.round(l.confidence * 100)}%)</span>}
                       </TableCell>
                       <TableCell className="text-xs">
                         {l.participante ? <div className="font-medium text-foreground truncate max-w-[12rem]" title={l.participante}>{l.participante}</div> : <span className="text-muted-foreground">—</span>}
@@ -506,6 +562,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                     </TableRow>
                   );
                 })}
+                {!lancLoading && soARevisar && lancs.length > 0 && visiveisLancs.length === 0 && <TableRow><TableCell colSpan={7} className="py-8 text-center text-emerald-700">Nada a revisar — todos os lançamentos foram aprovados. Já pode conciliar.</TableCell></TableRow>}
                 {!lancLoading && lancs.length === 0 && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Nenhum lançamento ainda. Cada linha do extrato bancário vira um lançamento aqui. Adicionar manual = lançamentos que não vêm do extrato (ex.: ajustes contábeis).</TableCell></TableRow>}
                 {lancLoading && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Carregando…</TableCell></TableRow>}
               </TableBody>
