@@ -16,6 +16,7 @@ Formato de saída:
 import pandas as pd
 import pdfplumber
 import re
+import unicodedata
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -136,13 +137,23 @@ def parsear_extrato(caminho: str, banco: str = None, competencia: str = None) ->
 # Parser Excel (genérico p/ qualquer banco — detecção de coluna por NOME)
 # ─────────────────────────────────────────────
 
+def _sem_acento(s: str) -> str:
+    """minúsculas sem acento — casamento de cabeçalho robusto a acentuação
+    (bancos escrevem 'historico'/'credito'/'debito'/'saida' sem acento)."""
+    return "".join(c for c in unicodedata.normalize("NFKD", str(s).strip().lower())
+                   if not unicodedata.combining(c))
+
+
 def _idx_coluna(colunas, termos, excluir=(), default=None):
     """Índice POSICIONAL da 1ª coluna cujo cabeçalho contém algum de `termos`
-    e nenhum de `excluir` (case-insensitive). Torna o parser robusto a layouts
-    que inserem/removem colunas (ex.: alguns exports do Itaú têm 'Documento'
-    entre Histórico e Valor). Retorna `default` se não encontrar."""
+    e nenhum de `excluir`. Case-insensitive E acento-insensitive (senão 'histór'
+    não casava 'historico' → descrição perdida → transações distintas colapsavam
+    como duplicata). Robusto a layouts que inserem/removem colunas. Retorna
+    `default` se não encontrar."""
+    termos = [_sem_acento(t) for t in termos]
+    excluir = [_sem_acento(e) for e in excluir]
     for i, c in enumerate(colunas):
-        h = str(c).strip().lower()
+        h = _sem_acento(c)
         if any(t in h for t in termos) and not any(e in h for e in excluir):
             return i
     return default
