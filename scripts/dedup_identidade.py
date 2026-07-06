@@ -88,3 +88,15 @@ for keeper, dups, ch in sorted(plano, key=lambda x: x[0].get("competencia") or "
         bf.sb_update("documentos", {"id": keeper["id"]}, {"extrato_chave": ch})
 
 print(f"\nTOTAL: {tot_dup} duplicata(s), {tot_raz} lançamentos de razão " + ("REMOVIDOS." if APPLY else "a remover. [DRY] --apply p/ executar."))
+
+# Backfill da extrato_chave em TODOS os extratos varridos (não só os de grupo) —
+# necessário p/ o dedup VIVO detectar duplicatas de extratos já existentes.
+if APPLY:
+    n_bf = 0
+    marcados = {dp["id"] for _, dups, _ in plano for dp in dups} | {k["id"] for k, _, _ in plano}
+    for d in docs:
+        ch = chave_por_doc.get(d["id"])
+        if ch and d["id"] not in marcados and not d.get("duplicata_de"):
+            bf.sb_update("documentos", {"id": d["id"]}, {"extrato_chave": ch})
+            n_bf += 1
+    print(f"Backfill: extrato_chave gravada em +{n_bf} extrato(s) sem grupo.")
