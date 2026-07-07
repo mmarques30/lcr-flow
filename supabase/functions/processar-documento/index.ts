@@ -212,6 +212,18 @@ function chaveExtrato(classificacao: Record<string, unknown>, competencia: strin
   return `${ag}|${ct}|${comp}`;
 }
 
+// #4: investimento fica FORA do dedup por identidade. A chave é agência|conta|mês
+// SEM banco, então um CDB (mesmo se a IA o tipar como extrato_bancario) colidiria
+// com a CC do mesmo mês; com overlap>=60% seria marcado duplicata e perderia razão.
+// Movimento de investimento gera razão própria — não deve ser deduplicado contra a CC.
+// Mesma lista de termos que o roteamento usa (detectar_tipo no motor local).
+const INVESTIMENTO_KW = ["posic", "posiç", "investiment", "aplicac", "aplicaç",
+                         "renda fixa", "renda-fixa", "cdb"];
+function _ehInvestimentoNome(nome: unknown): boolean {
+  const n = String(nome ?? "").toLowerCase();
+  return INVESTIMENTO_KW.some((k) => n.includes(k));
+}
+
 // Confirma dedup por identidade: a chave (agência|conta|mês) NÃO inclui o banco, então
 // dois bancos com mesma ag/conta/mês colidiriam. Antes de marcar duplicata, exigimos
 // sobreposição real das transações (mesmo extrato ~100%; colisão de chave ~0%).
@@ -490,7 +502,8 @@ Deno.serve(async (req) => {
   // razão (regra Rafa+Cleiton). Escapa por 'Não é duplicata / processar mesmo assim':
   // esse botão seta nao_duplicata=true, que ESTE guard respeita — senão o reprocesso
   // reencontraria o original e re-marcaria o doc como duplicata (escape hatch no-op).
-  const chaveDedup = isExtratoBancario ? chaveExtrato(classificacao, competencia) : null;
+  const chaveDedup = (isExtratoBancario && !_ehInvestimentoNome(doc.arquivo_nome))
+    ? chaveExtrato(classificacao, competencia) : null;
   if (chaveDedup && !doc.nao_duplicata) {
     const { data: orig } = await admin.from("documentos").select("id, arquivo_nome")
       .eq("empresa_id", doc.empresa_id).eq("extrato_chave", chaveDedup)
