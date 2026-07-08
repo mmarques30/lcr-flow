@@ -472,7 +472,20 @@ export const getEmpresaPainel = createServerFn({ method: "GET" })
     // não houver no mês, marca como "recebido em outra competência" caso já
     // tenha aparecido alguma vez para o cliente (evita o falso 0% quando o
     // extrato foi enviado mas para outro mês).
-    const esperadosMes = (esperados.data ?? []).map((e) => {
+    // Fallback: sem cadastro em documentos_esperados, infere tipos já recebidos
+    // (até sync Gestta no orquestrador). Evita card "0 de 0" enganoso.
+    type ColetaFonte = "cadastro" | "inferido";
+    let coletaFonte: ColetaFonte = "cadastro";
+    let esperadosLista = (esperados.data ?? []).map((e) => ({ id: e.id, tipo: e.tipo }));
+    if (esperadosLista.length === 0) {
+      const tiposDistintos = [...new Set(docs.map((d) => d.tipo).filter(Boolean))];
+      if (tiposDistintos.length > 0) {
+        coletaFonte = "inferido";
+        esperadosLista = tiposDistintos.map((tipo) => ({ id: `inferido-${tipo}`, tipo }));
+      }
+    }
+
+    const esperadosMes = esperadosLista.map((e) => {
       const noMes = docsMes.find((d) => d.tipo === e.tipo);
       if (noMes) {
         return { id: e.id, tipo: e.tipo, recebido: true, no_mes: true, status: noMes.status, recebido_em: noMes.recebido_em, competencia_recebido: noMes.competencia as string | null };
@@ -567,6 +580,8 @@ export const getEmpresaPainel = createServerFn({ method: "GET" })
 
     return {
       competencia: compAtual,
+      coletaFonte,
+      esperadosTotal: esperadosLista.length,
       kpis: {
         totalDocs: docs.length,
         docsMes: docsMes.length,
@@ -901,6 +916,13 @@ export const listConciliacoes = createServerFn({ method: "GET" })
 
 // Conciliação sobre lançamentos reais (TO-BE · Tarefa 7) — lista os lançamentos
 // individuais da empresa/competência com conta/histórico e flags de revisão.
+function chaveMetaClassificacao(data: string | null | undefined, valor: number | null | undefined, descricao: string | null | undefined): string {
+  const d = (data ?? "").slice(0, 10);
+  const v = Math.abs(Number(valor) || 0);
+  const desc = (descricao ?? "").slice(0, 40).toLowerCase().trim();
+  return `${d}|${(Math.round(v * 100) / 100).toFixed(2)}|${desc}`;
+}
+
 export const listLancamentosConciliacao = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ empresa_id: z.string().uuid(), competencia: z.string().regex(/^\d{4}-\d{2}$/) }).parse(d))
@@ -908,14 +930,34 @@ export const listLancamentosConciliacao = createServerFn({ method: "GET" })
     const { data: empresa } = await context.supabase.from("empresas").select("id, razao_social, nome_fantasia").eq("id", data.empresa_id).maybeSingle();
     const { data: rows, error } = await context.supabase
       .from("lancamentos")
-      .select("id, data_lancamento, valor, descricao, documento_numero, part_deb, part_cred, part_aprendido, natureza_movimento, conciliado, confidence, status, fonte_extrato, enriquecido, participante, documento_suporte_id, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
+      .select("id, data_lancamento, valor, descricao, documento_numero, part_deb, part_cred, part_aprendido, natureza_movimento, conciliado, confidence, status, fonte_extrato, enriquecido, participante, documento_suporte_id, documento_id, conta:conta_id(codigo, descricao, tipo, sci_apelido, sci_historico_padrao), historico:historico_id(codigo, descricao, sci_apelido)")
       .eq("empresa_id", data.empresa_id)
       .eq("competencia", data.competencia)
       .not("valor", "is", null)
       .order("data_lancamento", { ascending: true, nullsFirst: false })
       .range(0, 4999);
     if (error) throw new Error(error.message);
-    return { empresa, lancamentos: rows ?? [] };
+
+    const docIds = [...new Set((rows ?? []).map((r) => r.documento_id).filter(Boolean))] as string[];
+    const metaByKey = new Map<string, { regra_id?: string; justificativa?: string }>();
+    if (docIds.length) {
+      const { data: docs } = await context.supabase.from("documentos").select("id, classificacao_ia").in("id", docIds);
+      for (const doc of docs ?? []) {
+        const ci = doc.classificacao_ia as { lancamentos_sugeridos?: { data_lancamento?: string; valor?: number; descricao?: string; regra_id?: string; justificativa?: string }[] } | null;
+        for (const s of ci?.lancamentos_sugeridos ?? []) {
+          const k = chaveMetaClassificacao(s.data_lancamento, s.valor ?? null, s.descricao ?? null);
+          if (!metaByKey.has(k)) metaByKey.set(k, { regra_id: s.regra_id, justificativa: s.justificativa });
+        }
+      }
+    }
+
+    const lancamentos = (rows ?? []).map((r) => {
+      const k = chaveMetaClassificacao(r.data_lancamento, r.valor, r.descricao);
+      const meta = metaByKey.get(k);
+      return { ...r, regra_id: meta?.regra_id ?? null, justificativa: meta?.justificativa ?? null };
+    });
+
+    return { empresa, lancamentos };
   });
 
 export const toggleLancamentoConciliado = createServerFn({ method: "POST" })

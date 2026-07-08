@@ -8,6 +8,7 @@ import {
   _sobreposicao,
   chaveDedupParaDoc,
   deveMarcarDuplicata,
+  dedupIntraDocumento,
   OVERLAP_MIN_DEDUP,
 } from "./dedup.ts";
 
@@ -105,6 +106,18 @@ Deno.test("deveMarcarDuplicata: sem original ou sem razão no original → falso
   assertEquals(deveMarcarDuplicata("4465|33033|2026-06", false, lancs, lancs), false); // sem original
   assertEquals(deveMarcarDuplicata("4465|33033|2026-06", true, [], lancs), false); // original sem razão
   assertEquals(deveMarcarDuplicata(null, true, lancs, lancs), false); // sem chave (investimento)
+});
+
+Deno.test("dedupIntraDocumento remove repetidas mesma data+valor", () => {
+  const items = [
+    { data_lancamento: "2026-06-01", valor: 1443.0, descricao: "PIX recebido" },
+    { data_lancamento: "2026-06-01", valor: 1443.0, descricao: "PIX recebido dup" },
+    { data_lancamento: "2026-06-02", valor: 100 },
+  ];
+  const out = dedupIntraDocumento(items);
+  assertEquals(out.length, 2);
+  assertEquals(out[0].valor, 1443);
+  assertEquals(out[1].valor, 100);
 });
 
 Deno.test("limiar de overlap coerente com OVERLAP_MIN_DEDUP", () => {

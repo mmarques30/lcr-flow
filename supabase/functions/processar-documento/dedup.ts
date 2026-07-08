@@ -97,3 +97,29 @@ export function deveMarcarDuplicata(
   if ((origLancs?.length ?? 0) === 0) return false;
   return _sobreposicao(novasLinhas, origLancs) >= OVERLAP_MIN_DEDUP;
 }
+
+// Dedup tipo A: linhas repetidas no MESMO documento (mesma data+valor).
+// Mantém a 1ª ocorrência; descarta as demais antes do insert.
+export function chaveIntraDoc(r: LancRow): string | null {
+  const v = Number(r?.valor);
+  if (!Number.isFinite(v)) return null;
+  const d = String(r?.data_lancamento ?? "").slice(0, 10);
+  if (!d) return null;
+  return `${d}|${(Math.round(Math.abs(v) * 100) / 100).toFixed(2)}`;
+}
+
+export function dedupIntraDocumento<T extends LancRow>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items ?? []) {
+    const k = chaveIntraDoc(item);
+    if (!k) {
+      out.push(item);
+      continue;
+    }
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(item);
+  }
+  return out;
+}

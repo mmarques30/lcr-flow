@@ -29,6 +29,7 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
 type Sugestao = {
   data_lancamento?: string; valor?: number; tipo_movimento?: string;
   conta_codigo?: string; historico_codigo?: string; descricao?: string; confidence?: number;
+  regra_id?: string; justificativa?: string;
 };
 type Classificacao = {
   tipo_documento?: string; cliente_identificado?: string; competencia?: string;
@@ -322,6 +323,7 @@ export function DocumentoRevisaoView({ documentoId, onAprovado }: { documentoId:
                       <TableRow>
                         <TableHead className="w-20">Data</TableHead>
                         <TableHead>Conta</TableHead>
+                        <TableHead className="w-16">Regra</TableHead>
                         <TableHead>Descrição</TableHead>
                         <TableHead className="text-right">Valor</TableHead>
                       </TableRow>
@@ -332,8 +334,14 @@ export function DocumentoRevisaoView({ documentoId, onAprovado }: { documentoId:
                         return (
                           <TableRow key={i} className={cn(baixa && "bg-amber-50")}>
                             <TableCell className="text-xs">{s.data_lancamento ?? "—"}</TableCell>
-                            <TableCell className="font-mono text-xs">{s.conta_codigo ?? "—"}</TableCell>
-                            <TableCell className="max-w-[14rem] truncate text-sm" title={s.descricao ?? ""}>
+                            <TableCell className="font-mono text-xs">{s.conta_codigo ?? "—"}{s.historico_codigo ? ` · h${s.historico_codigo}` : ""}</TableCell>
+                            <TableCell className="text-xs" title={s.justificativa ?? undefined}>
+                              {s.regra_id ? (
+                                <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">{s.regra_id}</span>
+                              ) : "—"}
+                              {s.justificativa && <div className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">{s.justificativa}</div>}
+                            </TableCell>
+                            <TableCell className="max-w-[12rem] truncate text-sm" title={s.descricao ?? ""}>
                               {s.descricao}
                               {baixa && <span className="ml-1 text-[10px] text-amber-700">({Math.round((s.confidence ?? 0) * 100)}%)</span>}
                             </TableCell>
@@ -341,7 +349,7 @@ export function DocumentoRevisaoView({ documentoId, onAprovado }: { documentoId:
                           </TableRow>
                         );
                       })}
-                      {sugestoes.length === 0 && <TableRow><TableCell colSpan={4} className="py-6 text-center text-muted-foreground">Nenhum lançamento sugerido.</TableCell></TableRow>}
+                      {sugestoes.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-center text-muted-foreground">Nenhum lançamento sugerido.</TableCell></TableRow>}
                     </TableBody>
                   </Table>
                 </div>

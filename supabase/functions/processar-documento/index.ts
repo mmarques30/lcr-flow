@@ -1,9 +1,12 @@
 // Edge Function: processar-documento (TO-BE 23/06)
-// Pipeline: lê o PDF/imagem do storage → classifica com Claude Sonnet 4.6 →
+// Pipeline: lê o PDF/imagem do storage → classifica com Claude Haiku 4.5 →
 // cria os lançamentos contábeis sugeridos no banco.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { chaveDedupParaDoc, deveMarcarDuplicata, _sobreposicao } from "./dedup.ts";
+import { chaveDedupParaDoc, deveMarcarDuplicata, _sobreposicao, dedupIntraDocumento } from "./dedup.ts";
+import { formatMapaCtx, MAPA_REGRAS } from "./mapa-transacoes.ts";
+import { corrigirSugestoesMapa } from "./corrigir-mapa.ts";
+import { FORMATO_RESPOSTA_JSON, parseClassificacaoResposta, type ClassificacaoParsed } from "./parse-resposta.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -114,7 +117,20 @@ Regras:
   determina a inversão D/C contábil — é crítico que esteja sempre preenchido.
   Regra prática: se o valor no extrato aparece com sinal negativo ou na coluna
   "Débito", tipo_movimento = 'debito'. Se aparece positivo ou na coluna
-  "Crédito", tipo_movimento = 'credito'.`;
+  "Crédito", tipo_movimento = 'credito'.
+
+MAPA DE TRANSAÇÕES TÍPICAS (referência primária — use o ID no campo regra_id):
+- Para cada movimentação, identifique a regra correspondente no Mapa enviado no contexto.
+- UT-01 (energia/luz): conta 475, historico_codigo 2330 — NUNCA use 3671 para energia.
+- UT-02 (internet): SOMENTE para DÉBITO de provedor de internet (conta 476, hist 3692).
+- RC-01/RC-02/RC-03: CRÉDITOS (PIX recebido, recebimentos de clientes) — NUNCA classifique
+  entrada/PIX recebido como UT-02 (internet é sempre saída/débito).
+- RC-04: PIX de SAÍDA sem NF (débito).
+- FP-01 (folha/salário): conta 160, hist 267.
+- FO-01 (fornecedor com NF): conta 148, hist 317.
+- Preencha regra_id (ex.: "FP-01") e justificativa (1 frase) em CADA lançamento sugerido.
+
+${FORMATO_RESPOSTA_JSON}`;
 
 // Mapeia o tipo_documento que a IA retorna (texto livre) para o ENUM
 // documento_tipo do banco. Reconhece sinônimos comuns.
@@ -184,51 +200,6 @@ function mapearTipoIa(tipo: string | undefined | null): string | null {
 
 // Helpers do dedup por identidade (chaveExtrato/_normConta/_sobreposicao/decisão)
 // vivem em ./dedup.ts — extraídos p/ teste (dedup.test.ts). Ver comentários lá.
-
-const SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    tipo_documento: { type: "string" },
-    cliente_identificado: { type: "string" },
-    competencia: { type: "string", description: "AAAA-MM" },
-    confidence_geral: { type: "number" },
-    dados_extraidos: { type: "string", description: "Resumo/JSON dos dados extraídos" },
-    agencia: { type: "string", description: "Só p/ extrato bancário: número da agência (ex.: '4465')." },
-    conta: { type: "string", description: "Só p/ extrato bancário: conta corrente COM o dígito verificador, como impressa no cabeçalho (ex.: '33033-2'). Use o traço; não concatene o DV." },
-    dados_suporte: {
-      type: "object",
-      additionalProperties: false,
-      description: "Só p/ documentos de SUPORTE (NF, recibo, DARF, fatura, comprovante): dados p/ casar com a linha do extrato por valor+data. Deixe vazio p/ extrato bancário.",
-      properties: {
-        valor_total: { type: "number", description: "Valor total do documento (positivo)" },
-        data_documento: { type: "string", description: "Data do documento em AAAA-MM-DD (emissão ou pagamento)" },
-        participante: { type: "string", description: "Fornecedor/tomador/favorecido (nome ou CNPJ)" },
-        numero: { type: "string", description: "Número da NF/recibo/documento" },
-      },
-    },
-    lancamentos_sugeridos: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          data_lancamento: { type: "string" },
-          valor: { type: "number" },
-          tipo_movimento: { type: "string", description: "'debito' = saída de dinheiro do banco (pagamento, transferência enviada); 'credito' = entrada (recebimento, depósito). SEMPRE preencher." },
-          conta_codigo: { type: "string" },
-          historico_codigo: { type: "string" },
-          descricao: { type: "string" },
-          confidence: { type: "number" },
-          participante: { type: "string", description: "Nome/CNPJ do participante quando a conta exige (marcada com PARTICIPANTE no contexto). Vazio se não conseguir extrair." },
-        },
-        required: ["data_lancamento", "valor", "conta_codigo", "descricao"],
-      },
-    },
-    observacoes: { type: "string" },
-  },
-  required: ["tipo_documento", "lancamentos_sugeridos"],
-};
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -335,17 +306,14 @@ Deno.serve(async (req) => {
   const ctx =
     `Plano de Contas oficial LCR (${(contasLcr ?? []).length} contas — use SEMPRE o código \`codigo\` da coluna 1):\n${contasFmt}\n\n` +
     `Plano de Históricos SCI (${(histLcr ?? []).length} códigos):\n${histFmt}\n\n` +
-    `REGRA: cada conta pode ter "hist.padrão" — quando existir, use ele como historico_codigo padrão (a menos que a movimentação claramente peça outro). Contas marcadas com "PARTICIPANTE" exigem identificação do participante (cliente/fornecedor) — se conseguir extrair do extrato, coloque no campo participante do lançamento.`;
+    `MAPA DE TRANSAÇÕES TÍPICAS (${MAPA_REGRAS.length} regras — referência primária):\n${formatMapaCtx()}\n\n` +
+    `REGRA: cada conta pode ter "hist.padrão" — quando existir, use ele como historico_codigo padrão (a menos que a movimentação claramente peça outro). Contas marcadas com "PARTICIPANTE" exigem identificação do participante (cliente/fornecedor) — se conseguir extrair do extrato, coloque no campo participante do lançamento. Preencha regra_id e justificativa em cada lançamento.`;
 
-  let classificacao: {
-    tipo_documento: string; competencia?: string; confidence_geral?: number;
-    dados_extraidos?: string; agencia?: string; conta?: string; conta_corrente?: string; observacoes?: string;
-    lancamentos_sugeridos: { data_lancamento: string; valor: number; tipo_movimento?: string; conta_codigo: string; historico_codigo?: string; descricao: string; confidence?: number; participante?: string }[];
-  };
+  let classificacao: ClassificacaoParsed;
   try {
     const reqBody = JSON.stringify({
       model: MODEL,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: SYSTEM_PROMPT,
       messages: [{
         role: "user",
@@ -356,10 +324,12 @@ Deno.serve(async (req) => {
           // (volátil) para que o prefixo cacheado (system + ctx) seja reaproveitável.
           { type: "text", text: ctx, cache_control: { type: "ephemeral" } },
           contentBlock,
-          { type: "text", text: `Empresa atual: ${empresa?.razao_social ?? "?"} (CNPJ ${empresa?.cnpj ?? "?"}). Classifique este documento e sugira os lançamentos.` },
+          { type: "text", text: `Empresa atual: ${empresa?.razao_social ?? "?"} (CNPJ ${empresa?.cnpj ?? "?"}). Classifique este documento e sugira os lançamentos. Responda APENAS com JSON válido.` },
         ],
       }],
-      output_config: { format: { type: "json_schema", schema: SCHEMA } },
+      // Sem output_config/json_schema: o compilador de gramática do Haiku 4.5 estoura
+      // ("Schema is too complex" / "Grammar compilation timed out") com array ilimitado
+      // de lançamentos. Prompt + parse defensivo (parse-resposta.ts) é model-agnóstico.
     });
     // Retry no 529 (overloaded) — sobrecarga transiente da Anthropic, backoff curto (10/20/30s).
     // O 429 (rate_limit) NÃO é retentado aqui: a espera de ~1min estouraria o timeout da edge;
@@ -385,10 +355,26 @@ Deno.serve(async (req) => {
     const dataApi = await apiResp.json();
     if (dataApi.stop_reason === "refusal") return markErro("A IA recusou processar este documento.");
     const tb = (dataApi.content ?? []).find((b: { type: string }) => b.type === "text");
-    classificacao = JSON.parse(tb?.text ?? "{}");
+    try {
+      classificacao = parseClassificacaoResposta(tb?.text ?? "{}");
+    } catch (parseErr) {
+      const preview = String(tb?.text ?? "").slice(0, 200);
+      return markErro(`Resposta da IA não é JSON válido: ${parseErr instanceof Error ? parseErr.message : String(parseErr)} — início: ${preview}`);
+    }
   } catch (e) {
     return markErro(`Falha na Claude API: ${e instanceof Error ? e.message : String(e)}`);
   }
+
+  // Pós-processamento: corrige erros recorrentes (PIX recebido ≠ UT-02, energia → 2330)
+  // e remove linhas repetidas no mesmo documento (tipo A: mesma data+valor).
+  const sugestoesBrutas = classificacao.lancamentos_sugeridos ?? [];
+  const sugestoesCorrigidas = corrigirSugestoesMapa(sugestoesBrutas);
+  const sugestoesUnicas = dedupIntraDocumento(sugestoesCorrigidas);
+  const removidasIntra = sugestoesBrutas.length - sugestoesUnicas.length;
+  if (removidasIntra > 0) {
+    console.log(`dedup intra-doc: ${removidasIntra} lançamento(s) repetido(s) descartado(s)`);
+  }
+  classificacao = { ...classificacao, lancamentos_sugeridos: sugestoesUnicas };
 
   const tipoMapeado = mapearTipoIa(classificacao.tipo_documento);
   // A IA (conteúdo) decide, mas mantemos doc.tipo==="extrato" como REDE DE SEGURANÇA

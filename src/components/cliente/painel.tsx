@@ -248,6 +248,8 @@ type SciLancDet = {
   part_deb?: string | null;
   part_cred?: string | null;
   natureza_movimento?: string | null;
+  regra_id?: string | null;
+  justificativa?: string | null;
   conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido: string | null } | null;
   historico: { codigo: string; descricao: string; sci_apelido: string | null } | null;
 };
@@ -476,7 +478,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
             <div className="max-h-[28rem] overflow-y-auto">
               <Table>
                 <TableHeader>
-                  <TableRow><TableHead className="w-24">Data</TableHead><TableHead>Conta</TableHead><TableHead>Histórico</TableHead><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow>
+                  <TableRow><TableHead className="w-24">Data</TableHead><TableHead>Conta</TableHead><TableHead>Histórico</TableHead><TableHead>Regra</TableHead><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow>
                 </TableHeader>
                 <TableBody>
                   {lancs.map((l) => (
@@ -487,11 +489,19 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
                         {l.conta && <div className="text-xs text-muted-foreground">{l.conta.descricao}</div>}
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{l.historico?.codigo ?? "—"}</TableCell>
-                      <TableCell className="max-w-[18rem] truncate text-sm" title={l.descricao ?? ""}>{l.descricao}</TableCell>
+                      <TableCell className="max-w-[10rem] text-xs" title={l.justificativa ?? undefined}>
+                        {l.regra_id ? (
+                          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">{l.regra_id}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                        {l.justificativa && <div className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">{l.justificativa}</div>}
+                      </TableCell>
+                      <TableCell className="max-w-[14rem] truncate text-sm" title={l.descricao ?? ""}>{l.descricao}</TableCell>
                       <TableCell className="text-right font-mono text-sm">{l.valor == null ? "—" : brl(l.valor)}</TableCell>
                     </TableRow>
                   ))}
-                  {lancs.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Nenhum lançamento nesta competência.</TableCell></TableRow>}
+                  {lancs.length === 0 && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nenhum lançamento nesta competência.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </div>

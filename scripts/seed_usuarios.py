@@ -45,23 +45,47 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _login_ok(email: str, senha: str) -> bool:
+    anon = os.getenv("VITE_SUPABASE_PUBLISHABLE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
+    if not anon:
+        return True
+    r = requests.post(
+        f"{URL}/auth/v1/token?grant_type=password",
+        headers={"apikey": anon, "Content-Type": "application/json"},
+        json={"email": email, "password": senha},
+        timeout=60,
+    )
+    return r.ok
+
+
 def achar_user_id(email: str) -> str | None:
+    r = requests.get(
+        f"{URL}/rest/v1/usuarios_perfil",
+        headers={**AUTH_HEADERS, "Accept": "application/json"},
+        params={"email": f"eq.{email}", "select": "user_id"},
+        timeout=60,
+    )
+    if r.ok and r.json():
+        return r.json()[0]["user_id"]
+
     page = 1
-    while True:
+    while page <= 20:
         r = requests.get(
             f"{URL}/auth/v1/admin/users",
             headers=AUTH_HEADERS,
-            params={"page": page, "per_page": 200},
+            params={"page": page, "per_page": 50},
             timeout=60,
         )
-        r.raise_for_status()
+        if not r.ok:
+            return None
         batch = r.json().get("users") or []
         for u in batch:
             if (u.get("email") or "").lower() == email:
                 return u["id"]
-        if len(batch) < 200:
+        if len(batch) < 50:
             return None
         page += 1
+    return None
 
 
 def upsert_perfil(user_id: str, email: str, nome: str, perfil: str, dry_run: bool) -> None:
@@ -115,13 +139,16 @@ def criar_usuario(email: str, nome: str, perfil: str, senha: str, dry_run: bool)
         uid = achar_user_id(email)
         if not uid:
             raise RuntimeError(f"E-mail já cadastrado mas não encontrado: {email}")
-        requests.put(
+        ur = requests.put(
             f"{URL}/auth/v1/admin/users/{uid}",
             headers=AUTH_HEADERS,
-            json={"password": senha},
+            json={"password": senha, "email_confirm": True},
             timeout=60,
-        ).raise_for_status()
-        log(f"  ↷ {email} atualizado (senha provisória)")
+        )
+        ur.raise_for_status()
+        if not _login_ok(email, senha):
+            raise RuntimeError(f"Senha não aplicada para {email}")
+        log(f"  >> {email} atualizado (senha provisoria)")
     else:
         raise RuntimeError(f"Auth: {r.status_code} {r.text[:300]}")
 
@@ -130,7 +157,7 @@ def criar_usuario(email: str, nome: str, perfil: str, senha: str, dry_run: bool)
 
     upsert_perfil(uid, email, nome, perfil, dry_run=False)
     if r.ok:
-        log(f"  ✓ {email} ({perfil})")
+        log(f"  OK {email} ({perfil})")
 
 
 def main() -> None:
@@ -172,7 +199,7 @@ def main() -> None:
             criar_usuario(row["email"], row["nome"], row["perfil"], DEFAULT_PWD, args.dry_run)
         except Exception as e:
             erros += 1
-            log(f"  ✗ {row['email']}: {e}")
+            log(f"  ERRO {row['email']}: {e}")
 
     log(f"\nConcluído: {len(rows) - erros} ok, {erros} erro(s)")
     sys.exit(1 if erros else 0)

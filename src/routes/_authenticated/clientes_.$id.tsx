@@ -128,14 +128,16 @@ function VisaoGeralCliente({ empresaId, empresa, competencia }: { empresaId: str
   // Ação de editar cliente aparece só nesta aba — não polui as demais.
   const acaoEditar = <div className="mb-4 flex justify-end"><EditarClienteDrawer empresa={empresa} /></div>;
 
-  const { kpis, serieMensal, docsByTipo, docsEsperadosMes, docsRecentes, lancRecentes, bancosDetectados } = painel;
+  const { kpis, serieMensal, docsByTipo, docsEsperadosMes, docsRecentes, lancRecentes, bancosDetectados, coletaFonte, esperadosTotal } = painel;
   const contasCad = empresa.contas_bancarias ?? [];
-  const esperadosCad = empresa.documentos_esperados ?? [];
+  const esperadosCadCount = esperadosTotal ?? docsEsperadosMes.length;
 
   const ultimoDocRel = kpis.ultimoDoc?.recebido_em ? new Date(kpis.ultimoDoc.recebido_em).toLocaleDateString("pt-BR") : "—";
   const recebidosNoMes = docsEsperadosMes.filter((e) => e.no_mes).length;
   const recebidosForaMes = docsEsperadosMes.filter((e) => e.recebido && !e.no_mes).length;
-  const recebidosPct = esperadosCad.length === 0 ? 0 : Math.round((recebidosNoMes / esperadosCad.length) * 100);
+  const recebidosPct = esperadosCadCount === 0
+    ? (kpis.docsMes > 0 ? 100 : 0)
+    : Math.round((recebidosNoMes / esperadosCadCount) * 100);
 
   return (
     <div className="space-y-5">
@@ -214,16 +216,22 @@ function VisaoGeralCliente({ empresaId, empresa, competencia }: { empresaId: str
 
             <div className="my-5 flex flex-1 flex-col items-center justify-center">
               <span className="font-display text-5xl font-bold">{recebidosPct}%</span>
-              <span className="text-xs text-muted-foreground mt-1">{recebidosNoMes} de {esperadosCad.length} recebidos no mês</span>
+              {esperadosCadCount > 0 ? (
+                <span className="text-xs text-muted-foreground mt-1">{recebidosNoMes} de {esperadosCadCount} recebidos no mês</span>
+              ) : kpis.docsMes > 0 ? (
+                <span className="text-xs text-muted-foreground mt-1">{kpis.docsMes} documento(s) recebido(s) no mês</span>
+              ) : (
+                <span className="text-xs text-muted-foreground mt-1">Coleta via Gestta — indicador em implantação</span>
+              )}
               {recebidosForaMes > 0 && (
                 <span className="mt-1 text-[11px] text-accent-lime font-medium">+{recebidosForaMes} já recebido(s) antes</span>
               )}
-              {esperadosCad.length === 0 && (
-                <p className="mt-3 text-xs text-muted-foreground">Nenhum documento configurado como esperado.</p>
+              {coletaFonte === "inferido" && (
+                <p className="mt-3 text-center text-xs text-muted-foreground">Tipos inferidos dos documentos já recebidos. Sync Gestta em implantação.</p>
               )}
             </div>
 
-            {esperadosCad.length > 0 && (
+            {esperadosCadCount > 0 && (
               <div className="mt-auto grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-xl bg-primary/5 py-2">
                   <div className="font-display text-lg font-bold text-primary">{recebidosNoMes}</div>
@@ -234,7 +242,7 @@ function VisaoGeralCliente({ empresaId, empresa, competencia }: { empresaId: str
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">antes</div>
                 </div>
                 <div className="rounded-xl bg-muted/60 py-2">
-                  <div className="font-display text-lg font-bold text-muted-foreground">{Math.max(0, esperadosCad.length - recebidosNoMes - recebidosForaMes)}</div>
+                  <div className="font-display text-lg font-bold text-muted-foreground">{Math.max(0, esperadosCadCount - recebidosNoMes - recebidosForaMes)}</div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">pendentes</div>
                 </div>
               </div>
