@@ -78,13 +78,7 @@ export function ladoPorValor(valor: number, tipoConta: string | null): "debito" 
   return ladoEfetivo({ valor, tipoConta });
 }
 
-function fmtDataSci(d: string | null): number | string {
-  if (!d) return "";
-  const m = String(d).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? Number(`${m[1]}${m[2]}${m[3]}`) : String(d).replace(/-/g, "").slice(0, 8);
-}
-
-/** Formato legível para a prévia na UI (DD/MM/AAAA). O .xls de importação SCI usa YYYYMMDD. */
+/** Formato de data para prévia e export .xls (DD/MM/AAAA), conforme uso da equipe LCR. */
 export function fmtDataPreview(d: string | null): string {
   if (!d) return "";
   const m = String(d).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -106,7 +100,7 @@ export function linhasSci(lancs: SciLanc[], bancoSci: number | string | "") {
       const debito = ld === "debito" ? conta : banco;
       const credito = ld === "debito" ? banco : conta;
       return {
-        "DATA": fmtDataSci(l.data_lancamento),
+        "DATA": fmtDataPreview(l.data_lancamento),
         "DÉBITO": debito,
         "CRÉDITO": credito,
         "PART DÉB": l.part_deb ?? "",
@@ -177,7 +171,7 @@ export function validarLancamentosSci(
 export type SciCelula = { codigo: number | string; nome: string };
 export type SciPreviewRow = {
   id?: string;
-  data: number | string;
+  data: string;
   debito: SciCelula;
   credito: SciCelula;
   valor: number;
