@@ -243,6 +243,41 @@ def sobreposicao(a: set, b: set) -> float:
     return len(a & b) / min(len(a), len(b))
 
 
+def dedup_intra_transacoes(transacoes: list) -> list:
+    """Remove transações repetidas no mesmo extrato (tipo A: mesma data+valor).
+    Mantém a 1ª ocorrência — evita classificar/insertar a mesma linha N vezes."""
+    seen, out = set(), []
+    for t in transacoes or []:
+        v = t.get("valor")
+        if v in (None, ""):
+            out.append(t)
+            continue
+        d = (_iso_data(t.get("data")) or "")[:10]
+        key = (d, round(abs(float(v)), 2))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(t)
+    return out
+
+
+def dedup_intra_lancamentos(lancamentos: list) -> list:
+    """Remove lançamentos repetidos antes do insert (mesma data_lancamento+valor)."""
+    seen, out = set(), []
+    for l in lancamentos or []:
+        v = l.get("valor")
+        if v is None:
+            out.append(l)
+            continue
+        d = (l.get("data_lancamento") or "")[:10]
+        key = (d, round(abs(float(v)), 2))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(l)
+    return out
+
+
 _RE_COMPETENCIA_PREFIXO = re.compile(r"^\d{2}/\d{4}\s*")
 
 def _descricao_lancamento(linha: dict) -> str:
@@ -404,6 +439,10 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
 
     log(f"\n[1] Parseando extrato: {extrato_path.name}")
     transacoes = parsear_extrato(str(extrato_path), banco="itau", competencia=competencia)
+    n_antes = len(transacoes)
+    transacoes = dedup_intra_transacoes(transacoes)
+    if len(transacoes) < n_antes:
+        log(f"    dedup intra-doc: {n_antes - len(transacoes)} transação(ões) repetida(s) descartada(s)")
     log(f"    {len(transacoes)} transações extraídas")
     if not transacoes:
         raise RuntimeError("Nenhuma transação extraída do extrato.")
@@ -465,6 +504,10 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
         if conta_id is None:
             sem_conta += 1
         lancamentos.append(reg)
+    n_lanc_antes = len(lancamentos)
+    lancamentos = dedup_intra_lancamentos(lancamentos)
+    if len(lancamentos) < n_lanc_antes:
+        log(f"    dedup intra-doc: {n_lanc_antes - len(lancamentos)} lançamento(s) repetido(s) descartado(s)")
     if lancamentos:
         sb_insert("lancamentos", lancamentos, retornar=False)
     log(f"    {len(lancamentos)} lançamentos inseridos ({sem_conta} sem conta mapeada → revisão)")
