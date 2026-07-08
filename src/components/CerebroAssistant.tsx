@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Brain, LineChart, HeartHandshake, Send, X, Compass, MessageSquareWarning } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Markdown } from "@/components/markdown";
 import { trackAction } from "@/lib/logs.functions";
 
 function CerebroIcon({ className }: { className?: string }) {
@@ -152,9 +153,13 @@ export function CerebroAssistant() {
         {msgs.map((m, i) => (
           <div key={i} className={cn("flex", m.autor === "user" ? "justify-end" : "justify-start")}>
             <div className={cn(
-              "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm",
-              m.autor === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
-            )}>{m.texto}</div>
+              "max-w-[85%] rounded-2xl px-3 py-2 text-sm",
+              m.autor === "user"
+                ? "whitespace-pre-wrap bg-primary text-primary-foreground"
+                : "bg-muted text-foreground",
+            )}>
+              {m.autor === "user" ? m.texto : <Markdown className="space-y-1.5 [&_ol]:list-decimal [&_ol]:pl-4 [&_ul]:list-disc [&_ul]:pl-4 [&_h2]:font-display [&_h2]:text-base [&_h2]:mt-1 [&_h3]:font-semibold [&_h3]:text-sm">{m.texto}</Markdown>}
+            </div>
           </div>
         ))}
         {busy && <div className="text-xs text-muted-foreground">{PERSONAS[persona].label} está pensando…</div>}
