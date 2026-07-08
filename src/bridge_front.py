@@ -315,6 +315,7 @@ def sugestoes_motor(linhas: list, banco_cod: int) -> list:
             "historico_codigo": (str(l.get("historico")) if l.get("historico") not in (None, "", "None") else None),
             "descricao": _descricao_lancamento(l),
             "confidence": (float(l.get("confianca")) if l.get("confianca") is not None else None),
+            "regra_id": l.get("regra_id"),
             "justificativa": l.get("justificativa"),
         })
     return out
