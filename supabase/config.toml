@@ -1,1 +1,32 @@
 project_id = "slewrhdxxtqcdsnpxxwo"
+
+# Gateway JWT verify disabled where the function validates auth internally
+# (admin.auth.getUser) or is called from VPS bridge_front.py with password-grant
+# JWT — asymmetric key migration rejects those at the gateway (UNAUTHORIZED_ASYMMETRIC_JWT).
+
+[functions.processar-documento]
+verify_jwt = false  # VPS bridge + front; internal getUser at index.ts ~253
+
+[functions.conciliar]
+verify_jwt = false  # VPS bridge + front; internal getUser at index.ts ~125
+
+[functions.enriquecer-extrato]
+verify_jwt = false  # VPS bridge + front server fn; no gateway auth (service-role inside)
+
+[functions.admin-users]
+verify_jwt = false  # front admin panel; internal getUser + perfil admin check
+
+[functions.cerebro-mestre]
+verify_jwt = false  # front CerebroAssistant; internal getUser
+
+[functions.cerebro-consultor]
+verify_jwt = false  # front CerebroAssistant; internal getUser
+
+[functions.cerebro-cuidador]
+verify_jwt = false  # front CerebroAssistant; internal getUser
+
+[functions.cerebro-buddy]
+verify_jwt = false  # front CerebroAssistant; internal getUser
+
+[functions.cerebro-reportar]
+verify_jwt = false  # front CerebroAssistant; internal getUser
