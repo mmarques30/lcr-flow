@@ -113,12 +113,12 @@ const NAV: NavItem[] = [
     { to: "/cx", label: "CX", icon: HeartHandshake, acesso: "cx" },
     { to: "/mestre", label: "Mestre", icon: Brain, acesso: "knowledge" },
     { to: "/consultive", label: "Consultivo", icon: LineChart, acesso: "consultive" },
-    { to: "/historico", label: "Histórico Geral", icon: History, acesso: "historico" },
     { to: "/knowledge", label: "Base de Conhecimento", icon: ListTree, acesso: "knowledge" },
   ] },
   { group: "Gestão", icon: SlidersHorizontal, itens: [
-    { to: "/gestao/logs",          label: "Logs de uso",   icon: Activity,  acesso: "gestao:logs" },
-    { to: "/gestao/oportunidades", label: "Oportunidades", icon: Lightbulb, acesso: "gestao:oportunidades" },
+    { to: "/gestao/logs",          label: "Logs de uso",       icon: Activity,  acesso: "gestao:logs" },
+    { to: "/gestao/oportunidades", label: "Oportunidades",     icon: Lightbulb, acesso: "gestao:oportunidades" },
+    { to: "/historico",            label: "Histórico Cérebro", icon: History,   acesso: "historico" },
   ] },
   { group: "Configurações", icon: Settings, itens: [
     { to: "/configuracoes", tab: "integracoes", label: "Integrações", icon: Plug, acesso: "configuracoes:integracoes" },
