@@ -18,22 +18,29 @@ const MODEL = "claude-sonnet-4-6";
 const PERSONA = "reportar";
 
 const SYSTEM_PROMPT = `Você é o Reportar, o coletor conversacional de oportunidades do time LCR.
-Sua função: coletar bug, melhoria ou dúvida em uma conversa curta e amigável.
+Sua função: capturar bug, melhoria ou dúvida da equipe SEM perder a informação.
 
-FLUXO
-1) Identifique tipo: 🐛 bug · 💡 melhoria · ❓ dúvida (peça se ainda não souber)
-2) Peça descrição curta do que aconteceu ou do que quer
-3) Se bug: pergunte impacto (bloqueia meu trabalho / atrapalha mas continuo / cosmético)
-4) Se melhoria: pergunte com que frequência isso acontece
-5) Cliente afetado (opcional)
-6) Quando tiver dados suficientes, chame a tool "salvar_oportunidade" com o resumo estruturado.
+REGRA DE OURO
+Registre CEDO. É melhor uma oportunidade incompleta salva agora do que uma completa que nunca chega. Se a primeira mensagem já der pra inferir tipo + descrição, chame IMEDIATAMENTE a tool "salvar_oportunidade" e SÓ DEPOIS peça detalhes (impacto, frequência, etc) para enriquecer o registro.
+
+TIPO — inferir agressivamente sem perguntar quando possível:
+- Menciona erro, não funciona, quebrou, travou, sumiu, buga → bug
+- Menciona seria bom, deveria, faltando, queria, sugestão → melhoria
+- Menciona como faço, onde encontro, dúvida sobre → duvida
+Só pergunte o tipo se realmente ambíguo.
+
+TÍTULO E DESCRIÇÃO
+- titulo: 1 linha imperativa que resume o pedido. Use suas palavras se o usuário foi vago
+- descricao: junte tudo que o usuário disse. Vazio nunca — mínimo 1 frase
+
+DEPOIS DE SALVAR (importante!)
+- Confirme com "Registrado como OPT-XXXX"
+- Nas próximas mensagens do usuário, ENRIQUEÇA o mesmo registro chamando salvar_oportunidade de novo com o mesmo tipo/titulo mas descrição expandida e impacto/frequência preenchidos
 
 REGRAS
-- Máximo 5 turnos antes de salvar
 - Tom: rápido, cordial, sem burocracia
-- Nunca invente. Se o usuário não informou, deixe null
-- Após salvar, confirme com o número OPT-XXXX e diga que Bruno vê hoje
-- Não responda dúvidas contábeis (redirecione ao Mestre)`;
+- Nunca invente dados. Se o usuário não informou, deixe null
+- Se for pergunta contábil, redirecione ao Mestre — não salve oportunidade`;
 
 const TOOL_SALVAR = {
   name: "salvar_oportunidade",
@@ -76,12 +83,14 @@ Deno.serve(async (req) => {
     conversation_context?: Turno[];
     tela?: string;
     empresa_id?: string;
+    oportunidade_id?: string;
   };
   try { body = await req.json(); } catch { return fail("JSON inválido"); }
   const pergunta = (body.pergunta ?? "").trim();
   const historico = body.conversation_context ?? [];
   const tela = body.tela ?? null;
   const empresaId = body.empresa_id ?? null;
+  const oportunidadeIdExistente = body.oportunidade_id ?? null;
   if (!pergunta) return fail("Pergunta vazia.");
 
   if (!apiKey) return fail("Configure ANTHROPIC_API_KEY.");
@@ -120,36 +129,74 @@ Deno.serve(async (req) => {
       const titulo = String(inp.titulo ?? "").trim();
       const descricao = String(inp.descricao ?? "").trim();
       if (["bug", "melhoria", "duvida"].includes(tipo) && titulo && descricao) {
-        // anti-duplicata: título similar em aberto
-        const { data: similares } = await admin
-          .from("oportunidades")
-          .select("id, numero, titulo, status")
-          .neq("status", "descartado").neq("status", "entregue")
-          .ilike("titulo", `%${titulo.slice(0, 40)}%`).limit(3);
-        anti = similares ?? [];
-
-        const { data: nova, error: errNova } = await admin.from("oportunidades").insert({
-          autor_id: userData.user.id,
-          numero: "",
-          tipo,
-          titulo,
-          descricao,
-          tela_origem: (inp.tela_origem as string) ?? tela,
-          cliente_id: (inp.cliente_id as string) ?? empresaId,
-          impacto: (inp.impacto as string) ?? null,
-          frequencia_uso: (inp.frequencia_uso as string) ?? null,
-          problema_resolve: (inp.problema_resolve as string) ?? null,
-        }).select("id, numero").single();
-        if (errNova) {
-          resposta = `${resposta}\n\nErro ao salvar: ${errNova.message}`;
+        if (oportunidadeIdExistente) {
+          // Turno subsequente: enriquece a mesma oportunidade
+          const { data: atual, error: errUpd } = await admin.from("oportunidades")
+            .update({
+              tipo, titulo, descricao,
+              impacto: (inp.impacto as string) ?? null,
+              frequencia_uso: (inp.frequencia_uso as string) ?? null,
+              problema_resolve: (inp.problema_resolve as string) ?? null,
+            })
+            .eq("id", oportunidadeIdExistente)
+            .select("id, numero").single();
+          if (errUpd) {
+            resposta = `${resposta}\n\nErro ao enriquecer: ${errUpd.message}`;
+          } else {
+            oportunidadeCriada = atual as { numero: string; id: string };
+            if (!resposta) resposta = `Atualizei o registro ${atual.numero} com os novos detalhes.`;
+          }
         } else {
-          oportunidadeCriada = nova as { numero: string; id: string };
-          if (!resposta) {
-            resposta = `Registrado como ${nova.numero} · ${tipo}. Bruno recebe hoje. Você acompanha em Gestão › Oportunidades.`;
-          } else if (!resposta.includes(nova.numero)) {
-            resposta = `${resposta}\n\nNúmero: ${nova.numero}.`;
+          const { data: similares } = await admin
+            .from("oportunidades")
+            .select("id, numero, titulo, status")
+            .neq("status", "descartado").neq("status", "entregue")
+            .ilike("titulo", `%${titulo.slice(0, 40)}%`).limit(3);
+          anti = similares ?? [];
+
+          const { data: nova, error: errNova } = await admin.from("oportunidades").insert({
+            autor_id: userData.user.id,
+            numero: "",
+            tipo,
+            titulo,
+            descricao,
+            tela_origem: (inp.tela_origem as string) ?? tela,
+            cliente_id: (inp.cliente_id as string) ?? empresaId,
+            impacto: (inp.impacto as string) ?? null,
+            frequencia_uso: (inp.frequencia_uso as string) ?? null,
+            problema_resolve: (inp.problema_resolve as string) ?? null,
+          }).select("id, numero").single();
+          if (errNova) {
+            resposta = `${resposta}\n\nErro ao salvar: ${errNova.message}`;
+          } else {
+            oportunidadeCriada = nova as { numero: string; id: string };
+            if (!resposta) {
+              resposta = `Registrado como ${nova.numero} · ${tipo}. Bruno recebe hoje. Você acompanha em Gestão › Oportunidades.`;
+            } else if (!resposta.includes(nova.numero)) {
+              resposta = `${resposta}\n\nNúmero: ${nova.numero}.`;
+            }
           }
         }
+      }
+    }
+
+    // Fallback: se após 3+ turnos do usuário ainda não salvou nada, força salvamento
+    // com o que tem — evita perder informação quando a IA fica só perguntando.
+    const turnosUser = historico.filter((h) => h.role === "user").length + 1;
+    if (!oportunidadeCriada && !oportunidadeIdExistente && turnosUser >= 3) {
+      const descAcum = [...historico.filter((h) => h.role === "user").map((h) => h.content), pergunta].join("\n---\n");
+      const { data: fb } = await admin.from("oportunidades").insert({
+        autor_id: userData.user.id,
+        numero: "",
+        tipo: "duvida",
+        titulo: pergunta.slice(0, 80),
+        descricao: descAcum,
+        tela_origem: tela,
+        cliente_id: empresaId,
+      }).select("id, numero").single();
+      if (fb) {
+        oportunidadeCriada = fb as { numero: string; id: string };
+        resposta = `${resposta}\n\nRegistrei o que você me contou até aqui como ${fb.numero} para não perdermos. Se for bug ou melhoria em vez de dúvida, me avisa que ajusto.`;
       }
     }
   } catch (e) {
@@ -168,6 +215,7 @@ Deno.serve(async (req) => {
     ok: true,
     resposta,
     oportunidade: oportunidadeCriada,
+    oportunidade_id: oportunidadeCriada?.id ?? oportunidadeIdExistente ?? null,
     similares: anti,
     conversation_context: [...historico, { role: "user", content: pergunta }, { role: "assistant", content: resposta }],
   });

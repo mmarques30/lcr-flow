@@ -3,10 +3,12 @@ import { useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Brain, LineChart, HeartHandshake, Send, X, Compass, MessageSquareWarning } from "lucide-react";
+import { Brain, LineChart, HeartHandshake, Send, X, Compass, MessageSquareWarning, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/markdown";
 import { trackAction } from "@/lib/logs.functions";
+import { criarOportunidade } from "@/lib/oportunidades.functions";
+import { toast } from "sonner";
 
 function CerebroIcon({ className }: { className?: string }) {
   return (
@@ -47,6 +49,7 @@ export function CerebroAssistant() {
   const [pergunta, setPergunta] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [ctxTurnos, setCtxTurnos] = useState<Turno[]>([]);  // usado só pela persona Reportar
+  const [oportunidadeAtiva, setOportunidadeAtiva] = useState<{ id: string; numero: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const fimRef = useRef<HTMLDivElement>(null);
 
@@ -66,6 +69,7 @@ export function CerebroAssistant() {
     // trocar persona limpa o contexto conversacional do Reportar
     setCtxTurnos([]);
     setMsgs([]);
+    setOportunidadeAtiva(null);
   }, [persona]);
 
   useEffect(() => { fimRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
@@ -78,7 +82,10 @@ export function CerebroAssistant() {
     setBusy(true);
     try {
       const bodyBase: Record<string, unknown> = { pergunta: q, empresa_id: empresaId, tela: pathname };
-      if (persona === "reportar") bodyBase.conversation_context = ctxTurnos;
+      if (persona === "reportar") {
+        bodyBase.conversation_context = ctxTurnos;
+        if (oportunidadeAtiva) bodyBase.oportunidade_id = oportunidadeAtiva.id;
+      }
 
       const { data, error } = await supabase.functions.invoke(PERSONAS[persona].fn, { body: bodyBase });
       if (error) throw error;
@@ -87,11 +94,13 @@ export function CerebroAssistant() {
         resposta?: string;
         error?: string;
         oportunidade?: { id: string; numero: string } | null;
+        oportunidade_id?: string | null;
         conversation_context?: Turno[];
       };
       const texto = resp?.resposta || resp?.error || "Sem resposta.";
       setMsgs((m) => [...m, { autor: "ia", texto }]);
       if (persona === "reportar" && resp.conversation_context) setCtxTurnos(resp.conversation_context);
+      if (persona === "reportar" && resp.oportunidade) setOportunidadeAtiva(resp.oportunidade);
 
       // tracking
       void trackAction("perguntou_cerebro", { clienteId: empresaId ?? null, tela: pathname, detalhes: { persona } });
@@ -102,6 +111,29 @@ export function CerebroAssistant() {
       setMsgs((m) => [...m, { autor: "ia", texto: `Não consegui responder agora: ${e instanceof Error ? e.message : "erro"}.` }]);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function salvarConversaComoOportunidade() {
+    const mensagensUser = msgs.filter((m) => m.autor === "user");
+    if (!mensagensUser.length) {
+      toast.info("Envie uma mensagem primeiro contando o que quer reportar.");
+      return;
+    }
+    try {
+      const descricao = mensagensUser.map((m) => m.texto).join("\n---\n");
+      const titulo = mensagensUser[0].texto.slice(0, 80);
+      const opt = await criarOportunidade({
+        tipo: "duvida",
+        titulo,
+        descricao,
+        tela_origem: pathname,
+        cliente_id: empresaId,
+      });
+      setMsgs((m) => [...m, { autor: "ia", texto: `Registrei essa conversa como **${opt.numero}** no Banco de Oportunidades. Bruno vê hoje. Você acompanha em Gestão › Oportunidades e pode ajustar o tipo (bug / melhoria / dúvida) por lá.` }]);
+      void trackAction("reportou_oportunidade", { clienteId: empresaId ?? null, tela: pathname, detalhes: { numero: opt.numero, id: opt.id, origem: "botao_manual" } });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Não consegui salvar.");
     }
   }
 
@@ -143,6 +175,21 @@ export function CerebroAssistant() {
       {empresaId && (
         <div className="border-b border-border bg-primary/5 px-4 py-1.5 text-[11px] text-muted-foreground">
           Contexto: cliente em foco nesta tela
+        </div>
+      )}
+
+      {msgs.filter((m) => m.autor === "user").length > 0 && persona !== "reportar" && (
+        <div className="flex items-center justify-between gap-2 border-b border-border bg-amber-50 px-4 py-1.5 text-[11px] text-amber-800">
+          <span>Isso é um bug ou melhoria?</span>
+          <button onClick={salvarConversaComoOportunidade} className="inline-flex items-center gap-1 rounded-md bg-amber-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-amber-700">
+            <Flag className="h-3 w-3" /> Registrar como oportunidade
+          </button>
+        </div>
+      )}
+
+      {oportunidadeAtiva && (
+        <div className="border-b border-border bg-primary/5 px-4 py-1.5 text-[11px] text-primary">
+          Editando <span className="font-mono font-semibold">{oportunidadeAtiva.numero}</span> — próximas mensagens enriquecem este registro
         </div>
       )}
 
