@@ -121,6 +121,16 @@ export type SessaoUsuario = {
 
 export type TempoTela = { tela: string; ms: number; pct: number };
 
+/** Bloco contínuo de trabalho num mesmo cliente — base do tempo por processo. */
+export type ProcessoCliente = {
+  cliente_id: string;
+  inicio: string;
+  fim: string;
+  duracao_ms: number;
+  eventos: number;
+  telas: string[];
+};
+
 export type AnaliseUsuario = {
   user_id: string;
   nome: string;
@@ -133,6 +143,7 @@ export type AnaliseUsuario = {
   clientes_tocados: number;
   acoes: Record<string, number>;
   cerebro_perguntas: number;
+  processos: ProcessoCliente[];
   logs: LogRow[]; // ordenados desc, para timeline individual
 };
 
@@ -215,6 +226,37 @@ export async function analiseUso(diasAtras = 30): Promise<AnaliseGeral> {
       if (ev.acao === "perguntou_cerebro") cerebro++;
     }
 
+    // Processos: blocos contínuos de eventos no MESMO cliente (gap ≤ sessão).
+    // Início = primeiro evento no cliente, fim = último antes de trocar de
+    // cliente ou fechar a sessão. É o proxy de "tempo por processo executado".
+    const processos: ProcessoCliente[] = [];
+    let proc: { cliente_id: string; inicio: string; fim: string; eventos: number; telas: Set<string>; dur: number } | null = null;
+    for (let i = 0; i < eventos.length; i++) {
+      const ev = eventos[i];
+      const prox = eventos[i + 1];
+      const gap = prox ? new Date(prox.criado_em).getTime() - new Date(ev.criado_em).getTime() : Infinity;
+      const durEvento = gap <= SESSAO_GAP_MS ? gap : ULTIMO_EVENTO_MS;
+      const tela = telaLabel(ev.tela);
+
+      if (ev.cliente_id) {
+        if (proc && proc.cliente_id === ev.cliente_id) {
+          proc.fim = ev.criado_em; proc.eventos++; proc.telas.add(tela); proc.dur += durEvento;
+        } else {
+          if (proc) processos.push({ cliente_id: proc.cliente_id, inicio: proc.inicio, fim: proc.fim, duracao_ms: proc.dur, eventos: proc.eventos, telas: [...proc.telas] });
+          proc = { cliente_id: ev.cliente_id, inicio: ev.criado_em, fim: ev.criado_em, eventos: 1, telas: new Set([tela]), dur: durEvento };
+        }
+      } else if (proc) {
+        // saiu do cliente → fecha o processo
+        processos.push({ cliente_id: proc.cliente_id, inicio: proc.inicio, fim: proc.fim, duracao_ms: proc.dur, eventos: proc.eventos, telas: [...proc.telas] });
+        proc = null;
+      }
+      if (gap > SESSAO_GAP_MS && proc) {
+        processos.push({ cliente_id: proc.cliente_id, inicio: proc.inicio, fim: proc.fim, duracao_ms: proc.dur, eventos: proc.eventos, telas: [...proc.telas] });
+        proc = null;
+      }
+    }
+    if (proc) processos.push({ cliente_id: proc.cliente_id, inicio: proc.inicio, fim: proc.fim, duracao_ms: proc.dur, eventos: proc.eventos, telas: [...proc.telas] });
+
     const tempoTelas: TempoTela[] = [...tempoPorTela.entries()]
       .map(([tela, ms]) => ({ tela, ms, pct: tempoTotal > 0 ? Math.round((ms / tempoTotal) * 100) : 0 }))
       .sort((a, b) => b.ms - a.ms);
@@ -238,6 +280,7 @@ export async function analiseUso(diasAtras = 30): Promise<AnaliseGeral> {
       clientes_tocados: clientes.size,
       acoes,
       cerebro_perguntas: cerebro,
+      processos,
       logs: [...eventos].reverse(),
     });
   }

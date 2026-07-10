@@ -1944,7 +1944,7 @@ export const getHistoricoCerebro = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) =>
     z.object({
-      persona: z.enum(["mestre", "consultor", "cuidador"]).optional().nullable(),
+      persona: z.enum(["mestre", "consultor", "cuidador", "buddy", "reportar"]).optional().nullable(),
       empresa_id: z.string().uuid().optional().nullable(),
     }).optional().parse(d ?? {}),
   )
@@ -1983,6 +1983,161 @@ export const getHistoricoCerebro = createServerFn({ method: "GET" })
       return [r.empresa_id as string, e?.nome_fantasia ?? e?.razao_social ?? "—"] as const;
     })).entries()).map(([id, nome]) => ({ id, nome }));
     return { items, clientes };
+  });
+
+// ── SOS · Saúde Operacional ─────────────────────────────────────────────────
+// Score 0-100 por cliente calculado de sinais REAIS do sistema (nada de tabela
+// pré-computada): data de corte × conciliação, documentos esperados × recebidos,
+// lançamentos aguardando revisão e status do mês. Classificação:
+// ≥80 saudável · 60-79 atenção · <60 risco.
+export const getSaudeOperacional = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/).optional() }).optional().parse(d ?? {}),
+  )
+  .handler(async ({ context, data }) => {
+    const s = context.supabase;
+    const comp = data?.competencia ?? (() => {
+      const hoje = new Date();
+      const m = hoje.getMonth() === 0 ? 12 : hoje.getMonth();
+      const a = hoje.getMonth() === 0 ? hoje.getFullYear() - 1 : hoje.getFullYear();
+      return `${a}-${String(m).padStart(2, "0")}`;
+    })();
+
+    const [{ data: empresas }, { data: esperados }, { data: docsMes }, { data: concs }, { data: lancPend }] = await Promise.all([
+      s.from("empresas").select("id, razao_social, nome_fantasia, status, dia_fechamento, consultor_id, usuarios_perfil:consultor_id(nome)").eq("ativo", true),
+      s.from("documentos_esperados").select("empresa_id, tipo"),
+      s.from("documentos").select("empresa_id, tipo, status_processamento").eq("competencia", comp),
+      s.from("conciliacoes").select("empresa_id, status").eq("competencia", comp),
+      s.from("lancamentos").select("empresa_id").eq("competencia", comp).lt("confidence", 0.8),
+    ]);
+
+    const esperadosPor = new Map<string, Set<string>>();
+    (esperados ?? []).forEach((e) => {
+      const set = esperadosPor.get(e.empresa_id) ?? new Set();
+      set.add(e.tipo as string);
+      esperadosPor.set(e.empresa_id, set);
+    });
+    const recebidosPor = new Map<string, Set<string>>();
+    const docsErroPor = new Map<string, number>();
+    (docsMes ?? []).forEach((d) => {
+      if (!d.empresa_id) return;
+      const set = recebidosPor.get(d.empresa_id) ?? new Set();
+      set.add(d.tipo as string);
+      recebidosPor.set(d.empresa_id, set);
+      if (d.status_processamento === "erro") docsErroPor.set(d.empresa_id, (docsErroPor.get(d.empresa_id) ?? 0) + 1);
+    });
+    const concPor = new Map<string, string>();
+    (concs ?? []).forEach((c) => { if (c.empresa_id) concPor.set(c.empresa_id, c.status as string); });
+    const pendPor = new Map<string, number>();
+    (lancPend ?? []).forEach((l) => { if (l.empresa_id) pendPor.set(l.empresa_id, (pendPor.get(l.empresa_id) ?? 0) + 1); });
+
+    const diaHoje = new Date().getDate();
+    const clientes = (empresas ?? []).map((e) => {
+      const fatores: { fator: string; impacto: number; detalhe: string }[] = [];
+      let score = 100;
+
+      // 1. Pontualidade de fechamento — régua é a data de corte configurada
+      const concStatus = concPor.get(e.id) ?? null;
+      const concluida = concStatus === "concluida";
+      if (e.dia_fechamento != null) {
+        if (!concluida && diaHoje > e.dia_fechamento) {
+          const diasAtraso = diaHoje - e.dia_fechamento;
+          const imp = Math.min(40, 20 + diasAtraso * 2);
+          score -= imp;
+          fatores.push({ fator: "fechamento_atrasado", impacto: -imp, detalhe: `${diasAtraso} dia(s) além da data de corte (dia ${e.dia_fechamento})` });
+        } else if (!concluida && e.dia_fechamento - diaHoje <= 3) {
+          score -= 10;
+          fatores.push({ fator: "fechamento_proximo", impacto: -10, detalhe: `corte dia ${e.dia_fechamento} — faltam ${e.dia_fechamento - diaHoje} dia(s)` });
+        }
+      }
+
+      // 2. Documentos esperados × recebidos no mês
+      const esp = esperadosPor.get(e.id);
+      if (esp && esp.size > 0) {
+        const rec = recebidosPor.get(e.id) ?? new Set();
+        const faltando = [...esp].filter((t) => !rec.has(t));
+        if (faltando.length > 0) {
+          const imp = Math.min(30, Math.round((faltando.length / esp.size) * 30));
+          score -= imp;
+          fatores.push({ fator: "docs_pendentes", impacto: -imp, detalhe: `${faltando.length} de ${esp.size} tipo(s) esperado(s) sem documento no mês` });
+        }
+      }
+
+      // 3. Documentos com falha de processamento
+      const nErro = docsErroPor.get(e.id) ?? 0;
+      if (nErro > 0) {
+        const imp = Math.min(15, nErro * 3);
+        score -= imp;
+        fatores.push({ fator: "docs_erro", impacto: -imp, detalhe: `${nErro} documento(s) com falha de processamento` });
+      }
+
+      // 4. Lançamentos aguardando revisão
+      const nPend = pendPor.get(e.id) ?? 0;
+      if (nPend > 0) {
+        const imp = nPend > 20 ? 20 : 10;
+        score -= imp;
+        fatores.push({ fator: "revisao_pendente", impacto: -imp, detalhe: `${nPend} lançamento(s) aguardando revisão` });
+      }
+
+      // 5. Conciliação com divergências
+      if (concStatus === "divergencias") {
+        score -= 15;
+        fatores.push({ fator: "divergencias", impacto: -15, detalhe: "conciliação do mês com divergências" });
+      }
+
+      // 6. Status do mês
+      if (e.status === "atrasado") { score -= 15; fatores.push({ fator: "status_atrasado", impacto: -15, detalhe: "status do mês: atrasado" }); }
+      else if (e.status === "cobranca") { score -= 8; fatores.push({ fator: "status_cobranca", impacto: -8, detalhe: "status do mês: em cobrança" }); }
+
+      score = Math.max(0, Math.min(100, score));
+      const classificacao = score >= 80 ? "saudavel" : score >= 60 ? "atencao" : "risco";
+      const consultor = (e.usuarios_perfil as { nome?: string } | null)?.nome ?? null;
+      return {
+        id: e.id,
+        nome: e.nome_fantasia ?? e.razao_social,
+        razao_social: e.razao_social,
+        consultor,
+        dia_fechamento: e.dia_fechamento,
+        status_mes: e.status,
+        conciliacao: concStatus,
+        score,
+        classificacao,
+        fatores,
+      };
+    });
+
+    // Só entra no acompanhamento quem tem algum sinal configurado/movimento —
+    // cliente sem corte, sem docs esperados e sem docs no mês não é mensurável.
+    const acompanhados = clientes.filter((c) =>
+      c.dia_fechamento != null || esperadosPor.has(c.id) || recebidosPor.has(c.id) || concPor.has(c.id),
+    );
+
+    const dist = { saudavel: 0, atencao: 0, risco: 0 };
+    let soma = 0;
+    acompanhados.forEach((c) => { dist[c.classificacao as keyof typeof dist]++; soma += c.score; });
+    const media = acompanhados.length ? Math.round(soma / acompanhados.length) : 0;
+
+    // Fatores mais recorrentes na carteira (as "dores" operacionais)
+    const fatorCount = new Map<string, { n: number; impacto: number }>();
+    acompanhados.forEach((c) => c.fatores.forEach((f) => {
+      const cur = fatorCount.get(f.fator) ?? { n: 0, impacto: 0 };
+      cur.n++; cur.impacto += f.impacto;
+      fatorCount.set(f.fator, cur);
+    }));
+    const topFatores = [...fatorCount.entries()]
+      .map(([fator, v]) => ({ fator, clientes: v.n, impacto_total: v.impacto }))
+      .sort((a, b) => b.clientes - a.clientes);
+
+    return {
+      competencia: comp,
+      total: acompanhados.length,
+      total_carteira: clientes.length,
+      media,
+      dist,
+      topFatores,
+      clientes: acompanhados.sort((a, b) => a.score - b.score),
+    };
   });
 
 export const getCxCarteira = createServerFn({ method: "GET" })

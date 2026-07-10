@@ -29,9 +29,6 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({ meta: [{ title: "Configurações — LCR Contábil" }] }),
   loader: async ({ context }) => {
     const perfil = await context.queryClient.ensureQueryData({ queryKey: ["meu-perfil"], queryFn: () => getMeuPerfil() });
-    await Promise.all([
-      context.queryClient.ensureQueryData({ queryKey: ["integracoes"], queryFn: () => listIntegracoes() }),
-    ]);
     if (perfil?.perfil === "admin") {
       await context.queryClient.ensureQueryData({ queryKey: ["usuarios"], queryFn: () => listUsuarios() });
     }
@@ -47,7 +44,6 @@ function ConfiguracoesPage() {
   const navigate = Route.useNavigate();
 
   const tabs = [
-    { key: "integracoes", acesso: "configuracoes:integracoes", label: "Integrações", el: <IntegracoesTab /> },
     { key: "usuarios", acesso: "configuracoes:usuarios", label: "Usuários", el: <UsuariosTab /> },
     { key: "plano", acesso: "configuracoes:plano", label: "Plano de contas", el: <PlanoContasTab /> },
   ].filter((t) => temAcesso(acessos, t.acesso));
@@ -56,7 +52,7 @@ function ConfiguracoesPage() {
 
   return (
     <>
-      <PageHeader title="Configurações" description="Integrações externas, equipe LCR e plano de contas." />
+      <PageHeader title="Configurações" description="Equipe LCR e plano de contas." />
       {tabs.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">Você não tem acesso a nenhuma configuração.</CardContent></Card>
       ) : (
@@ -69,12 +65,6 @@ function ConfiguracoesPage() {
       )}
     </>
   );
-}
-
-function IntegracoesTab() {
-  // Pré-carrega lista pra manter coerência do invalidate ao salvar via cockpit.
-  useSuspenseQuery({ queryKey: ["integracoes"], queryFn: () => listIntegracoes() });
-  return <CockpitView />;
 }
 
 function formatRelativo(iso: string | null): string {

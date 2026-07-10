@@ -24,7 +24,6 @@ export const ACESSOS: AcessoNode[] = [
     key: "configuracoes",
     label: "Configurações",
     filhos: [
-      { key: "configuracoes:integracoes", label: "Integrações" },
       { key: "configuracoes:usuarios", label: "Usuários" },
       { key: "configuracoes:plano", label: "Plano de contas" },
     ],

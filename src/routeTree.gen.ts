@@ -24,6 +24,7 @@ import { Route as AuthenticatedConsultiveRouteImport } from './routes/_authentic
 import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
 import { Route as AuthenticatedConciliacaoRouteImport } from './routes/_authenticated/conciliacao'
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
+import { Route as AuthenticatedBuddysRouteImport } from './routes/_authenticated/buddys'
 import { Route as AuthenticatedAppRouteImport } from './routes/_authenticated/app'
 import { Route as AuthenticatedRevisarDocumentoIdRouteImport } from './routes/_authenticated/revisar.$documentoId'
 import { Route as AuthenticatedGestaoOportunidadesRouteImport } from './routes/_authenticated/gestao.oportunidades'
@@ -111,6 +112,11 @@ const AuthenticatedClientesRoute = AuthenticatedClientesRouteImport.update({
   path: '/clientes',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedBuddysRoute = AuthenticatedBuddysRouteImport.update({
+  id: '/buddys',
+  path: '/buddys',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAppRoute = AuthenticatedAppRouteImport.update({
   id: '/app',
   path: '/app',
@@ -168,6 +174,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/trocar-senha': typeof TrocarSenhaRoute
   '/app': typeof AuthenticatedAppRoute
+  '/buddys': typeof AuthenticatedBuddysRoute
   '/clientes': typeof AuthenticatedClientesRoute
   '/conciliacao': typeof AuthenticatedConciliacaoRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
@@ -193,6 +200,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/trocar-senha': typeof TrocarSenhaRoute
   '/app': typeof AuthenticatedAppRoute
+  '/buddys': typeof AuthenticatedBuddysRoute
   '/clientes': typeof AuthenticatedClientesRoute
   '/conciliacao': typeof AuthenticatedConciliacaoRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
@@ -220,6 +228,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/trocar-senha': typeof TrocarSenhaRoute
   '/_authenticated/app': typeof AuthenticatedAppRoute
+  '/_authenticated/buddys': typeof AuthenticatedBuddysRoute
   '/_authenticated/clientes': typeof AuthenticatedClientesRoute
   '/_authenticated/conciliacao': typeof AuthenticatedConciliacaoRoute
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
@@ -247,6 +256,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/trocar-senha'
     | '/app'
+    | '/buddys'
     | '/clientes'
     | '/conciliacao'
     | '/configuracoes'
@@ -272,6 +282,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/trocar-senha'
     | '/app'
+    | '/buddys'
     | '/clientes'
     | '/conciliacao'
     | '/configuracoes'
@@ -298,6 +309,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/trocar-senha'
     | '/_authenticated/app'
+    | '/_authenticated/buddys'
     | '/_authenticated/clientes'
     | '/_authenticated/conciliacao'
     | '/_authenticated/configuracoes'
@@ -433,6 +445,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedClientesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/buddys': {
+      id: '/_authenticated/buddys'
+      path: '/buddys'
+      fullPath: '/buddys'
+      preLoaderRoute: typeof AuthenticatedBuddysRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app': {
       id: '/_authenticated/app'
       path: '/app'
@@ -501,6 +520,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppRoute: typeof AuthenticatedAppRoute
+  AuthenticatedBuddysRoute: typeof AuthenticatedBuddysRoute
   AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
   AuthenticatedConciliacaoRoute: typeof AuthenticatedConciliacaoRoute
   AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
@@ -524,6 +544,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppRoute: AuthenticatedAppRoute,
+  AuthenticatedBuddysRoute: AuthenticatedBuddysRoute,
   AuthenticatedClientesRoute: AuthenticatedClientesRoute,
   AuthenticatedConciliacaoRoute: AuthenticatedConciliacaoRoute,
   AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
@@ -559,13 +580,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

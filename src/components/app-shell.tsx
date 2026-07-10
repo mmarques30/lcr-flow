@@ -1,7 +1,7 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard, Building2, ListChecks, Settings, LogOut, PanelLeftClose, PanelLeftOpen,
-  Brain, LineChart, HeartHandshake, Plug, Users, ListTree, ChevronDown, Bell, UserPen, Camera,
+  Brain, LineChart, HeartHandshake, Compass, Users, ListTree, ChevronDown, Bell, UserPen, Camera,
   History, Check, ChevronRight, Search, Activity, Info, SlidersHorizontal, Lightbulb, type LucideIcon,
 } from "lucide-react";
 import { LcrLogo } from "./brand";
@@ -111,8 +111,9 @@ const NAV: NavItem[] = [
     { to: "/tarefas",  label: "Tarefas",  icon: ListChecks, acesso: "tarefas" },
   ] },
   { group: "Cérebro LCR", icon: Brain, itens: [
-    { to: "/cx", label: "CX", icon: HeartHandshake, acesso: "cx" },
+    { to: "/cx", label: "SOS", icon: HeartHandshake, acesso: "cx" },
     { to: "/mestre", label: "Mestre", icon: Brain, acesso: "knowledge" },
+    { to: "/buddys", label: "Buddys", icon: Compass, acesso: "knowledge" },
     { to: "/consultive", label: "Consultivo", icon: LineChart, acesso: "consultive" },
     { to: "/knowledge", label: "Base de Conhecimento", icon: ListTree, acesso: "knowledge" },
   ] },
@@ -122,7 +123,6 @@ const NAV: NavItem[] = [
     { to: "/historico",            label: "Histórico Cérebro", icon: History,   acesso: "historico" },
   ] },
   { group: "Configurações", icon: Settings, itens: [
-    { to: "/configuracoes", tab: "integracoes", label: "Integrações", icon: Plug, acesso: "configuracoes:integracoes" },
     { to: "/configuracoes", tab: "usuarios", label: "Usuários", icon: Users, acesso: "configuracoes:usuarios" },
     { to: "/configuracoes", tab: "plano", label: "Plano de contas", icon: ListTree, acesso: "configuracoes:plano" },
   ] },
@@ -170,7 +170,8 @@ const ROUTE_TITLES: Record<string, string> = {
   "/app": "Visão geral",
   "/clientes": "Carteira",
   "/tarefas": "Tarefas",
-  "/cx": "CX",
+  "/cx": "SOS · Saúde Operacional",
+  "/buddys": "Buddys",
   "/mestre": "Mestre",
   "/consultive": "Consultivo",
   "/historico": "Histórico Geral",
@@ -188,7 +189,7 @@ function tituloDaRota(pathname: string): string {
   const root = "/" + pathname.split("/")[1];
   if (ROUTE_TITLES[root]) {
     if (pathname.includes("/clientes/")) return "Cliente";
-    if (pathname.includes("/cx/")) return "Cliente · CX";
+    if (pathname.includes("/cx/")) return "Cliente · SOS";
     if (pathname.includes("/consultive/")) return "Cliente · Consultivo";
     if (pathname.includes("/conciliacao/")) return "Conciliação · Cliente";
     return ROUTE_TITLES[root];

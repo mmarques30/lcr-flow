@@ -8,10 +8,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAcesso } from "@/lib/guard";
 import { analiseUso, fmtDuracao, telaLabel, ACAO_LABEL, type AnaliseUsuario } from "@/lib/logs.functions";
 import { getHistoricoCerebro } from "@/lib/lcr.functions";
-import { Download, Users, Activity, Brain, Timer, ChevronRight, Clock, MonitorSmartphone } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Download, Users, Activity, Brain, Timer, Clock, MonitorSmartphone, ChevronDown, Workflow } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -22,8 +24,10 @@ export const Route = createFileRoute("/_authenticated/gestao/logs")({
   errorComponent: ({ error }) => <div className="p-6 text-destructive">Erro: {error.message}</div>,
 });
 
+// Horários sempre convertidos pro fuso do navegador (o banco grava UTC).
 const fmtDataHora = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-const fmtHora = (iso: string) => iso.slice(11, 16);
+const fmtHora = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+const fmtDia = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" });
 
 function LogsPage() {
   const [dias, setDias] = useState(30);
@@ -39,15 +43,26 @@ function LogsPage() {
     queryFn: () => getHistoricoCerebro({ data: {} }),
     staleTime: 60_000,
   });
+  // Nome dos clientes para os processos (id → nome curto)
+  const { data: nomesClientes } = useQuery({
+    queryKey: ["empresas-nomes"],
+    queryFn: async () => {
+      const { data: rows } = await supabase.from("empresas").select("id, razao_social, nome_fantasia");
+      return new Map((rows ?? []).map((r) => [r.id, r.nome_fantasia ?? r.razao_social]));
+    },
+    staleTime: 10 * 60_000,
+  });
+  const nomeCliente = (id: string) => nomesClientes?.get(id) ?? id.slice(0, 8);
 
   const usuarios = data?.usuarios ?? [];
 
   function exportarCsv() {
-    const rows = [["colaborador", "perfil", "ultimo_acesso", "sessoes", "tempo_total_min", "eventos", "clientes", "perguntas_cerebro", "top_tela", "pct_top_tela"]];
+    const rows = [["colaborador", "perfil", "ultimo_acesso", "sessoes", "tempo_total_min", "processos", "tempo_medio_processo_min", "clientes", "perguntas_cerebro", "top_tela", "pct_top_tela"]];
     for (const u of usuarios) {
+      const tMedio = u.processos.length ? Math.round(u.processos.reduce((s, p) => s + p.duracao_ms, 0) / u.processos.length / 60000) : 0;
       rows.push([
         u.nome, u.perfil ?? "", u.ultimo_acesso ?? "", String(u.sessoes.length),
-        String(Math.round(u.tempo_total_ms / 60000)), String(u.eventos),
+        String(Math.round(u.tempo_total_ms / 60000)), String(u.processos.length), String(tMedio),
         String(u.clientes_tocados), String(u.cerebro_perguntas),
         u.tempo_por_tela[0]?.tela ?? "", String(u.tempo_por_tela[0]?.pct ?? 0),
       ]);
@@ -67,7 +82,7 @@ function LogsPage() {
       <PageHeader
         title="Logs de"
         emphasis="uso"
-        description="Quem acessou, o que fez, onde passou o tempo e o que perguntou ao Cérebro. Sessão = eventos com até 30min de intervalo; o tempo por tela é estimado pela navegação."
+        description="Quem acessou, o que fez, onde passou o tempo, o que perguntou ao Cérebro e quanto tempo levou por processo. Sessão = eventos com até 30min de intervalo; processo = bloco contínuo de trabalho num mesmo cliente."
         actions={
           <div className="flex items-center gap-2">
             <Select value={String(dias)} onValueChange={(v) => setDias(Number(v))}>
@@ -103,64 +118,87 @@ function LogsPage() {
           <TabsTrigger value="produtividade">Produtividade</TabsTrigger>
         </TabsList>
 
-        {/* ── PESSOAS: um card por colaborador, clique abre a trilha completa ── */}
+        {/* ── PESSOAS: tabela-resumo, clique abre trilha completa ── */}
         <TabsContent value="pessoas">
-          {isLoading && <div className="py-16 text-center text-sm text-muted-foreground">Carregando…</div>}
-          {!isLoading && usuarios.length === 0 && (
-            <Card className="rounded-3xl border-0 p-10 text-center text-sm text-muted-foreground shadow-soft">
-              Nenhum evento no período. A trilha de navegação começou a ser registrada agora — os dados aparecem conforme a equipe usa o sistema.
-            </Card>
-          )}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {usuarios.map((u) => (
-              <button key={u.user_id} onClick={() => setSel(u)} className="group text-left">
-                <Card className="rounded-3xl border-0 p-5 shadow-soft transition-all group-hover:-translate-y-0.5 group-hover:shadow-card">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 font-display text-base font-bold text-primary">
-                        {u.nome.slice(0, 2).toUpperCase()}
-                      </span>
-                      <div>
-                        <div className="font-medium">{u.nome}</div>
-                        <div className="text-xs capitalize text-muted-foreground">{u.perfil ?? "—"} · último acesso {u.ultimo_acesso ? fmtDataHora(u.ultimo_acesso) : "—"}</div>
+          <Card className="rounded-3xl border-0 shadow-soft overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Colaborador</TableHead>
+                  <TableHead>Perfil</TableHead>
+                  <TableHead>Último acesso</TableHead>
+                  <TableHead className="text-right">Tempo</TableHead>
+                  <TableHead className="text-right">Sessões</TableHead>
+                  <TableHead className="text-right">Processos</TableHead>
+                  <TableHead className="text-right">Clientes</TableHead>
+                  <TableHead className="text-right">Cérebro</TableHead>
+                  <TableHead>Tela principal</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {usuarios.map((u) => (
+                  <TableRow key={u.user_id} className="cursor-pointer hover:bg-accent/10" onClick={() => setSel(u)}>
+                    <TableCell>
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{u.nome.slice(0, 2).toUpperCase()}</span>
+                        <span className="font-medium">{u.nome}</span>
                       </div>
-                    </div>
-                    <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-4 gap-2 text-center">
-                    <MiniStat label="Tempo" value={fmtDuracao(u.tempo_total_ms)} />
-                    <MiniStat label="Sessões" value={String(u.sessoes.length)} />
-                    <MiniStat label="Clientes" value={String(u.clientes_tocados)} />
-                    <MiniStat label="Cérebro" value={String(u.cerebro_perguntas)} />
-                  </div>
-
-                  {/* distribuição % por tela — top 4 */}
-                  <div className="mt-4 space-y-1.5">
-                    {u.tempo_por_tela.slice(0, 4).map((t) => (
-                      <div key={t.tela} className="flex items-center gap-2 text-xs">
-                        <span className="w-32 shrink-0 truncate text-muted-foreground">{t.tela}</span>
-                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                          <div className="h-full rounded-full bg-primary/70" style={{ width: `${t.pct}%` }} />
+                    </TableCell>
+                    <TableCell className="capitalize text-sm text-muted-foreground">{u.perfil ?? "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{u.ultimo_acesso ? fmtDataHora(u.ultimo_acesso) : "—"}</TableCell>
+                    <TableCell className="text-right font-medium">{fmtDuracao(u.tempo_total_ms)}</TableCell>
+                    <TableCell className="text-right">{u.sessoes.length}</TableCell>
+                    <TableCell className="text-right">{u.processos.length}</TableCell>
+                    <TableCell className="text-right">{u.clientes_tocados}</TableCell>
+                    <TableCell className="text-right">{u.cerebro_perguntas}</TableCell>
+                    <TableCell>
+                      {u.tempo_por_tela[0] ? (
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="w-24 truncate">{u.tempo_por_tela[0].tela}</span>
+                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                            <div className="h-full rounded-full bg-primary/70" style={{ width: `${u.tempo_por_tela[0].pct}%` }} />
+                          </div>
+                          <span className="text-muted-foreground">{u.tempo_por_tela[0].pct}%</span>
                         </div>
-                        <span className="w-9 text-right font-medium">{t.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              </button>
-            ))}
-          </div>
-        </TabsContent>
-
-        {/* ── ATIVIDADE: timeline global com nomes ── */}
-        <TabsContent value="atividade">
-          <Card className="rounded-3xl border-0 shadow-soft">
-            <TimelineGlobal usuarios={usuarios} />
+                      ) : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {usuarios.length === 0 && (
+                  <TableRow><TableCell colSpan={9} className="py-12 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Nenhum evento no período."}</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+            <div className="border-t border-border bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
+              Clique numa linha para ver a trilha completa da pessoa: sessões, processos por cliente, onde passa o tempo e o que perguntou ao Cérebro.
+            </div>
           </Card>
         </TabsContent>
 
-        {/* ── CÉREBRO: o que cada pessoa mandou ── */}
+        {/* ── ATIVIDADE: expansível por pessoa, tudo que fez, horário local ── */}
+        <TabsContent value="atividade">
+          <div className="space-y-2">
+            {usuarios.map((u) => (
+              <details key={u.user_id} className="group overflow-hidden rounded-2xl border-0 bg-card shadow-soft">
+                <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{u.nome.slice(0, 2).toUpperCase()}</span>
+                  <span className="font-medium">{u.nome}</span>
+                  <Badge variant="secondary">{u.eventos} eventos</Badge>
+                  <span className="text-xs text-muted-foreground">último: {u.ultimo_acesso ? fmtDataHora(u.ultimo_acesso) : "—"}</span>
+                  <ChevronDown className="ml-auto h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="border-t border-border">
+                  <AtividadePessoa usuario={u} nomeCliente={nomeCliente} />
+                </div>
+              </details>
+            ))}
+            {usuarios.length === 0 && (
+              <Card className="rounded-3xl border-0 p-10 text-center text-sm text-muted-foreground shadow-soft">Nenhum evento registrado ainda.</Card>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ── CÉREBRO ── */}
         <TabsContent value="cerebro">
           <Card className="rounded-3xl border-0 shadow-soft">
             <div className="divide-y divide-border">
@@ -186,7 +224,7 @@ function LogsPage() {
           </Card>
         </TabsContent>
 
-        {/* ── PRODUTIVIDADE: matriz + tempo por processo ── */}
+        {/* ── PRODUTIVIDADE: por processo executado ── */}
         <TabsContent value="produtividade">
           <Card className="rounded-3xl border-0 shadow-soft overflow-hidden">
             <div className="overflow-x-auto">
@@ -194,50 +232,60 @@ function LogsPage() {
                 <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-4 py-2.5 text-left">Colaborador</th>
+                    <th className="px-3 py-2.5 text-right">Processos executados</th>
+                    <th className="px-3 py-2.5 text-right">Tempo médio/processo</th>
+                    <th className="px-3 py-2.5 text-right">Tempo em processos</th>
+                    <th className="px-3 py-2.5 text-right">Clientes distintos</th>
                     <th className="px-3 py-2.5 text-right">Tempo total</th>
-                    <th className="px-3 py-2.5 text-right">Sessões</th>
-                    <th className="px-3 py-2.5 text-right">Média/sessão</th>
-                    <th className="px-3 py-2.5 text-right">Clientes</th>
-                    <th className="px-3 py-2.5 text-right">Aprovações</th>
-                    <th className="px-3 py-2.5 text-right">SCIs</th>
                     <th className="px-3 py-2.5 text-right">Cérebro</th>
                     <th className="px-3 py-2.5 text-right">Oportunidades</th>
                     <th className="px-4 py-2.5 text-left">Tela principal</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {usuarios.map((u) => (
-                    <tr key={u.user_id} className="border-t border-border hover:bg-accent/10">
-                      <td className="px-4 py-2.5 font-medium">{u.nome}</td>
-                      <td className="px-3 py-2.5 text-right font-medium">{fmtDuracao(u.tempo_total_ms)}</td>
-                      <td className="px-3 py-2.5 text-right">{u.sessoes.length}</td>
-                      <td className="px-3 py-2.5 text-right">{u.sessoes.length ? fmtDuracao(u.tempo_total_ms / u.sessoes.length) : "—"}</td>
-                      <td className="px-3 py-2.5 text-right">{u.clientes_tocados}</td>
-                      <td className="px-3 py-2.5 text-right">{u.acoes["aprovou_lancamento"] ?? 0}</td>
-                      <td className="px-3 py-2.5 text-right">{u.acoes["gerou_sci"] ?? 0}</td>
-                      <td className="px-3 py-2.5 text-right">{u.cerebro_perguntas}</td>
-                      <td className="px-3 py-2.5 text-right">{u.acoes["reportou_oportunidade"] ?? 0}</td>
-                      <td className="px-4 py-2.5">
-                        {u.tempo_por_tela[0] ? (
-                          <span className="text-xs">{u.tempo_por_tela[0].tela} <span className="text-muted-foreground">({u.tempo_por_tela[0].pct}%)</span></span>
-                        ) : "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {usuarios.map((u) => {
+                    const tProc = u.processos.reduce((s, p) => s + p.duracao_ms, 0);
+                    const tMedio = u.processos.length ? tProc / u.processos.length : 0;
+                    return (
+                      <tr key={u.user_id} className="cursor-pointer border-t border-border hover:bg-accent/10" onClick={() => setSel(u)}>
+                        <td className="px-4 py-2.5 font-medium">{u.nome}</td>
+                        <td className="px-3 py-2.5 text-right font-medium">{u.processos.length}</td>
+                        <td className="px-3 py-2.5 text-right">{u.processos.length ? fmtDuracao(tMedio) : "—"}</td>
+                        <td className="px-3 py-2.5 text-right">{u.processos.length ? fmtDuracao(tProc) : "—"}</td>
+                        <td className="px-3 py-2.5 text-right">{u.clientes_tocados}</td>
+                        <td className="px-3 py-2.5 text-right">{fmtDuracao(u.tempo_total_ms)}</td>
+                        <td className="px-3 py-2.5 text-right">{u.cerebro_perguntas}</td>
+                        <td className="px-3 py-2.5 text-right">{u.acoes["reportou_oportunidade"] ?? 0}</td>
+                        <td className="px-4 py-2.5">
+                          {u.tempo_por_tela[0] ? (
+                            <span className="text-xs">{u.tempo_por_tela[0].tela} <span className="text-muted-foreground">({u.tempo_por_tela[0].pct}%)</span></span>
+                          ) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {usuarios.length === 0 && (
-                    <tr><td colSpan={10} className="py-12 text-center text-muted-foreground">Sem atividade no período.</td></tr>
+                    <tr><td colSpan={9} className="py-12 text-center text-muted-foreground">Sem atividade no período.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
             <div className="border-t border-border bg-muted/30 px-4 py-2.5 text-[11px] text-muted-foreground">
-              Tempo estimado pela navegação (intervalos entre eventos, sessão fecha após 30min parado). Serve como proxy de dedicação por processo — base para o cálculo de ROI.
+              Processo = bloco contínuo de trabalho num mesmo cliente (início quando abre o cliente, fim quando troca de cliente ou para por 30min).
+              É o tempo por processo executado — base do cálculo de ROI. Clique numa linha para ver os processos da pessoa.
             </div>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {sel && <PainelPessoa usuario={sel} onClose={() => setSel(null)} cerebroItems={(cerebro?.items ?? []).filter((i) => i.consultor === sel.nome)} />}
+      {sel && (
+        <PainelPessoa
+          usuario={sel}
+          onClose={() => setSel(null)}
+          nomeCliente={nomeCliente}
+          cerebroItems={(cerebro?.items ?? []).filter((i) => i.consultor === sel.nome)}
+        />
+      )}
     </>
   );
 }
@@ -256,51 +304,43 @@ function HeroStat({ icon: Icon, label, value, sub }: { icon: typeof Users; label
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-muted/50 py-2">
+    <div className="rounded-xl bg-muted/50 py-2 text-center">
       <div className="font-display text-base font-bold leading-tight">{value}</div>
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
     </div>
   );
 }
 
-function TimelineGlobal({ usuarios }: { usuarios: AnaliseUsuario[] }) {
+/** Timeline de UMA pessoa agrupada por dia — tudo que fez, no horário local. */
+function AtividadePessoa({ usuario, nomeCliente }: { usuario: AnaliseUsuario; nomeCliente: (id: string) => string }) {
   const porDia = useMemo(() => {
-    const eventos = usuarios.flatMap((u) => u.logs.map((l) => ({ ...l, nome: u.nome })));
-    eventos.sort((a, b) => b.criado_em.localeCompare(a.criado_em));
-    const grupos = new Map<string, typeof eventos>();
-    for (const e of eventos.slice(0, 1500)) {
-      const dia = e.criado_em.slice(0, 10);
+    const grupos = new Map<string, typeof usuario.logs>();
+    for (const l of usuario.logs) {
+      const dia = new Date(l.criado_em).toLocaleDateString("sv-SE"); // yyyy-mm-dd no fuso local
       const g = grupos.get(dia) ?? [];
-      g.push(e);
+      g.push(l);
       grupos.set(dia, g);
     }
     return [...grupos.entries()];
-  }, [usuarios]);
-
-  if (porDia.length === 0) {
-    return <div className="px-5 py-12 text-center text-sm text-muted-foreground">Nenhum evento registrado ainda.</div>;
-  }
+  }, [usuario.logs]);
 
   return (
-    <div className="divide-y divide-border">
+    <div className="max-h-96 divide-y divide-border overflow-y-auto">
       {porDia.map(([dia, itens]) => (
-        <div key={dia} className="px-5 py-4">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {new Date(dia + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}
-            </span>
-            <Badge variant="secondary">{itens.length} eventos</Badge>
-          </div>
-          <div className="space-y-1">
-            {itens.slice(0, 40).map((l) => (
+        <div key={dia} className="px-5 py-3">
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{fmtDia(itens[0].criado_em)}</div>
+          <div className="space-y-0.5">
+            {itens.map((l) => (
               <div key={l.id} className="flex items-center gap-3 text-xs">
                 <span className="w-10 shrink-0 tabular-nums text-muted-foreground">{fmtHora(l.criado_em)}</span>
-                <span className="w-32 shrink-0 truncate font-medium">{l.nome}</span>
-                <span className="rounded-md bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary">{ACAO_LABEL[l.acao] ?? l.acao}</span>
-                <span className="truncate text-muted-foreground">{telaLabel(l.tela)}</span>
+                <span className={cn("rounded-md px-1.5 py-0.5 text-[10px] font-medium", l.acao === "perguntou_cerebro" ? "bg-violet-100 text-violet-700" : "bg-primary/8 text-primary")}>
+                  {ACAO_LABEL[l.acao] ?? l.acao}
+                </span>
+                <span className="truncate text-muted-foreground">
+                  {telaLabel(l.tela)}{l.cliente_id ? ` · ${nomeCliente(l.cliente_id)}` : ""}
+                </span>
               </div>
             ))}
-            {itens.length > 40 && <div className="text-[11px] italic text-muted-foreground">+{itens.length - 40} eventos</div>}
           </div>
         </div>
       ))}
@@ -308,9 +348,10 @@ function TimelineGlobal({ usuarios }: { usuarios: AnaliseUsuario[] }) {
   );
 }
 
-function PainelPessoa({ usuario, onClose, cerebroItems }: {
+function PainelPessoa({ usuario, onClose, nomeCliente, cerebroItems }: {
   usuario: AnaliseUsuario;
   onClose: () => void;
+  nomeCliente: (id: string) => string;
   cerebroItems: { id: number | string; persona: string; pergunta: string; created_at: unknown }[];
 }) {
   return (
@@ -325,13 +366,31 @@ function PainelPessoa({ usuario, onClose, cerebroItems }: {
           </SheetTitle>
         </SheetHeader>
 
-        <div className="mt-5 space-y-6">
-          <div className="grid grid-cols-4 gap-2 text-center">
+        <div className="mt-5 space-y-6 px-1">
+          <div className="grid grid-cols-4 gap-2">
             <MiniStat label="Tempo" value={fmtDuracao(usuario.tempo_total_ms)} />
             <MiniStat label="Sessões" value={String(usuario.sessoes.length)} />
-            <MiniStat label="Eventos" value={String(usuario.eventos)} />
+            <MiniStat label="Processos" value={String(usuario.processos.length)} />
             <MiniStat label="Clientes" value={String(usuario.clientes_tocados)} />
           </div>
+
+          {/* Processos por cliente — início → fim */}
+          <section>
+            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Workflow className="h-3.5 w-3.5" /> Processos por cliente (início → fim)
+            </h4>
+            <div className="space-y-1">
+              {[...usuario.processos].reverse().slice(0, 20).map((p, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-1.5 text-xs">
+                  <span className="w-32 shrink-0 truncate font-medium">{nomeCliente(p.cliente_id)}</span>
+                  <span className="tabular-nums text-muted-foreground">{fmtDataHora(p.inicio)} → {fmtHora(p.fim)}</span>
+                  <Badge variant="secondary">{fmtDuracao(p.duracao_ms)}</Badge>
+                  <span className="ml-auto truncate text-muted-foreground">{p.telas.slice(0, 2).join(" · ")}</span>
+                </div>
+              ))}
+              {usuario.processos.length === 0 && <div className="text-xs text-muted-foreground">Nenhum processo em cliente no período.</div>}
+            </div>
+          </section>
 
           {/* Onde passa o tempo */}
           <section>
@@ -351,7 +410,7 @@ function PainelPessoa({ usuario, onClose, cerebroItems }: {
             </div>
           </section>
 
-          {/* Sessões — início → fim (base do tempo por processo / ROI) */}
+          {/* Sessões */}
           <section>
             <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               <Clock className="h-3.5 w-3.5" /> Sessões de trabalho
@@ -364,11 +423,10 @@ function PainelPessoa({ usuario, onClose, cerebroItems }: {
                   <span className="ml-auto truncate text-muted-foreground">{s.telas.slice(0, 3).join(" · ")}</span>
                 </div>
               ))}
-              {usuario.sessoes.length === 0 && <div className="text-xs text-muted-foreground">Sem sessões no período.</div>}
             </div>
           </section>
 
-          {/* O que fez */}
+          {/* Ações */}
           <section>
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ações no período</h4>
             <div className="flex flex-wrap gap-1.5">
@@ -378,7 +436,7 @@ function PainelPessoa({ usuario, onClose, cerebroItems }: {
             </div>
           </section>
 
-          {/* Perguntas ao Cérebro */}
+          {/* Cérebro */}
           <section>
             <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               <Brain className="h-3.5 w-3.5" /> O que perguntou ao Cérebro
@@ -407,7 +465,7 @@ function PainelPessoa({ usuario, onClose, cerebroItems }: {
                   <span className={cn("rounded-md px-1.5 py-0.5 text-[10px] font-medium", l.acao === "perguntou_cerebro" ? "bg-violet-100 text-violet-700" : "bg-primary/8 text-primary")}>
                     {ACAO_LABEL[l.acao] ?? l.acao}
                   </span>
-                  <span className="truncate text-muted-foreground">{telaLabel(l.tela)}</span>
+                  <span className="truncate text-muted-foreground">{telaLabel(l.tela)}{l.cliente_id ? ` · ${nomeCliente(l.cliente_id)}` : ""}</span>
                 </div>
               ))}
             </div>
