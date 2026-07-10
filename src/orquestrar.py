@@ -21,6 +21,7 @@ import os
 import sys
 import json
 import time
+import base64
 import argparse
 import subprocess
 import datetime as dt
@@ -54,6 +55,41 @@ def _gestta_jwt() -> str:
             if kv.get("name") == "ngStorage-jwt":
                 return json.loads(kv["value"])  # remove aspas do JSON → "JWT eyJ..."
     raise RuntimeError("token ngStorage-jwt não encontrado na sessão Gestta")
+
+
+def _jwt_payload() -> dict:
+    tok = _gestta_jwt().replace("JWT ", "").split(".")[1]
+    tok += "=" * (-len(tok) % 4)
+    return json.loads(base64.urlsafe_b64decode(tok))
+
+
+def jwt_gestta_quase_expirado(margem_seg: int = 7200) -> bool:
+    """True se o JWT expira em menos de margem_seg (default 2h)."""
+    try:
+        exp = _jwt_payload().get("exp")
+        if not exp:
+            return True
+        return (exp - time.time()) < margem_seg
+    except Exception:
+        return True
+
+
+def ping_gestta_api() -> bool:
+    """Healthcheck leve: 1 POST na API de tarefas. False se 401/403 ou token ausente."""
+    try:
+        jwt = _gestta_jwt()
+    except Exception:
+        return False
+    try:
+        r = requests.post(
+            GESTTA_SEARCH,
+            headers={"Authorization": jwt, "Content-Type": "application/json"},
+            json={"type": ["SERVICE_ORDER"], "limit": 1, "page": 1, "status": ["OPEN"]},
+            timeout=30,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
 
 
 def listar_cobrancas_api(competencia: str, statuses=None) -> list:
@@ -147,21 +183,44 @@ def gestta(fn: str, *args) -> object:
 
 
 # ── Sessão do Gestta: healthcheck + relogin headless ─────────────────────────
-def relogin_gestta() -> bool:
+def relogin_gestta(tentativas: int = 3) -> bool:
     """Relogin headless via autoLogin.js (usa GESTTA_EMAIL/PASSWORD do .env,
-    regrava sessions/gestta-session.json). True se recriou a sessão (exit 0)."""
-    log("    ↻ relogin Gestta (autoLogin headless)...")
-    try:
-        p = subprocess.run(["node", "src/gestta/autoLogin.js"],
-                           cwd=str(ROOT), capture_output=True, text=True, timeout=180)
-    except subprocess.TimeoutExpired:
-        log("    ✗ relogin: timeout (180s)")
-        return False
-    if p.returncode == 0:
-        log("    ✓ sessão Gestta renovada")
-        return True
-    log(f"    ✗ relogin falhou (rc={p.returncode}): {(p.stderr or p.stdout).strip()[:200]}")
+    regrava sessions/gestta-session.json). True se recriou a sessão e a API responde."""
+    for i in range(1, tentativas + 1):
+        log(f"    ↻ relogin Gestta (autoLogin headless) tentativa {i}/{tentativas}...")
+        try:
+            p = subprocess.run(["node", "src/gestta/autoLogin.js"],
+                               cwd=str(ROOT), capture_output=True, text=True, timeout=180)
+        except subprocess.TimeoutExpired:
+            log("    ✗ relogin: timeout (180s)")
+            if i < tentativas:
+                time.sleep(10 * i)
+            continue
+        if p.returncode == 0 and ping_gestta_api():
+            log("    ✓ sessão Gestta renovada e API OK")
+            return True
+        det = (p.stderr or p.stdout or "").strip()[:200]
+        log(f"    ✗ relogin falhou (rc={p.returncode}, api_ok={ping_gestta_api()}): {det}")
+        if i < tentativas:
+            time.sleep(10 * i)
     return False
+
+
+def garantir_sessao_gestta_api() -> bool:
+    """Modo --via-api: refresh preventivo se JWT expira em breve ou API falhar."""
+    try:
+        _gestta_jwt()
+    except Exception:
+        log("  token Gestta ausente — relogando...")
+        return relogin_gestta()
+    if jwt_gestta_quase_expirado():
+        log("  JWT Gestta expira em <2h — relogin preventivo...")
+        return relogin_gestta()
+    if not ping_gestta_api():
+        log("  API Gestta inválida (401/expirado) — relogando...")
+        return relogin_gestta()
+    log("  Sessão Gestta API válida ✓")
+    return True
 
 
 def garantir_sessao_gestta() -> bool:
@@ -548,6 +607,9 @@ def main():
     # listagem retornar 401/403 (raio ≤1 run; o drain relê o token a cada lote).
     jwt_gestta = None
     if args.via_api:
+        if not garantir_sessao_gestta_api():
+            log("  ✗ não foi possível garantir sessão Gestta — abortando lote")
+            sys.exit(2)
         jwt_gestta = _gestta_jwt()
     else:
         garantir_sessao_gestta()

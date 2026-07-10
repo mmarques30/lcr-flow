@@ -16,7 +16,7 @@ apt-get update -qq && apt-get upgrade -y -qq
 # ── Instala dependências base ─────────────────────────────────────────
 echo "[2/7] Instalando dependências..."
 apt-get install -y -qq \
-    curl git wget unzip \
+    curl git wget unzip p7zip-full unrar \
     python3 python3-pip \
     build-essential \
     ca-certificates gnupg

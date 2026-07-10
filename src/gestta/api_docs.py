@@ -164,6 +164,10 @@ def _classificar_download(r: requests.Response, file_name: str):
     if not corpo:
         return "falha", "resposta vazia (0b) — download não retornou conteúdo"
 
+    # Compactados (.zip/.rar/.7z) — salvos para extração no bridge (arquivos_compactados).
+    if ext in ("zip", "rar", "7z"):
+        return "salva", ""
+
     # Distinção explícita (o erro real da S3 já foi pego por <Error>/HTML acima):
     #   'vazia'      = formato válido mas SEM dados → extrato do mês sem movimento
     #                  (ex.: Nubank exporta só o cabeçalho 'Data,Valor,...'). Salva e
@@ -181,8 +185,14 @@ def _classificar_download(r: requests.Response, file_name: str):
         return "salva", ""
     # binário: exige magic conhecido, senão é corrupção real
     h = corpo[:8]
-    conhecido = (h[:4] == b"%PDF" or h[:4] == b"PK\x03\x04" or h[:4] == b"\xd0\xcf\x11\xe0"
-                 or h[:3] == b"\xff\xd8\xff" or h[:8] == b"\x89PNG\r\n\x1a\n")
+    conhecido = (
+        h[:4] == b"%PDF"
+        or h[:4] == b"PK\x03\x04"
+        or h[:4] == b"\xd0\xcf\x11\xe0"
+        or h[:3] == b"\xff\xd8\xff"
+        or h[:8] == b"\x89PNG\r\n\x1a\n"
+        or h[:4] == b"Rar!"
+    )
     if not conhecido:
         return "corrompida", f"arquivo ilegível (binário sem formato reconhecível, {len(corpo)}b) — recobrar do cliente"
     return "salva", ""

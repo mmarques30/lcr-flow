@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PY = str(ROOT / "venv" / "bin" / "python3")
 ORQ = str(ROOT / "src" / "orquestrar.py")
+sys.path.insert(0, str(ROOT / "src"))
 
 
 def log(msg):
@@ -129,6 +130,16 @@ def main():
         if progresso == 0:
             sem_progresso += 1
             if sem_progresso >= 2:
+                # última chance: relogin headless antes de desistir (sessão expirada no fim de semana)
+                try:
+                    from orquestrar import relogin_gestta  # noqa: WPS433
+                    log("2 lotes sem progresso — tentando relogin Gestta antes de encerrar...")
+                    if relogin_gestta():
+                        sem_progresso = 0
+                        log("relogin OK — continuando drain")
+                        continue
+                except Exception as e:
+                    log(f"relogin de resgate falhou: {str(e)[:120]}")
                 log(f"⏹️ FIM: 2 lotes sem progresso — restam {erro} erro / {aguard} aguardando_docs "
                     f"(precisam de revisão humana). Encerrando.")
                 break

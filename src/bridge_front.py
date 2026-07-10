@@ -42,6 +42,8 @@ load_dotenv(ROOT / ".env")
 # Importa os módulos da automação já existentes (rodando a partir da raiz do repo)
 sys.path.insert(0, str(ROOT / "src" / "parsers"))
 sys.path.insert(0, str(ROOT / "src" / "ai"))
+sys.path.insert(0, str(ROOT / "src"))
+from arquivos_compactados import expandir_arquivos_compactados  # noqa: E402
 from extrato_bancario import parsear_extrato, extrair_identidade, chave_extrato, detectar_banco  # noqa: E402
 from motor_classificacao import classificar_extrato      # noqa: E402
 
@@ -60,7 +62,10 @@ SR_HEADERS = {"apikey": SR, "Authorization": f"Bearer {SR}"}
 
 
 def log(msg):
-    print(msg, flush=True)
+    try:
+        print(msg, flush=True)
+    except UnicodeEncodeError:
+        print(str(msg).encode("ascii", "replace").decode("ascii"), flush=True)
 
 
 # ── Auth: JWT do usuário de serviço (p/ edge functions) ──────────────────────
@@ -831,9 +836,13 @@ def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt,
     extrato_fallback_edge (backfill): se o parser local não ler o extrato (layout
     não-Itaú → 0 transações), roteia esse extrato para a edge (a IA lê layouts
     diversos) em vez de mandar p/ revisão humana. O fluxo vivo passa False."""
+    arquivos, avisos_compact = expandir_arquivos_compactados(arquivos)
+    for msg in avisos_compact:
+        log(f"    ⚠️ compactado: {msg}")
+
     extratos = [a for a in arquivos if detectar_tipo(Path(a).name) == "extrato"]
     outros = [a for a in arquivos if a not in extratos]
-    resumo = {"arquivos": len(arquivos), "extratos": [], "outros": []}
+    resumo = {"arquivos": len(arquivos), "extratos": [], "outros": [], "avisos_compactados": avisos_compact}
 
     # Resiliência: um documento com formato/erro não derruba a tarefa — é sinalizado.
     for ext in extratos:
