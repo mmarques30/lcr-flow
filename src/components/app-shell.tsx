@@ -105,8 +105,10 @@ type NavItem = NavLeaf | NavGroup;
 // grupos colapsáveis para sub-áreas (Cérebro / Configurações).
 const NAV: NavItem[] = [
   { to: "/app", label: "Início", icon: LayoutDashboard, acesso: "dashboard" },
-  { to: "/clientes", label: "Carteira", icon: Building2, acesso: "clientes" },
-  { to: "/tarefas", label: "Tarefas", icon: ListChecks, acesso: "tarefas" },
+  { group: "Carteira", icon: Building2, itens: [
+    { to: "/clientes", label: "Clientes", icon: Building2, acesso: "clientes" },
+    { to: "/tarefas",  label: "Tarefas",  icon: ListChecks, acesso: "tarefas" },
+  ] },
   { group: "Cérebro LCR", icon: Brain, itens: [
     { to: "/cx", label: "CX", icon: HeartHandshake, acesso: "cx" },
     { to: "/mestre", label: "Mestre", icon: Brain, acesso: "knowledge" },

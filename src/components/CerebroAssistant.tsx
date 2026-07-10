@@ -24,11 +24,11 @@ type Msg = { autor: "user" | "ia"; texto: string };
 type Turno = { role: "user" | "assistant"; content: string };
 
 const PERSONAS: Record<Persona, { label: string; fn: string; icon: typeof Brain; cor: string; saudacao: string }> = {
-  mestre:    { label: "Mestre",    fn: "cerebro-mestre",    icon: Brain,                 cor: "text-violet-600", saudacao: "Sou o Mestre. Pergunte sobre processos, padrões e procedimentos da LCR." },
-  consultor: { label: "Consultor", fn: "cerebro-consultor", icon: LineChart,             cor: "text-blue-600",   saudacao: "Sou o Consultor. Posso analisar a saúde financeira e gerar insights do cliente." },
-  cuidador:  { label: "Cuidador",  fn: "cerebro-cuidador",  icon: HeartHandshake,        cor: "text-rose-600",   saudacao: "Sou o Cuidador. Cuido do relacionamento e do health score da carteira." },
-  buddy:     { label: "Buddy",     fn: "cerebro-buddy",     icon: Compass,               cor: "text-emerald-600",saudacao: "Sou o Buddy. Me pergunte COMO fazer algo na tela — botões, campos, fluxo. Se for dúvida contábil, chame o Mestre." },
-  reportar:  { label: "Reportar",  fn: "cerebro-reportar",  icon: MessageSquareWarning,  cor: "text-amber-600",  saudacao: "Sou o Reportar. Me conta um bug, melhoria ou dúvida. Levo pro Bruno hoje." },
+  mestre:    { label: "Mestre",          fn: "cerebro-mestre",    icon: Brain,                 cor: "text-violet-600", saudacao: "Sou o Mestre. Pergunte sobre processos, padrões e procedimentos da LCR." },
+  consultor: { label: "Consultor",       fn: "cerebro-consultor", icon: LineChart,             cor: "text-blue-600",   saudacao: "Sou o Consultor. Posso analisar a saúde financeira e gerar insights do cliente." },
+  cuidador:  { label: "Cuidador",        fn: "cerebro-cuidador",  icon: HeartHandshake,        cor: "text-rose-600",   saudacao: "Sou o Cuidador. Cuido do relacionamento e do health score da carteira." },
+  buddy:     { label: "Buddy Trainning", fn: "cerebro-buddy",     icon: Compass,               cor: "text-emerald-600",saudacao: "Sou o Buddy Trainning. Me pergunte COMO fazer algo na tela — botões, campos, fluxo. Se for dúvida contábil, chame o Mestre." },
+  reportar:  { label: "Buddy Bug",       fn: "cerebro-reportar",  icon: MessageSquareWarning,  cor: "text-amber-600",  saudacao: "Sou o Buddy Bug. Me conta um bug, melhoria ou dúvida. Levo pro Bruno hoje." },
 };
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
