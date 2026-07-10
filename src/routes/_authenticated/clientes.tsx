@@ -9,11 +9,12 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Search, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Plus, Trash2, Search, Pencil, ChevronLeft, ChevronRight, CalendarClock } from "lucide-react";
 import { StatusPill, variantFor } from "@/components/status-pill";
-import { listEmpresasPaginadas, getEmpresasResumo, listConsultores, createEmpresa, updateEmpresa, deleteEmpresa, listEmpresasQualidade } from "@/lib/lcr.functions";
+import { listEmpresasPaginadas, getEmpresasResumo, listConsultores, getEmpresa, updateEmpresa, deleteEmpresa, listEmpresasQualidade } from "@/lib/lcr.functions";
 import { REGIME_LABEL, EMPRESA_STATUS_LABEL, DOC_TIPO_LABEL, formatCNPJ, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { toast } from "sonner";
 import { requireAcesso } from "@/lib/guard";
@@ -68,7 +69,6 @@ function ListaClientes() {
   const [status, setStatus] = useState<string>("all");
   const [page, setPage] = useState(1);
   const pageSize = 50;
-  const [open, setOpen] = useState(false);
 
   useEffect(() => { setPage(1); }, [qDebounced, status, regime]);
 
@@ -103,19 +103,11 @@ function ListaClientes() {
 
   return (
     <>
+      {/* Sem cadastro manual: cliente entra automaticamente via extração do
+          Gestta. Aqui só se consulta e edita. */}
       <PageHeader
         title="Clientes"
-        description="Empresas atendidas pela LCR e o status do mês corrente."
-        actions={
-          <>
-            <Dialog open={open} onOpenChange={setOpen}>
-              <DialogTrigger asChild>
-                <Button><Plus className="h-4 w-4 mr-1" />Novo cliente</Button>
-              </DialogTrigger>
-              <NovoClienteDialog consultores={consultores} onSuccess={() => setOpen(false)} />
-            </Dialog>
-          </>
-        }
+        description="Empresas atendidas pela LCR e o status do mês corrente. Novos clientes entram automaticamente pela integração com o Gestta."
       />
 
       <ResumoTela itens={resumo} />
@@ -175,7 +167,7 @@ function ListaClientes() {
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center justify-end gap-1">
-                    <EditarClienteDialog empresa={e} consultores={consultores} />
+                    <EditarClienteSheet empresaId={e.id} consultores={consultores} />
                     <Button variant="ghost" size="icon" onClick={() => excluir(e)} title="Excluir cliente"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   </div>
                 </TableCell>
@@ -302,172 +294,73 @@ function QualidadeCarteira({ faixaInicial, competenciaInicial }: { faixaInicial?
 
 const TIPOS_DOC = Object.keys(DOC_TIPO_LABEL);
 
-function NovoClienteDialog({ consultores, onSuccess }: { consultores: { id: string; nome: string }[]; onSuccess: () => void }) {
-  const qc = useQueryClient();
-  const [form, setForm] = useState({
-    razao_social: "",
-    nome_fantasia: "",
-    cnpj: "",
-    regime: "simples" as "simples" | "presumido" | "real" | "mei",
-    segmento: "",
-    consultor_id: "",
-    tags: "",
-  });
-  const [contas, setContas] = useState<{ banco: string; agencia: string; conta: string }[]>([{ banco: "", agencia: "", conta: "" }]);
-  const [docs, setDocs] = useState<string[]>(["extrato", "nf_saida", "nf_entrada"]);
-  const [loading, setLoading] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await createEmpresa({
-        data: {
-          razao_social: form.razao_social,
-          nome_fantasia: form.nome_fantasia || null,
-          cnpj: form.cnpj,
-          regime: form.regime,
-          segmento: form.segmento || null,
-          consultor_id: form.consultor_id || null,
-          tags: form.tags.split(",").map((s) => s.trim()).filter(Boolean),
-          contas: contas.filter((c) => c.banco && c.conta),
-          documentos_esperados: docs,
-        },
-      });
-      toast.success("Cliente cadastrado.");
-      qc.invalidateQueries({ queryKey: ["empresas-paginadas"] }); qc.invalidateQueries({ queryKey: ["empresas-resumo"] });
-      onSuccess();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao cadastrar");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-      <DialogHeader>
-        <DialogTitle className="font-display text-2xl">Novo cliente</DialogTitle>
-      </DialogHeader>
-      <form onSubmit={submit} className="space-y-6">
-        <section className="space-y-3">
-          <h3 className="font-medium text-sm text-soft-foreground uppercase tracking-wide">Dados básicos</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 space-y-1.5">
-              <Label>Razão social *</Label>
-              <Input required value={form.razao_social} onChange={(e) => setForm({ ...form, razao_social: e.target.value })} />
-            </div>
-            <div className="space-y-1.5"><Label>Nome fantasia</Label><Input value={form.nome_fantasia} onChange={(e) => setForm({ ...form, nome_fantasia: e.target.value })} /></div>
-            <div className="space-y-1.5"><Label>CNPJ *</Label><Input required value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: formatCNPJ(e.target.value) })} /></div>
-            <div className="space-y-1.5">
-              <Label>Regime</Label>
-              <Select value={form.regime} onValueChange={(v) => setForm({ ...form, regime: v as typeof form.regime })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{Object.entries(REGIME_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5"><Label>Segmento</Label><Input value={form.segmento} onChange={(e) => setForm({ ...form, segmento: e.target.value })} /></div>
-            <div className="space-y-1.5">
-              <Label>Consultor responsável</Label>
-              <Select value={form.consultor_id || "none"} onValueChange={(v) => setForm({ ...form, consultor_id: v === "none" ? "" : v })}>
-                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">—</SelectItem>
-                  {consultores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2 space-y-1.5">
-              <Label>Tags (separadas por vírgula)</Label>
-              <Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="atípico, baixo volume" />
-            </div>
-          </div>
-        </section>
-
-        <section className="space-y-3">
-          <h3 className="font-medium text-sm text-soft-foreground uppercase tracking-wide">Contas bancárias</h3>
-          {contas.map((c, i) => (
-            <div key={i} className="grid grid-cols-12 gap-2">
-              <Input className="col-span-5" placeholder="Banco" value={c.banco} onChange={(e) => setContas(contas.map((x, j) => j === i ? { ...x, banco: e.target.value } : x))} />
-              <Input className="col-span-3" placeholder="Agência" value={c.agencia} onChange={(e) => setContas(contas.map((x, j) => j === i ? { ...x, agencia: e.target.value } : x))} />
-              <Input className="col-span-3" placeholder="Conta" value={c.conta} onChange={(e) => setContas(contas.map((x, j) => j === i ? { ...x, conta: e.target.value } : x))} />
-              <Button type="button" variant="ghost" size="icon" className="col-span-1" onClick={() => setContas(contas.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>
-            </div>
-          ))}
-          <Button type="button" variant="outline" size="sm" onClick={() => setContas([...contas, { banco: "", agencia: "", conta: "" }])}><Plus className="h-4 w-4 mr-1" />Adicionar conta</Button>
-        </section>
-
-        <section className="space-y-3">
-          <h3 className="font-medium text-sm text-soft-foreground uppercase tracking-wide">Documentos esperados</h3>
-          <div className="grid grid-cols-2 gap-2">
-            {TIPOS_DOC.map((t) => (
-              <label key={t} className="flex items-center gap-2 text-sm">
-                <Checkbox checked={docs.includes(t)} onCheckedChange={(v) => setDocs(v ? [...docs, t] : docs.filter((x) => x !== t))} />
-                {DOC_TIPO_LABEL[t]}
-              </label>
-            ))}
-          </div>
-        </section>
-
-        <DialogFooter>
-          <Button type="submit" disabled={loading}>{loading ? "Salvando..." : "Cadastrar cliente"}</Button>
-        </DialogFooter>
-      </form>
-    </DialogContent>
-  );
-}
-
-type EmpresaEdit = {
-  id: string; razao_social: string; nome_fantasia: string | null; cnpj: string | null;
-  regime: "simples" | "presumido" | "real" | "mei" | null; segmento: string | null;
-  consultor_id: string | null; tags: string[] | null;
-};
-
-function EditarClienteDialog({ empresa, consultores }: { empresa: EmpresaEdit; consultores: { id: string; nome: string }[] }) {
+// Drawer lateral de edição completa: dados básicos, data de corte do
+// fechamento, contas bancárias e documentos esperados. Carrega o cadastro
+// completo (getEmpresa) só quando abre — a lista paginada não traz relações.
+function EditarClienteSheet({ empresaId, consultores }: { empresaId: string; consultores: { id: string; nome: string }[] }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    razao_social: empresa.razao_social,
-    nome_fantasia: empresa.nome_fantasia ?? "",
-    cnpj: empresa.cnpj ?? "",
-    regime: empresa.regime ?? "simples",
-    segmento: empresa.segmento ?? "",
-    consultor_id: empresa.consultor_id ?? "",
-    tags: (empresa.tags ?? []).join(", "),
-  });
   const [loading, setLoading] = useState(false);
 
+  const { data: empresa, isLoading } = useQuery({
+    queryKey: ["empresa-edit", empresaId],
+    queryFn: () => getEmpresa({ data: { id: empresaId } }),
+    enabled: open,
+  });
+
+  const [form, setForm] = useState({
+    razao_social: "", nome_fantasia: "", cnpj: "",
+    regime: "" as "" | "simples" | "presumido" | "real" | "mei",
+    segmento: "", consultor_id: "", status: "em_dia" as "em_dia" | "cobranca" | "lancamento" | "conciliacao" | "entregue" | "atrasado",
+    dia_fechamento: "", observacoes: "", tags: "",
+  });
+  const [contas, setContas] = useState<{ banco: string; agencia: string; conta: string }[]>([]);
+  const [docs, setDocs] = useState<string[]>([]);
+
   useEffect(() => {
-    if (!open) return;
+    if (!empresa) return;
     setForm({
       razao_social: empresa.razao_social,
       nome_fantasia: empresa.nome_fantasia ?? "",
       cnpj: empresa.cnpj ?? "",
-      regime: empresa.regime ?? "simples",
+      regime: (empresa.regime ?? "") as typeof form.regime,
       segmento: empresa.segmento ?? "",
       consultor_id: empresa.consultor_id ?? "",
+      status: empresa.status,
+      dia_fechamento: empresa.dia_fechamento?.toString() ?? "",
+      observacoes: empresa.observacoes ?? "",
       tags: (empresa.tags ?? []).join(", "),
     });
-  }, [open, empresa]);
+    setContas((empresa.contas_bancarias ?? []).map((c) => ({ banco: c.banco, agencia: c.agencia ?? "", conta: c.conta })));
+    setDocs((empresa.documentos_esperados ?? []).map((d) => d.tipo as string));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresa]);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function salvar() {
     setLoading(true);
     try {
       await updateEmpresa({
         data: {
-          id: empresa.id,
+          id: empresaId,
           razao_social: form.razao_social,
           nome_fantasia: form.nome_fantasia || null,
-          cnpj: form.cnpj,
-          regime: form.regime,
+          cnpj: form.cnpj || null,
+          regime: form.regime || null,
           segmento: form.segmento || null,
           consultor_id: form.consultor_id || null,
-          tags: form.tags.split(",").map((s) => s.trim()).filter(Boolean),
+          status: form.status,
+          dia_fechamento: form.dia_fechamento ? Number(form.dia_fechamento) : null,
+          observacoes: form.observacoes || null,
+          tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+          contas: contas.filter((c) => c.banco && c.conta),
+          documentos_esperados: docs,
         },
       });
       toast.success("Cliente atualizado.");
-      qc.invalidateQueries({ queryKey: ["empresas-paginadas"] }); qc.invalidateQueries({ queryKey: ["empresas-resumo"] });
+      qc.invalidateQueries({ queryKey: ["empresas-paginadas"] });
+      qc.invalidateQueries({ queryKey: ["empresas-resumo"] });
+      qc.invalidateQueries({ queryKey: ["empresa-edit", empresaId] });
+      qc.invalidateQueries({ queryKey: ["empresa", empresaId] });
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar");
@@ -477,41 +370,107 @@ function EditarClienteDialog({ empresa, consultores }: { empresa: EmpresaEdit; c
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild><Button variant="ghost" size="icon" title="Editar cliente"><Pencil className="h-4 w-4" /></Button></DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle className="font-display text-2xl">Editar cliente</DialogTitle></DialogHeader>
-        <form onSubmit={submit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 space-y-1.5"><Label>Razão social *</Label><Input required value={form.razao_social} onChange={(e) => setForm({ ...form, razao_social: e.target.value })} /></div>
-            <div className="space-y-1.5"><Label>Nome fantasia</Label><Input value={form.nome_fantasia} onChange={(e) => setForm({ ...form, nome_fantasia: e.target.value })} /></div>
-            <div className="space-y-1.5"><Label>CNPJ *</Label><Input required value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: formatCNPJ(e.target.value) })} /></div>
-            <div className="space-y-1.5">
-              <Label>Regime</Label>
-              <Select value={form.regime} onValueChange={(v) => setForm({ ...form, regime: v as typeof form.regime })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{Object.entries(REGIME_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5"><Label>Segmento</Label><Input value={form.segmento} onChange={(e) => setForm({ ...form, segmento: e.target.value })} /></div>
-            <div className="col-span-2 space-y-1.5">
-              <Label>Consultor responsável</Label>
-              <Select value={form.consultor_id || "none"} onValueChange={(v) => setForm({ ...form, consultor_id: v === "none" ? "" : v })}>
-                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">—</SelectItem>
-                  {consultores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2 space-y-1.5">
-              <Label>Tags (separadas por vírgula)</Label>
-              <Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="atípico, baixo volume" />
-            </div>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button variant="ghost" size="icon" title="Editar cliente"><Pencil className="h-4 w-4" /></Button>
+      </SheetTrigger>
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+        <SheetHeader>
+          <SheetTitle className="font-display text-2xl">Editar cliente</SheetTitle>
+        </SheetHeader>
+
+        {isLoading || !empresa ? (
+          <div className="py-16 text-center text-sm text-muted-foreground">Carregando cadastro…</div>
+        ) : (
+          <div className="space-y-6 px-4 py-4">
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium uppercase tracking-wide text-soft-foreground">Dados básicos</h3>
+              <div className="space-y-1.5"><Label>Razão social *</Label><Input required value={form.razao_social} onChange={(e) => setForm({ ...form, razao_social: e.target.value })} /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5"><Label>Nome fantasia</Label><Input value={form.nome_fantasia} onChange={(e) => setForm({ ...form, nome_fantasia: e.target.value })} /></div>
+                <div className="space-y-1.5"><Label>CNPJ</Label><Input value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: formatCNPJ(e.target.value) })} /></div>
+                <div className="space-y-1.5">
+                  <Label>Regime</Label>
+                  <Select value={form.regime || "_none"} onValueChange={(v) => setForm({ ...form, regime: v === "_none" ? "" : (v as typeof form.regime) })}>
+                    <SelectTrigger><SelectValue placeholder="Sem classificação" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Sem classificação</SelectItem>
+                      {Object.entries(REGIME_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5"><Label>Segmento</Label><Input value={form.segmento} onChange={(e) => setForm({ ...form, segmento: e.target.value })} /></div>
+                <div className="space-y-1.5">
+                  <Label>Status do mês</Label>
+                  <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as typeof form.status })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(EMPRESA_STATUS_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Consultor responsável</Label>
+                  <Select value={form.consultor_id || "_none"} onValueChange={(v) => setForm({ ...form, consultor_id: v === "_none" ? "" : v })}>
+                    <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Sem consultor</SelectItem>
+                      {consultores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1.5"><Label>Tags (separadas por vírgula)</Label><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="atípico, baixo volume" /></div>
+            </section>
+
+            <section className="space-y-2 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+              <Label className="inline-flex items-center gap-1.5 font-medium"><CalendarClock className="h-4 w-4 text-primary" />Data de corte do fechamento</Label>
+              <Input type="number" min={1} max={31} placeholder="Dia do mês · ex: 10" value={form.dia_fechamento} onChange={(e) => setForm({ ...form, dia_fechamento: e.target.value })} className="max-w-40 bg-card" />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Dia do mês em que a conciliação deste cliente precisa estar fechada.
+                É essa data que baliza o que aparece como <strong>em atraso</strong> na
+                execução da conciliação.
+              </p>
+            </section>
+
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium uppercase tracking-wide text-soft-foreground">Contas bancárias</h3>
+              {contas.map((c, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2">
+                  <Input className="col-span-5" placeholder="Banco" value={c.banco} onChange={(e) => setContas(contas.map((x, j) => j === i ? { ...x, banco: e.target.value } : x))} />
+                  <Input className="col-span-3" placeholder="Agência" value={c.agencia} onChange={(e) => setContas(contas.map((x, j) => j === i ? { ...x, agencia: e.target.value } : x))} />
+                  <Input className="col-span-3" placeholder="Conta" value={c.conta} onChange={(e) => setContas(contas.map((x, j) => j === i ? { ...x, conta: e.target.value } : x))} />
+                  <Button type="button" variant="ghost" size="icon" className="col-span-1" onClick={() => setContas(contas.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              ))}
+              {contas.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma conta cadastrada — o extrato importado também alimenta esta lista automaticamente.</p>}
+              <Button type="button" variant="outline" size="sm" onClick={() => setContas([...contas, { banco: "", agencia: "", conta: "" }])}><Plus className="mr-1 h-4 w-4" />Adicionar conta</Button>
+            </section>
+
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium uppercase tracking-wide text-soft-foreground">Documentos esperados</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {TIPOS_DOC.map((t) => (
+                  <label key={t} className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={docs.includes(t)} onCheckedChange={(v) => setDocs(v ? [...docs, t] : docs.filter((x) => x !== t))} />
+                    {DOC_TIPO_LABEL[t]}
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <section className="space-y-1.5">
+              <Label>Observações e infos úteis</Label>
+              <Textarea rows={4} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} placeholder="Particularidades, contatos, prazos especiais…" />
+            </section>
           </div>
-          <DialogFooter><Button type="submit" disabled={loading}>{loading ? "Salvando..." : "Salvar alterações"}</Button></DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        )}
+
+        <SheetFooter className="px-4 pb-4">
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button onClick={salvar} disabled={loading || isLoading}>{loading ? "Salvando…" : "Salvar alterações"}</Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

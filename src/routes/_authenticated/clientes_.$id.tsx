@@ -513,9 +513,9 @@ function EditarClienteDrawer({ empresa }: { empresa: EmpresaDetalhe }) {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="inline-flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5" />Dia de fechamento</Label>
+              <Label className="inline-flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5" />Data de corte do fechamento</Label>
               <Input type="number" min={1} max={31} placeholder="Ex: 10" value={form.dia_fechamento} onChange={(e) => setForm({ ...form, dia_fechamento: e.target.value })} />
-              <p className="text-[11px] text-muted-foreground">Data de corte mensal. O sistema dispara <strong>notificações</strong> quando esse dia está chegando (≤ 3 dias) para o cliente.</p>
+              <p className="text-[11px] text-muted-foreground">Dia do mês em que a conciliação precisa estar fechada — baliza o que aparece como <strong>em atraso</strong> e dispara notificações quando está chegando (≤ 3 dias).</p>
             </div>
           </div>
           <div className="space-y-1.5">

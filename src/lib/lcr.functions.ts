@@ -614,10 +614,14 @@ export const updateEmpresa = createServerFn({ method: "POST" })
       observacoes: z.string().max(2000).optional().nullable(),
       dia_fechamento: z.number().int().min(1).max(31).optional().nullable(),
       status: z.enum(["em_dia", "cobranca", "lancamento", "conciliacao", "entregue", "atrasado"]).optional(),
+      // Quando presentes, substituem o cadastro atual (o drawer carrega o estado
+      // vigente antes de editar). Ausentes = não mexe.
+      contas: z.array(z.object({ banco: z.string().min(1).max(80), agencia: z.string().max(20), conta: z.string().min(1).max(30) })).max(20).optional(),
+      documentos_esperados: z.array(z.string().max(40)).max(20).optional(),
     }).parse(d),
   )
   .handler(async ({ context, data }) => {
-    const { id, ...patch } = data;
+    const { id, contas, documentos_esperados, ...patch } = data;
     const { error } = await context.supabase
       .from("empresas")
       .update({
@@ -634,6 +638,23 @@ export const updateEmpresa = createServerFn({ method: "POST" })
       })
       .eq("id", id);
     if (error) throw new Error(error.message);
+
+    if (contas !== undefined) {
+      await context.supabase.from("contas_bancarias").delete().eq("empresa_id", id);
+      if (contas.length) {
+        const { error: e2 } = await context.supabase.from("contas_bancarias").insert(contas.map((c) => ({ ...c, empresa_id: id })));
+        if (e2) throw new Error(e2.message);
+      }
+    }
+    if (documentos_esperados !== undefined) {
+      await context.supabase.from("documentos_esperados").delete().eq("empresa_id", id);
+      if (documentos_esperados.length) {
+        const { error: e3 } = await context.supabase.from("documentos_esperados").insert(
+          documentos_esperados.map((tipo) => ({ empresa_id: id, tipo: tipo as never, obrigatorio: true })),
+        );
+        if (e3) throw new Error(e3.message);
+      }
+    }
     return { ok: true };
   });
 
