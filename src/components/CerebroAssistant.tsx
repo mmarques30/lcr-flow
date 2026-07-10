@@ -161,11 +161,9 @@ export function CerebroAssistant() {
           >
             <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="mestre">Mestre</SelectItem>
-              <SelectItem value="consultor">Consultor</SelectItem>
-              <SelectItem value="cuidador">Cuidador</SelectItem>
-              <SelectItem value="buddy">Buddy</SelectItem>
-              <SelectItem value="reportar">Reportar</SelectItem>
+              {(Object.keys(PERSONAS) as Persona[]).map((p) => (
+                <SelectItem key={p} value={p}>{PERSONAS[p].label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <button onClick={() => setOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent" aria-label="Fechar"><X className="h-4 w-4" /></button>
