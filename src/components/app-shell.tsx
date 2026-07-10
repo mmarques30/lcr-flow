@@ -201,7 +201,7 @@ function TopBar({ userName, userRole, userAvatar, collapsed, onToggle, onSignOut
 }) {
   const [hidden, setHidden] = useState(false);
   const [perfilOpen, setPerfilOpen] = useState(false);
-  const { data: notif } = useQuery({ queryKey: ["notificacoes"], queryFn: () => getNotificacoes(), staleTime: 60_000 });
+  const { data: notif } = useQuery({ queryKey: ["notificacoes"], queryFn: () => getNotificacoes(), staleTime: 5 * 60_000 });
   const notifItems = notif?.items ?? [];
   const [lidas, setLidas] = useState<Record<string, number>>({});
   useEffect(() => { try { setLidas(JSON.parse(localStorage.getItem("lcr-notif-lidas") || "{}")); } catch { /* noop */ } }, []);
