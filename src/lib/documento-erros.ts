@@ -38,7 +38,13 @@ function asErro(ci: unknown): ClassificacaoErro | null {
 
 function classificarPorTexto(msg: string): ErroDocumentoCode {
   const m = msg.toLowerCase();
-  if (m.includes("password protected") || m.includes("protegido por senha")) return "PDF_SENHA";
+  if (
+    m.includes("password protected") ||
+    m.includes("protegido por senha") ||
+    m.includes("pdf.source.base64") ||
+    (m.includes("base64") && m.includes("pdf") && m.includes("invalid_request")) ||
+    /\bsenha\b/.test(m) && m.includes(".pdf")
+  ) return "PDF_SENHA";
   if (m.includes("base64") && m.includes("pdf")) return "PDF_INVALIDO";
   if (m.includes("workbook is encrypted") || m.includes("criptografad")) return "EXCEL_CRIPTOGRAFADO";
   if (m.includes("can't find workbook") || m.includes("ole2 compound")) return "EXCEL_CORROMPIDO";
@@ -54,7 +60,8 @@ function classificarPorTexto(msg: string): ErroDocumentoCode {
 const CATALOG: Record<ErroDocumentoCode, Omit<ErroDocumentoInfo, "code" | "tecnico">> = {
   PDF_SENHA: {
     titulo: "PDF protegido por senha",
-    acao: "Peça ao cliente reenviar o arquivo sem senha ou exportado em PDF aberto.",
+    detalhe: "O sistema não consegue ler este arquivo enquanto estiver bloqueado.",
+    acao: "Solicite ao cliente reenviar o PDF sem senha ou exportado como PDF aberto.",
   },
   PDF_INVALIDO: {
     titulo: "PDF ilegível ou corrompido",

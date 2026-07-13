@@ -19,7 +19,9 @@ const fail = (error: string) => json(200, { ok: false, error });
 
 function classificarErroDocumento(msg: string): { error_code: string; error_acao: string } {
   const m = msg.toLowerCase();
-  if (m.includes("password protected")) return { error_code: "PDF_SENHA", error_acao: "Peça ao cliente reenviar o PDF sem senha." };
+  if (m.includes("password protected") || m.includes("protegido por senha") || m.includes("pdf.source.base64")) {
+    return { error_code: "PDF_SENHA", error_acao: "Solicite ao cliente reenviar o PDF sem senha ou exportado como PDF aberto." };
+  }
   if (m.includes("base64") && m.includes("pdf")) return { error_code: "PDF_INVALIDO", error_acao: "Peça ao cliente reenviar o PDF ou exportar como imagem." };
   if (m.includes("workbook is encrypted")) return { error_code: "EXCEL_CRIPTOGRAFADO", error_acao: "Peça ao cliente reenviar a planilha sem senha ou em CSV." };
   if (m.includes("can't find workbook") || m.includes("ole2")) return { error_code: "EXCEL_CORROMPIDO", error_acao: "Peça ao cliente reenviar em CSV ou PDF." };

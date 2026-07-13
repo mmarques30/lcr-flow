@@ -8,10 +8,11 @@ import { StatusPill } from "@/components/status-pill";
 import { getDocumentoRevisao, aprovarDocumento, limparLancamentosDocumento, mudarTipoDocumento, desmarcarDuplicata } from "@/lib/lcr.functions";
 import { DOC_TIPO_LABEL, formatCompetencia } from "@/lib/format";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
+import { mensagemErroDocumento } from "@/lib/documento-erros";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
-import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, AlertTriangle, FileText, Loader2, GitCompare, ArrowRight, FileSpreadsheet } from "lucide-react";
+import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, AlertTriangle, FileText, Loader2, GitCompare, ArrowRight, FileSpreadsheet, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -170,6 +171,7 @@ export function DocumentoRevisaoView({ documentoId, onAprovado }: { documentoId:
   const isImg = ["png", "jpg", "jpeg", "webp", "gif"].includes(ext);
   const isSheet = ["csv", "xlsx", "xls"].includes(ext);
   const isExtrato = doc.tipo === "extrato";
+  const erroInfo = mensagemErroDocumento(classificacao);
 
   return (
     <>
@@ -204,6 +206,19 @@ export function DocumentoRevisaoView({ documentoId, onAprovado }: { documentoId:
               {busy === "desduplicar" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Não é duplicata / processar mesmo assim
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {erroInfo?.code === "PDF_SENHA" && (
+        <Card className="mb-5 border-rose-300 bg-rose-50/80">
+          <CardContent className="flex items-start gap-3 p-5">
+            <Lock className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
+            <div className="text-sm">
+              <p className="font-medium text-rose-900">Ação necessária: PDF com senha</p>
+              <p className="text-rose-800">{erroInfo.acao}</p>
+              <p className="mt-1 text-xs text-rose-700">Reprocessar com IA não resolve — o arquivo precisa ser reenviado sem proteção.</p>
+            </div>
           </CardContent>
         </Card>
       )}
