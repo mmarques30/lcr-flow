@@ -7,6 +7,7 @@ import { chaveDedupParaDoc, deveMarcarDuplicata, _sobreposicao, dedupIntraDocume
 import { formatMapaCtx, MAPA_REGRAS } from "./mapa-transacoes.ts";
 import { corrigirSugestoesMapa } from "./corrigir-mapa.ts";
 import { FORMATO_RESPOSTA_JSON, parseClassificacaoResposta, type ClassificacaoParsed } from "./parse-resposta.ts";
+import { filtrarJanelaCompetencia } from "./janela-competencia.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -113,6 +114,16 @@ DEFINIÇÕES ADICIONAIS:
 3. Sugira os LANÇAMENTOS contábeis correspondentes.
 
 Regras:
+- IGNORE COMPLETAMENTE qualquer seção do extrato chamada "Próximos Lançamentos",
+  "Lançamentos Futuros", "Movimentações Futuras", "Lançamentos a Confirmar" ou
+  similar (comum em extratos Bradesco e outros quando extraídos no início do mês
+  seguinte). São movimentações AINDA NÃO EFETIVADAS na data de extração — NÃO
+  entram em lancamentos_sugeridos, mesmo que apareçam antes do fim do arquivo.
+  Extraia lançamentos SOMENTE da tabela principal de movimentações do período
+  (entre saldo anterior e saldo atual/final).
+- NÃO sugira lançamentos com data_lancamento fora do período do extrato
+  (periodo_inicio–periodo_fim) — em especial datas do dia 1 do mês SEGUINTE ao
+  período, que tipicamente pertencem à seção de próximos lançamentos acima.
 - Use EXCLUSIVAMENTE códigos de conta e de histórico que existem no plano de contas e na lista de históricos passados no contexto (contas analíticas/folhas).
 - Extrato bancário / fatura de cartão / movimento de conta de investimento: cada
   movimentação vira UM lançamento (fonte de razão).
@@ -580,17 +591,12 @@ Deno.serve(async (req) => {
     };
   });
 
-  // Filtro de janela de competência (±1 mês) — espelha o parser local, evita
-  // sangramento de datas de meses alheios (ex.: compras antigas na fatura, extrato
-  // multi-mês). Linha sem data válida passa (não dá p/ janelar).
-  const [cy, cm] = competencia.split("-").map(Number);
-  const compIdx = cy * 12 + (cm - 1);
-  const rowsJanela = rows.filter((r) => {
-    if (!r.data_lancamento) return true;
-    const [y, m] = r.data_lancamento.split("-").map(Number);
-    return Math.abs((y * 12 + (m - 1)) - compIdx) <= 1;
-  });
-  const foraJanela = rows.length - rowsJanela.length;
+  // Filtro de janela de competência (-1 mês / +0 mês) — espelha o parser local
+  // (_filtrar_janela_competencia em extrato_bancario.py). #139: extratos com
+  // seção "próximos lançamentos"/dia 1 do mês seguinte NÃO entram na competência
+  // anterior (janela simétrica ±1 permitia esse sangramento). 1 mês pra trás
+  // continua tolerado (compras antigas em fatura, extrato multi-mês).
+  const { mantidos: rowsJanela, descartados: foraJanela } = filtrarJanelaCompetencia(rows, competencia);
 
   // Reprocesso idempotente: remove a razão anterior DESTE documento antes de
   // reinserir (senão reprocessar o mesmo doc duplica a razão).
