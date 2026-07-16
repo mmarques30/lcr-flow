@@ -337,15 +337,17 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
   const bancoCodigo = bancoCodigoDe(contasBanc[0]?.banco ?? null);
   const bancoNome = contasBanc[0]?.banco ?? "";
   // Plano de Contas oficial LCR (Anexo 1) — códigos reduzidos SCI + validação pré-envio.
+  // classificacao/tipo alimentam a resolução #136 (conta T sintética → filha analítica).
   const { data: pdcLcr } = useQuery({
     queryKey: ["plano-de-contas-lcr-codigos"],
     queryFn: async () => {
-      const { data } = await supabase.from("plano_de_contas_lcr").select("codigo, apelido, requer_participante");
-      return (data ?? []) as { codigo: number; apelido: number | null; requer_participante: boolean }[];
+      const { data } = await supabase.from("plano_de_contas_lcr").select("codigo, apelido, requer_participante, classificacao, tipo");
+      return (data ?? []) as { codigo: number; apelido: number | null; requer_participante: boolean; classificacao: string; tipo: string | null }[];
     },
     staleTime: 10 * 60_000,
   });
   const pdcApelidos = mapaPdcApelidos(pdcLcr ?? []);
+  const pdcTC = (pdcLcr ?? []).map((c) => ({ codigo: c.codigo, classificacao: c.classificacao, tipo: c.tipo }));
   const codigosValidos = new Set<string>((pdcLcr ?? []).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
   const requerParticipante = new Set<string>((pdcLcr ?? []).filter((c) => c.requer_participante).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
 
@@ -362,7 +364,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     ? { ...l, historico: { ...l.historico, pula_complemento: true } }
     : l);
 
-  const previewRows = linhasSciPreview(lancsComPula, bancoCodigo, pdcApelidos, bancoNome);
+  const previewRows = linhasSciPreview(lancsComPula, bancoCodigo, pdcApelidos, bancoNome, pdcTC);
 
   // #135: Baixar SCI só libera depois da conciliação bancária concluída
   // (docs/conciliacao-v3-spec.md — "Conciliar desbloqueia Baixar SCI").
@@ -377,14 +379,14 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
 
   function baixarXls() {
     if (codigosValidos.size > 0) {
-      const invalidos = validarLancamentosSci(lancsComPula, codigosValidos);
+      const invalidos = validarLancamentosSci(lancsComPula, codigosValidos, pdcTC);
       if (invalidos.length > 0) {
-        const primeiros = invalidos.slice(0, 5).map((i) => `${i.codigo}${i.descricao ? ` (${i.descricao})` : ""}`).join(", ");
-        toast.error(`Exportação bloqueada: ${invalidos.length} lançamento(s) usam código de conta fora do Plano de Contas oficial LCR — ${primeiros}${invalidos.length > 5 ? "…" : ""}`);
+        const primeiros = invalidos.slice(0, 5).map((i) => `${i.codigo}${i.descricao ? ` (${i.descricao})` : ""}${i.motivo ? ` — ${i.motivo}` : ""}`).join("; ");
+        toast.error(`Exportação bloqueada: ${invalidos.length} lançamento(s) com problema de classificação — ${primeiros}${invalidos.length > 5 ? "…" : ""}`);
         return;
       }
     }
-    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, bancoCodigo, pdcApelidos);
+    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, bancoCodigo, pdcApelidos, pdcTC);
     if (n === 0) toast.warning("Nenhum lançamento com conta para exportar.");
     else {
       toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);

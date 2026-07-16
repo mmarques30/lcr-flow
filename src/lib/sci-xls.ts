@@ -109,18 +109,52 @@ export function codSciReduzido(
   return Number.isNaN(n) ? c : n;
 }
 
+// ── #136: Contas T (sintética/título) não aceitam lançamento no SCI — só a
+// analítica (filha) aceita. Ex.: T 29 "ADIANTAMENTO A SÓCIOS" → analítica 20
+// "Adiantamento a Sócios" (classificacao 01.1.2.07 → 01.1.2.07.001).
+export type PdcTC = { codigo: number; classificacao: string; tipo: string | null };
+export type ResolucaoTC =
+  | { status: "analitica" } // já é conta que aceita lançamento (tipo != 'T')
+  | { status: "resolvido"; codigoResolvido: number } // T com filha analítica única
+  | { status: "ambigua"; candidatos: number[] } // T com mais de uma filha analítica
+  | { status: "sem_filha" }; // T sem nenhuma filha analítica cadastrada
+
+/** Resolve uma conta sintética (T) para sua filha analítica, via prefixo de
+ *  `classificacao` (ex. "01.1.2.07" é prefixo de "01.1.2.07.001"). Contas que
+ *  já não são "T" retornam { status: "analitica" } sem nenhuma mudança. */
+export function resolverContaAnalitica(codigo: string | number, pdc: readonly PdcTC[]): ResolucaoTC {
+  const cod = Number(codigo);
+  const conta = pdc.find((r) => r.codigo === cod);
+  if (!conta || conta.tipo !== "T") return { status: "analitica" };
+  const prefixo = `${conta.classificacao}.`;
+  const filhas = pdc.filter((r) => r.tipo !== "T" && r.classificacao.startsWith(prefixo));
+  if (filhas.length === 0) return { status: "sem_filha" };
+  if (filhas.length === 1) return { status: "resolvido", codigoResolvido: filhas[0].codigo };
+  return { status: "ambigua", candidatos: filhas.map((f) => f.codigo).sort((a, b) => a - b) };
+}
+
+/** Aplica resolverContaAnalitica e devolve o código final a usar no export —
+ *  quando não há resolução automática (ambígua ou sem filha), mantém o
+ *  código original (o bloqueio de export fica a cargo de validarLancamentosSci). */
+export function codigoParaExportSci(codigo: string, pdc: readonly PdcTC[]): string {
+  const r = resolverContaAnalitica(codigo, pdc);
+  return r.status === "resolvido" ? String(r.codigoResolvido) : codigo;
+}
+
 /** Monta as linhas do layout SCI (uma por lançamento com conta).
  *  Débito/crédito usam código reduzido (plano_de_contas_lcr.apelido); banco = CC nº 1. */
 export function linhasSci(
   lancs: SciLanc[],
   bancoCodigoLcr: number | null | undefined,
   pdcApelidos: Map<string, number>,
+  pdcTC: readonly PdcTC[] = [],
 ) {
   const bancoSci = bancoCodigoLcr != null ? codSciReduzido(String(bancoCodigoLcr), pdcApelidos) : "";
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
-      const conta = codSciReduzido(l.conta!.codigo, pdcApelidos);
+      // #136: contas sintéticas (T) resolvem para a filha analítica antes do código reduzido.
+      const conta = codSciReduzido(codigoParaExportSci(l.conta!.codigo, pdcTC), pdcApelidos);
       const banco: number | string = bancoSci;
       const valor = Number(l.valor ?? 0);
       // Inversão automática contábil: natureza_movimento (IA) > sinal > tipo.
@@ -154,8 +188,9 @@ export function baixarPlanilhaSciXls(
   lancs: SciLanc[],
   bancoCodigoLcr: number | null | undefined,
   pdcApelidos: Map<string, number>,
+  pdcTC: readonly PdcTC[] = [],
 ): number {
-  const rows = linhasSci(lancs, bancoCodigoLcr, pdcApelidos);
+  const rows = linhasSci(lancs, bancoCodigoLcr, pdcApelidos, pdcTC);
   const ws = XLSX.utils.json_to_sheet(rows, { header: COLUNAS });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Planilha de importação");
@@ -181,17 +216,28 @@ export type SciLancRico = {
 // ── Validação pré-envio: bloqueia exportação se algum código de conta usado
 // nos lançamentos não existir no Plano de Contas oficial LCR (Anexo 1). O caller
 // consulta plano_de_contas_lcr e passa o set de códigos válidos.
-export type SciInvalido = { id?: string; codigo: string; descricao: string | null };
+export type SciInvalido = { id?: string; codigo: string; descricao: string | null; motivo?: string };
 export function validarLancamentosSci(
   lancs: Array<{ id?: string; conta: { codigo: string; descricao?: string | null } | null }>,
   codigosValidos: Set<string>,
+  pdcTC: readonly PdcTC[] = [],
 ): SciInvalido[] {
   const out: SciInvalido[] = [];
   for (const l of lancs) {
     const c = l.conta?.codigo;
     if (!c) continue;
     if (!codigosValidos.has(String(c))) {
-      out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null });
+      out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null, motivo: "código fora do Plano de Contas oficial LCR" });
+      continue;
+    }
+    // #136: conta sintética (T) sem filha analítica única não pode ser exportada.
+    if (pdcTC.length > 0) {
+      const r = resolverContaAnalitica(c, pdcTC);
+      if (r.status === "ambigua") {
+        out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null, motivo: `conta sintética (T) com ${r.candidatos.length} filhas analíticas — reclassifique manualmente` });
+      } else if (r.status === "sem_filha") {
+        out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null, motivo: "conta sintética (T) sem filha analítica cadastrada" });
+      }
     }
   }
   return out;
@@ -226,13 +272,15 @@ export function linhasSciPreview(
   bancoCodigoLcr: number | null | undefined,
   pdcApelidos: Map<string, number>,
   bancoNome: string,
+  pdcTC: readonly PdcTC[] = [],
 ): SciPreviewRow[] {
   const bancoSci = bancoCodigoLcr != null ? codSciReduzido(String(bancoCodigoLcr), pdcApelidos) : "";
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
+      // #136: mesma resolução T → filha analítica usada no export real, para a prévia bater com o .xls.
       const conta: SciCelula = {
-        codigo: codSciReduzido(l.conta!.codigo, pdcApelidos),
+        codigo: codSciReduzido(codigoParaExportSci(l.conta!.codigo, pdcTC), pdcApelidos),
         nome: l.conta!.descricao,
       };
       const banco: SciCelula = { codigo: bancoSci, nome: bancoNome || "Banco" };
