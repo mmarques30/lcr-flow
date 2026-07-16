@@ -354,10 +354,18 @@ def _competencia_ym(competencia):
     return None, None
 
 
-def _filtrar_janela_competencia(transacoes, competencia, meses=1):
-    """Mantém só transações a ±`meses` do mês da competência (índice absoluto
-    ano*12+mes, robusto à virada dez↔jan). Elimina contaminação de planilhas
-    Excel multi-ANO (ex.: aba única com linhas de 2024/2025 num extrato de 2026).
+def _filtrar_janela_competencia(transacoes, competencia, meses_antes=1, meses_depois=0):
+    """Mantém só transações entre `meses_antes` mês(es) ANTES e `meses_depois`
+    mês(es) DEPOIS da competência (índice absoluto ano*12+mes, robusto à virada
+    dez↔jan). Elimina contaminação de planilhas Excel multi-ANO (ex.: aba única
+    com linhas de 2024/2025 num extrato de 2026).
+
+    meses_depois=0 por padrão (#139): extratos (ex.: Bradesco) costumam trazer
+    uma seção de "próximos lançamentos"/movimentações do dia 1 do mês seguinte
+    quando extraídos no início do mês — isso NUNCA deve entrar na competência
+    anterior (bug real: 7 transações de 01/07 entrando na competência 06/2026).
+    meses_antes=1 continua tolerando compras antigas em fatura/extrato multi-mês.
+
     No-op se a competência não resolver. Se TODAS caírem fora da janela (arquivo
     do período errado), devolve vazio e avisa — NÃO re-admite as transações fora
     da janela (isso reintroduziria a contaminação). Retorna (filtradas, n_descartadas)."""
@@ -374,7 +382,8 @@ def _filtrar_janela_competencia(transacoes, competencia, meses=1):
         except (ValueError, AttributeError):
             mantidas.append(t)  # sem data legível → conservador, mantém
             continue
-        if abs(idx - alvo) <= meses:
+        diff = idx - alvo
+        if -meses_antes <= diff <= meses_depois:
             mantidas.append(t)
     n_desc = len(transacoes) - len(mantidas)
     if transacoes and not mantidas:
