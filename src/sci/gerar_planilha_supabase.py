@@ -1,15 +1,20 @@
 """
-src/sci/gerar_planilha.py
-Gera a planilha de importacao SCI a partir dos lancamentos no Supabase.
+src/sci/gerar_planilha_supabase.py
+Gera a planilha de importação SCI a partir dos lançamentos no Supabase.
+
+Alinhado ao export do front (src/lib/sci-xls.ts):
+  - Contas D/C: plano_de_contas_lcr.apelido (código reduzido, col A PDC)
+  - Histórico: historicos_sci_lcr.codigo (apelido histórico desconsiderado)
+  - Complemento vazio quando pula_complemento = true
+  - Lado débito/crédito: natureza_movimento > sinal valor > tipo conta
 
 Uso:
-  python src/sci/gerar_planilha.py --empresa CAVA --competencia 2026-06
-  python src/sci/gerar_planilha.py --empresa "KIALO" --competencia 2026-05 --banco 9
-  python src/sci/gerar_planilha.py --empresa 12.345.678/0001-90 --competencia 2026-06 --output planilhas/
+  python src/sci/gerar_planilha_supabase.py --empresa CAVA --competencia 2026-06
+  python src/sci/gerar_planilha_supabase.py --empresa "KIALO" --competencia 2026-05 --banco 657
+  python src/sci/gerar_planilha_supabase.py --empresa 12.345.678/0001-90 --competencia 2026-06 --output planilhas/
 
-Requer:
-  SUPABASE_URL e SUPABASE_KEY no arquivo lcr-flow/.env
-  Para bypass de RLS: SUPABASE_SERVICE_ROLE_KEY no mesmo .env
+Requer SUPABASE_URL e SUPABASE_KEY no .env (raiz LCR, lcr-flow/ ou LCR-front/).
+Para bypass de RLS: SUPABASE_SERVICE_ROLE_KEY.
 """
 
 import sys
@@ -22,11 +27,15 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # ── Caminhos ──────────────────────────────────────────────────────────
-ROOT = Path(__file__).resolve().parent.parent.parent   # d:\IAPLICADA\LCR
-CONFIG = ROOT / "config"
-ENV_FILE = ROOT / "lcr-flow" / ".env"
-
-load_dotenv(ENV_FILE)
+ROOT = Path(__file__).resolve().parent.parent.parent
+for _env in (ROOT / ".env", ROOT / "lcr-flow" / ".env", ROOT.parent / "LCR-front" / ".env"):
+    if _env.exists():
+        load_dotenv(_env)
+        ENV_FILE = _env
+        break
+else:
+    ENV_FILE = ROOT / ".env"
+    load_dotenv(ENV_FILE)
 
 SUPABASE_URL = (
     os.getenv("SUPABASE_URL")
@@ -35,19 +44,16 @@ SUPABASE_URL = (
 ).rstrip("/")
 
 SUPABASE_KEY = (
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY")   # preferencial: bypassa RLS
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    or os.getenv("SUPABASE_KEY")
     or os.getenv("SUPABASE_PUBLISHABLE_KEY")
     or os.getenv("VITE_SUPABASE_PUBLISHABLE_KEY")
     or ""
 )
 
-# ── Lógica de lado contábil ───────────────────────────────────────────
-# Convenção: tipo da conta determina o lado normal do lançamento.
-# Exceções devem ser tratadas manualmente após geração.
 TIPOS_DEBITO = {"ativo", "despesa", "custo", "deducoes"}
 TIPOS_CREDITO = {"passivo", "receita", "resultado", "patrimonio", "patrimonio_liquido"}
 
-# Mapeamento banco nome → código no plano de contas (fallback)
 BANCO_PARA_CODIGO = {
     "bradesco": 9,
     "brasil": 7,
@@ -67,8 +73,20 @@ BANCO_PARA_CODIGO = {
     "btg": 1031,
 }
 
+COLUNAS_SCI = [
+    "DATA",
+    "DÉBITO",
+    "CRÉDITO",
+    "PART DÉB",
+    "PART CRED",
+    "VALOR",
+    "HISTÓRICO",
+    "COMPLEMENTO",
+    "DOCUMENTO",
+    "CENTRO DE CUSTO DÉB",
+    "CENTRO DE CUSTO CRED",
+]
 
-# ── Supabase REST helper ──────────────────────────────────────────────
 
 def _headers() -> dict:
     return {
@@ -86,80 +104,116 @@ def sb_get(tabela: str, params: dict) -> list:
     return r.json()
 
 
-# ── Carregamento dos arquivos de config ───────────────────────────────
+def buscar_pdc_apelidos() -> dict[int, int]:
+    """codigo LCR → código reduzido SCI (plano_de_contas_lcr.apelido)."""
+    rows = sb_get("plano_de_contas_lcr", {"select": "codigo,apelido"})
+    out: dict[int, int] = {}
+    for row in rows:
+        cod = row.get("codigo")
+        ap = row.get("apelido")
+        if cod is not None and ap is not None:
+            out[int(cod)] = int(ap)
+    return out
 
-def _arquivo_config(fragmento: str) -> Path:
-    matches = [f for f in CONFIG.iterdir() if fragmento.lower() in f.name.lower()]
-    if not matches:
-        raise FileNotFoundError(f"Arquivo de config nao encontrado com '{fragmento}' em {CONFIG}")
-    return matches[0]
+
+def buscar_pdc_tc() -> list[dict]:
+    """codigo/classificacao/tipo do Plano de Contas LCR (Anexo 1), para a
+    resolução #136 (conta T sintética → filha analítica)."""
+    return sb_get("plano_de_contas_lcr", {"select": "codigo,classificacao,tipo"})
 
 
-def carregar_depara() -> dict:
-    """
-    Retorna dict: plano_contas.codigo (int) -> SCI Apelido (int ou None).
-    Tambem retorna historico_padrao: plano_contas.codigo -> codigo_historico.
-    """
-    arq = _arquivo_config("De-para")
-    df = pd.read_excel(str(arq))
+def resolver_conta_analitica(codigo, pdc_tc: list[dict]) -> tuple[int | None, str]:
+    """Espelha resolverContaAnalitica (src/lib/sci-xls.ts). Retorna
+    (codigo_resolvido_ou_None, status) onde status é um de:
+    'analitica' (já aceita lançamento), 'resolvido', 'ambigua', 'sem_filha'."""
+    try:
+        cod = int(codigo)
+    except (TypeError, ValueError):
+        return None, "analitica"
+    conta = next((r for r in pdc_tc if r.get("codigo") == cod), None)
+    if not conta or conta.get("tipo") != "T":
+        return cod, "analitica"
+    prefixo = f"{conta.get('classificacao')}."
+    filhas = [
+        r for r in pdc_tc
+        if r.get("tipo") != "T" and str(r.get("classificacao") or "").startswith(prefixo)
+    ]
+    if not filhas:
+        return None, "sem_filha"
+    if len(filhas) == 1:
+        return int(filhas[0]["codigo"]), "resolvido"
+    return None, "ambigua"
 
-    mapping_conta = {}
-    mapping_hist  = {}
 
-    for _, row in df.iterrows():
+def codigo_para_export_sci(codigo, pdc_tc: list[dict]) -> int | str | None:
+    resolvido, status = resolver_conta_analitica(codigo, pdc_tc)
+    if status == "resolvido":
+        return resolvido
+    if status == "analitica":
+        return codigo
+    return codigo  # ambigua/sem_filha: mantém original — bloqueio fica a cargo do caller
+
+
+def buscar_historicos_pula_complemento() -> set[str]:
+    rows = sb_get("historicos_sci_lcr", {
+        "select": "codigo",
+        "pula_complemento": "eq.true",
+    })
+    return {str(r["codigo"]) for r in rows if r.get("codigo") is not None}
+
+
+def cod_sci_reduzido(codigo_lcr, apelidos: dict[int, int]):
+    if codigo_lcr is None:
+        return ""
+    try:
+        c = int(codigo_lcr)
+    except (TypeError, ValueError):
+        return codigo_lcr
+    return apelidos.get(c, c)
+
+
+def hist_sci_codigo(codigo) -> int | str:
+    c = str(codigo or "").strip()
+    if not c:
+        return ""
+    try:
+        return int(c)
+    except ValueError:
+        return c
+
+
+def _lado_conta(tipo: str) -> str:
+    t = (tipo or "").lower()
+    for td in TIPOS_DEBITO:
+        if td in t:
+            return "debito"
+    for tc in TIPOS_CREDITO:
+        if tc in t:
+            return "credito"
+    return "debito"
+
+
+def lado_efetivo(natureza, valor, tipo_conta: str) -> str:
+    n = (natureza or "").lower()
+    if n.startswith("d"):
+        return "debito"
+    if n.startswith("c"):
+        return "credito"
+    if valor is not None:
         try:
-            codigo_lcr = int(float(str(row["Codigo"] if "Codigo" in df.columns else row.iloc[0])))
-        except (ValueError, TypeError):
-            continue
-
-        apelido_raw = str(row.get("Apelido", row.iloc[4]) if hasattr(row, "get") else row.iloc[4])
-        hist_raw    = str(row.get("HISTORICO PADRAO", row.iloc[6]) if hasattr(row, "get") else row.iloc[6])
-
-        if apelido_raw not in ("nan", "-", "", "None"):
-            try:
-                mapping_conta[codigo_lcr] = int(float(apelido_raw))
-            except ValueError:
-                pass
-
-        if hist_raw not in ("nan", "-", "", "None"):
-            mapping_hist[codigo_lcr] = hist_raw.strip()
-
-    return mapping_conta, mapping_hist
+            if float(valor) < 0:
+                return "debito"
+        except (TypeError, ValueError):
+            pass
+    return _lado_conta(tipo_conta)
 
 
-def carregar_historicos_sci() -> dict:
-    """Retorna dict: codigo_str -> descricao (do Plano de historicos SCI)."""
-    arq = _arquivo_config("historicos")
-    df = pd.read_csv(str(arq), encoding="latin1", sep=";", skiprows=1, on_bad_lines="skip", header=None)
-    mapping = {}
-    for _, row in df.iterrows():
-        try:
-            codigo = str(int(float(str(row.iloc[0])))).strip()
-            nome   = str(row.iloc[2]).strip() if len(row) > 2 else ""
-            if codigo and codigo != "nan":
-                mapping[codigo] = nome
-        except (ValueError, TypeError):
-            continue
-    return mapping
+def _fmt_data(data_str: str) -> str:
+    try:
+        return datetime.strptime(str(data_str)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+    except ValueError:
+        return str(data_str)
 
-
-def carregar_participantes() -> dict:
-    """Retorna dict: CNPJ/CPF -> codigo_participante (para PART DEB/CRED)."""
-    arq = _arquivo_config("participantes")
-    df  = pd.read_csv(str(arq), encoding="latin1", sep=";", on_bad_lines="skip")
-    mapping = {}
-    for _, row in df.iterrows():
-        try:
-            codigo = str(row.iloc[0]).strip()
-            cnpj   = str(row.iloc[3]).strip()   # coluna CNPJ/CPF/CIE
-            if cnpj and cnpj != "nan":
-                mapping[cnpj] = codigo
-        except (IndexError, TypeError):
-            continue
-    return mapping
-
-
-# ── Busca no Supabase ─────────────────────────────────────────────────
 
 def buscar_empresa(termo: str) -> dict:
     empresas = sb_get("empresas", {
@@ -176,10 +230,11 @@ def buscar_empresa(termo: str) -> dict:
 
 
 def buscar_conta_banco(empresa_id: str) -> int | None:
-    """Retorna codigo LCR da conta bancaria principal, ou None."""
+    """CC nº 1 — mesma regra do front (contas_bancarias[0])."""
     contas = sb_get("contas_bancarias", {
         "select": "banco",
         "empresa_id": f"eq.{empresa_id}",
+        "order": "created_at.asc",
         "limit": "1",
     })
     if not contas:
@@ -194,36 +249,18 @@ def buscar_conta_banco(empresa_id: str) -> int | None:
 def buscar_lancamentos(empresa_id: str, competencia: str) -> list:
     return sb_get("lancamentos", {
         "select": (
-            "id,data_lancamento,valor,descricao,competencia,"
+            "id,data_lancamento,valor,descricao,competencia,natureza_movimento,"
+            "documento_numero,part_deb,part_cred,"
             "conta:plano_contas(codigo,descricao,tipo),"
             "historico:historicos_contabeis(codigo,descricao)"
         ),
         "empresa_id": f"eq.{empresa_id}",
         "competencia": f"eq.{competencia}",
+        "conta_id": "not.is.null",
+        "valor": "not.is.null",
         "order": "data_lancamento.asc",
         "limit": "5000",
     })
-
-
-# ── Geração da planilha ───────────────────────────────────────────────
-
-def _lado_conta(tipo: str) -> str:
-    """'debito' ou 'credito' baseado no tipo da conta contabil."""
-    t = (tipo or "").lower()
-    for td in TIPOS_DEBITO:
-        if td in t:
-            return "debito"
-    for tc in TIPOS_CREDITO:
-        if tc in t:
-            return "credito"
-    return "debito"  # fallback conservador
-
-
-def _fmt_data(data_str: str) -> str:
-    try:
-        return datetime.strptime(str(data_str), "%Y-%m-%d").strftime("%d/%m/%Y")
-    except ValueError:
-        return str(data_str)
 
 
 def gerar_planilha(
@@ -231,86 +268,99 @@ def gerar_planilha(
     empresa_nome: str,
     competencia: str,
     conta_banco_codigo: int | None,
-    depara_conta: dict,
-    depara_hist: dict,
+    pdc_apelidos: dict[int, int],
+    hist_pula: set[str],
     output_dir: Path,
+    pdc_tc: list[dict] | None = None,
 ) -> Path | None:
-
     print(f"\n  Buscando lancamentos: {empresa_nome} / {competencia} ...")
     lancamentos = buscar_lancamentos(empresa_id, competencia)
 
     if not lancamentos:
-        print(f"  [!] Nenhum lancamento encontrado.")
+        print("  [!] Nenhum lancamento encontrado.")
         return None
 
     print(f"  {len(lancamentos)} lancamentos encontrados.")
 
-    # Codigo SCI da conta bancaria (counterpart)
-    sci_banco = depara_conta.get(conta_banco_codigo, conta_banco_codigo) if conta_banco_codigo else None
+    sci_banco = cod_sci_reduzido(conta_banco_codigo, pdc_apelidos) if conta_banco_codigo else ""
 
     linhas = []
     sem_conta = 0
+    bloqueados_tc: list[str] = []
+    pdc_tc = pdc_tc or []
 
     for lanc in lancamentos:
-        conta     = lanc.get("conta") or {}
+        conta = lanc.get("conta") or {}
         historico = lanc.get("historico") or {}
 
-        codigo_lcr = conta.get("codigo")   # int
+        codigo_lcr = conta.get("codigo")
         tipo_conta = conta.get("tipo") or ""
 
         if codigo_lcr is None:
             sem_conta += 1
             continue
 
-        # Converter código LCR para SCI via De-para (ou manter direto)
-        sci_conta = depara_conta.get(int(codigo_lcr), int(codigo_lcr))
+        # #136: conta sintética (T) resolve para a filha analítica; se ambígua
+        # ou sem filha, ignora a linha e reporta para reclassificação manual.
+        if pdc_tc:
+            _, status_tc = resolver_conta_analitica(codigo_lcr, pdc_tc)
+            if status_tc in ("ambigua", "sem_filha"):
+                bloqueados_tc.append(f"{codigo_lcr} ({status_tc})")
+                continue
+            codigo_lcr = codigo_para_export_sci(codigo_lcr, pdc_tc)
 
-        # Histórico: preferencia ao De-para, fallback ao codigo do lançamento
-        cod_hist_lanc = str(historico.get("codigo") or "").strip()
-        sci_hist      = depara_hist.get(int(codigo_lcr), cod_hist_lanc) if codigo_lcr else cod_hist_lanc
+        sci_conta = cod_sci_reduzido(codigo_lcr, pdc_apelidos)
+        cod_hist = str(historico.get("codigo") or "").strip()
+        pula = cod_hist in hist_pula
 
-        # Lado do lançamento
-        lado = _lado_conta(tipo_conta)
+        valor_raw = lanc.get("valor")
+        try:
+            valor = abs(float(valor_raw or 0))
+        except (TypeError, ValueError):
+            valor = 0.0
 
+        lado = lado_efetivo(lanc.get("natureza_movimento"), valor_raw, tipo_conta)
         if lado == "debito":
-            debito  = sci_conta
-            credito = sci_banco or ""
+            debito, credito = sci_conta, sci_banco
         else:
-            debito  = sci_banco or ""
-            credito = sci_conta
+            debito, credito = sci_banco, sci_conta
 
         linhas.append({
-            "DATA":                _fmt_data(lanc.get("data_lancamento") or ""),
-            "DEBITO":              debito,
-            "CREDITO":             credito,
-            "PART DEB":            "",
-            "PART CRED":           "",
-            "VALOR":               float(lanc.get("valor") or 0),
-            "HISTORICO":           sci_hist,
-            "COMPLEMENTO":         (lanc.get("descricao") or "")[:80],
-            "DOCUMENTO":           "",
-            "CENTRO DE CUSTO DEB": "",
+            "DATA": _fmt_data(lanc.get("data_lancamento") or ""),
+            "DÉBITO": debito,
+            "CRÉDITO": credito,
+            "PART DÉB": lanc.get("part_deb") or "",
+            "PART CRED": lanc.get("part_cred") or "",
+            "VALOR": valor,
+            "HISTÓRICO": hist_sci_codigo(cod_hist),
+            "COMPLEMENTO": "" if pula else (lanc.get("descricao") or "")[:80],
+            "DOCUMENTO": lanc.get("documento_numero") or "",
+            "CENTRO DE CUSTO DÉB": "",
             "CENTRO DE CUSTO CRED": "",
         })
 
     if sem_conta:
         print(f"  [!] {sem_conta} lancamento(s) ignorado(s) por ausencia de conta.")
 
+    if bloqueados_tc:
+        print(f"  [!] {len(bloqueados_tc)} lancamento(s) ignorado(s) — conta sintetica (T) sem filha analitica unica:")
+        for b in bloqueados_tc[:10]:
+            print(f"      - {b}")
+        if len(bloqueados_tc) > 10:
+            print(f"      ... e mais {len(bloqueados_tc) - 10}")
+
     if not linhas:
         print("  Nenhuma linha valida para gerar planilha.")
         return None
 
-    df = pd.DataFrame(linhas)
+    df = pd.DataFrame(linhas, columns=COLUNAS_SCI)
 
-    slug = empresa_nome.replace(" ", "_").replace("/", "-")[:30]
-    comp = competencia.replace("-", "")
-    nome_arq = f"SCI_{slug}_{comp}.xlsx"
-    caminho  = output_dir / nome_arq
+    nome_arq = f"{empresa_nome} - Lancamentos {competencia}.xlsx"
+    caminho = output_dir / nome_arq
 
     with pd.ExcelWriter(str(caminho), engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Planilha de importacao")
-        ws = writer.sheets["Planilha de importacao"]
-        # Ajusta largura das colunas
+        df.to_excel(writer, index=False, sheet_name="Planilha de importação")
+        ws = writer.sheets["Planilha de importação"]
         for col in ws.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
             ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
@@ -322,11 +372,9 @@ def gerar_planilha(
     return caminho
 
 
-# ── Entrypoint ────────────────────────────────────────────────────────
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Gera planilha de importacao SCI a partir dos lancamentos no Supabase"
+        description="Gera planilha de importacao SCI a partir dos lancamentos no Supabase",
     )
     parser.add_argument("--empresa", "-e", required=True,
                         help="Nome fantasia, razao social ou CNPJ da empresa")
@@ -334,13 +382,13 @@ def main():
                         default=datetime.now().strftime("%Y-%m"),
                         help="Competencia no formato YYYY-MM (default: mes atual)")
     parser.add_argument("--banco", "-b", type=int, default=None,
-                        help="Codigo da conta bancaria no plano de contas (ex: 9 = Bradesco)")
+                        help="Codigo LCR da conta bancaria (ex: 657 = Itau CC#1)")
     parser.add_argument("--output", "-o", default=".",
                         help="Pasta de saida para o XLSX gerado (default: pasta atual)")
     args = parser.parse_args()
 
     if not SUPABASE_URL or not SUPABASE_KEY:
-        print("[ERRO] Variaveis SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY nao encontradas.")
+        print("[ERRO] Variaveis SUPABASE_URL / SUPABASE_KEY nao encontradas.")
         print(f"       Verifique o arquivo: {ENV_FILE}")
         sys.exit(1)
 
@@ -353,42 +401,38 @@ def main():
     print(f"  Empresa    : {args.empresa}")
     print(f"  Competencia: {args.competencia}")
 
-    # Config
-    print("\nCarregando arquivos de configuracao...")
-    depara_conta, depara_hist = carregar_depara()
-    historicos_sci = carregar_historicos_sci()
-    print(f"  De-para contas   : {len(depara_conta)} mapeamentos")
-    print(f"  De-para historicos (padrao): {len(depara_hist)} mapeamentos")
-    print(f"  Historicos SCI   : {len(historicos_sci)} codigos")
+    print("\nCarregando Plano de Contas LCR e historicos SCI...")
+    pdc_apelidos = buscar_pdc_apelidos()
+    pdc_tc = buscar_pdc_tc()
+    hist_pula = buscar_historicos_pula_complemento()
+    print(f"  PDC (codigo → reduzido): {len(pdc_apelidos)} contas")
+    print(f"  Historicos pula_complemento: {len(hist_pula)}")
 
-    # Empresa
     empresa = buscar_empresa(args.empresa)
     print(f"\nEmpresa encontrada: {empresa['razao_social']}")
     print(f"  CNPJ: {empresa['cnpj']}")
 
-    # Conta bancaria
     conta_banco = args.banco or buscar_conta_banco(empresa["id"])
     if conta_banco:
-        sci_banco = depara_conta.get(conta_banco, conta_banco)
-        print(f"  Conta bancaria: codigo LCR {conta_banco} → SCI {sci_banco}")
+        sci_banco = cod_sci_reduzido(conta_banco, pdc_apelidos)
+        print(f"  Conta bancaria CC#1: codigo LCR {conta_banco} → reduzido SCI {sci_banco}")
     else:
         print("  Conta bancaria nao identificada automaticamente.")
-        print("  Use --banco <codigo> para definir (ex: --banco 9 para Bradesco).")
-        print("  As colunas DEBITO/CREDITO de contrapartida ficarao em branco.")
+        print("  Use --banco <codigo> para definir (ex: --banco 657 para Itau).")
+        print("  A contrapartida banco ficara em branco.")
 
-    # Output
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Gerar
     arquivo = gerar_planilha(
         empresa_id=empresa["id"],
         empresa_nome=empresa.get("nome_fantasia") or empresa["razao_social"],
         competencia=args.competencia,
         conta_banco_codigo=conta_banco,
-        depara_conta=depara_conta,
-        depara_hist=depara_hist,
+        pdc_apelidos=pdc_apelidos,
+        hist_pula=hist_pula,
         output_dir=output_dir,
+        pdc_tc=pdc_tc,
     )
 
     if arquivo:

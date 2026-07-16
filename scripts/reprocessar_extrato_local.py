@@ -31,7 +31,7 @@ def reprocessar(doc, conta_map, hist_map, apply):
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tf:
         tf.write(conteudo); caminho = tf.name
     try:
-        transacoes = parsear_extrato(caminho, banco="itau", competencia=comp)
+        transacoes = parsear_extrato(caminho, competencia=comp)
     finally:
         try: os.unlink(caminho)
         except OSError: pass

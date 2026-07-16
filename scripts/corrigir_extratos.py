@@ -82,7 +82,7 @@ def montar_preview(documento_id: str) -> dict:
     ext = os.path.splitext(doc.get("arquivo_nome") or storage_path)[1] or ".xlsx"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext); tmp.write(conteudo); tmp.close()
     try:
-        transacoes = EB.parsear_extrato(tmp.name, banco="itau", competencia=competencia)
+        transacoes = EB.parsear_extrato(tmp.name, competencia=competencia)
     finally:
         os.unlink(tmp.name)
     if not transacoes:

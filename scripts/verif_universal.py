@@ -29,7 +29,7 @@ def testar(nome_sub, comp="2026-05"):
     suf = os.path.splitext(d["arquivo_nome"])[1] or ".xlsx"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suf); tmp.write(conteudo); tmp.close()
     try:
-        tr = eb.parsear_extrato(tmp.name, banco="itau", competencia=d.get("competencia") or comp)
+        tr = eb.parsear_extrato(tmp.name, competencia=d.get("competencia") or comp)
     except Exception as e:
         print(f"  [{nome_sub}] {d['arquivo_nome'][:40]} -> ERRO: {str(e)[:80]}"); return
     meses = dict(sorted(Counter(x["data"][:7] for x in tr).items()))

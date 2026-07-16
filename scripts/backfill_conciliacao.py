@@ -75,7 +75,11 @@ def main():
                     tf.write(conteudo)
                     tmp = tf.name
                 try:
-                    transacoes.extend(parsear_extrato(tmp, banco="itau"))
+                    # banco=None → autodetecção (nome do arquivo original preservado
+                    # via suffix, e detectar_banco também lê o conteúdo do PDF quando
+                    # o nome não ajuda). Antes hardcoded "itau", forçava o parser
+                    # errado em extratos de outros bancos.
+                    transacoes.extend(parsear_extrato(tmp))
                 finally:
                     os.unlink(tmp)
             except Exception as e:

@@ -443,7 +443,12 @@ def processar_extrato(empresa_id, competencia, extrato_path, banco_cod, jwt, ori
     comp_motor = f"{competencia[5:7]}/{competencia[0:4]}"  # 2026-06 -> 06/2026
 
     log(f"\n[1] Parseando extrato: {extrato_path.name}")
-    transacoes = parsear_extrato(str(extrato_path), banco="itau", competencia=competencia)
+    # banco=None → autodetecção (detectar_banco, por nome do arquivo/conteúdo do PDF).
+    # Antes hardcoded "itau": forçava o parser específico do Itaú (_parsear_pdf_itau)
+    # em extratos de outros bancos, que falhava silenciosamente (0 transações) e caía
+    # no fallback Edge/AI sem necessidade — banco_cod é a conta contábil de
+    # contrapartida (classificação), não tem relação com o banco emissor do extrato.
+    transacoes = parsear_extrato(str(extrato_path), competencia=competencia)
     n_antes = len(transacoes)
     transacoes = dedup_intra_transacoes(transacoes)
     if len(transacoes) < n_antes:
@@ -922,8 +927,8 @@ def processar_arquivos(empresa_id, competencia, arquivos, banco_cod, jwt,
 
 
 def processar_via_gestta(empresa_id, competencia, termo_cliente, tarefa_id, banco_cod, jwt, competencia_front=None):
-    # competencia = mês de VENCIMENTO (navegação no Gestta); competencia_front = mês do
-    # MOVIMENTO (onde os lançamentos entram no front). Default: iguais.
+    # competencia = mês de COBRANÇA / competência contábil no front (ex.: jan/2026).
+    # competencia_front = onde documentos e lançamentos entram no Supabase (default = competencia).
     competencia_front = competencia_front or competencia
     comp_g = comp_to_gestta(competencia)
     responsavel = None
