@@ -12,8 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { Markdown } from "@/components/markdown";
-import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, getEmpresa, listPlanoContas, editarLancamento, type SciLinha } from "@/lib/lcr.functions";
-import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, validarLancamentosSci, type SciCelula } from "@/lib/sci-xls";
+import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, getEmpresa, editarLancamento, type SciLinha } from "@/lib/lcr.functions";
+import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, mapaPdcApelidos, validarLancamentosSci, type SciCelula } from "@/lib/sci-xls";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { documentoComErroProcessamento } from "@/lib/documento-erros";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
@@ -262,8 +262,8 @@ type SciLancDet = {
   natureza_movimento?: string | null;
   regra_id?: string | null;
   justificativa?: string | null;
-  conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido: string | null } | null;
-  historico: { codigo: string; descricao: string; sci_apelido: string | null } | null;
+  conta: { codigo: string; descricao: string; tipo: string | null } | null;
+  historico: { codigo: string; descricao: string } | null;
 };
 
 // Célula código + nome para a prévia da planilha (débito/crédito).
@@ -335,18 +335,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
   const contasBanc = (emp as { contas_bancarias?: { banco: string | null }[] } | undefined)?.contas_bancarias ?? [];
   const bancoCodigo = bancoCodigoDe(contasBanc[0]?.banco ?? null);
   const bancoNome = contasBanc[0]?.banco ?? "";
-  // Apelido SCI do banco (de-para): resolve via plano de contas; cai no código LCR se não houver.
-  const { data: planoContas } = useQuery({ queryKey: ["plano-contas"], queryFn: () => listPlanoContas(), staleTime: 5 * 60_000 });
-  const sciApelidoBanco: number | string = (() => {
-    if (bancoCodigo == null) return "";
-    const pc = ((planoContas ?? []) as { codigo: string; sci_apelido: string | null }[]).find((c) => String(c.codigo) === String(bancoCodigo));
-    const v = pc?.sci_apelido?.trim() || String(bancoCodigo);
-    const n = Number(v);
-    return Number.isNaN(n) ? v : n;
-  })();
-  // Plano de Contas oficial LCR (Anexo 1) — set de códigos válidos p/ validação
-  // pré-envio + mapa "requer_participante" para destacar contas que exigem
-  // participante manual.
+  // Plano de Contas oficial LCR (Anexo 1) — códigos reduzidos SCI + validação pré-envio.
   const { data: pdcLcr } = useQuery({
     queryKey: ["plano-de-contas-lcr-codigos"],
     queryFn: async () => {
@@ -355,6 +344,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     },
     staleTime: 10 * 60_000,
   });
+  const pdcApelidos = mapaPdcApelidos(pdcLcr ?? []);
   const codigosValidos = new Set<string>((pdcLcr ?? []).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
   const requerParticipante = new Set<string>((pdcLcr ?? []).filter((c) => c.requer_participante).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
 
@@ -371,7 +361,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     ? { ...l, historico: { ...l.historico, pula_complemento: true } }
     : l);
 
-  const previewRows = linhasSciPreview(lancsComPula, sciApelidoBanco, bancoNome);
+  const previewRows = linhasSciPreview(lancsComPula, bancoCodigo, pdcApelidos, bancoNome);
 
   function baixarXls() {
     if (codigosValidos.size > 0) {
@@ -382,7 +372,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
         return;
       }
     }
-    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, sciApelidoBanco);
+    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, bancoCodigo, pdcApelidos);
     if (n === 0) toast.warning("Nenhum lançamento com conta para exportar.");
     else toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);
   }
@@ -455,7 +445,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">{brl(r.valor)}</TableCell>
                     <TableCell className="text-sm">
-                      <span className="font-mono text-xs">{r.historico.codigo || "—"}{r.historico.apelido && ` · ${r.historico.apelido}`}</span>
+                      <span className="font-mono text-xs">{r.historico.codigo || "—"}</span>
                       {r.historico.nome && <div className="text-xs text-muted-foreground">{r.historico.nome}</div>}
                     </TableCell>
                     <TableCell className="max-w-[16rem] p-1.5">

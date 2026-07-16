@@ -1,6 +1,6 @@
 // Geração da planilha de importação SCI (.xls) por lançamento, no layout exato do
 // modelo (config/08_-_Modelo_Planilha_Importacao_Lctos_SCI.xls): 11 colunas, uma
-// linha por lançamento, códigos LCR diretos. Espelha src/sci/gerar_planilha_supabase.py.
+// linha por lançamento, códigos reduzidos SCI (plano_de_contas_lcr.apelido).
 import * as XLSX from "xlsx";
 
 // banco (texto) → código LCR no plano de contas (contrapartida)
@@ -26,7 +26,7 @@ export type SciLanc = {
   part_deb?: string | null;
   part_cred?: string | null;
   natureza_movimento?: string | null;
-  conta: { codigo: string; tipo: string | null; sci_apelido?: string | null } | null;
+  conta: { codigo: string; tipo: string | null } | null;
   historico: { codigo: string; pula_complemento?: boolean | null } | null;
 };
 
@@ -85,14 +85,42 @@ export function fmtDataPreview(d: string | null): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d);
 }
 
+/** Mapa codigo LCR → código reduzido SCI (plano_de_contas_lcr.apelido, col A PDC). */
+export function mapaPdcApelidos(
+  rows: readonly { codigo: number; apelido: number | null }[],
+): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    if (r.apelido != null) m.set(String(r.codigo), r.apelido);
+  }
+  return m;
+}
+
+/** Código reduzido SCI da conta: plano_de_contas_lcr.apelido; fallback no código LCR. */
+export function codSciReduzido(
+  codigoLcr: string | null | undefined,
+  apelidos: Map<string, number>,
+): number | string {
+  const c = String(codigoLcr ?? "").trim();
+  if (!c) return "";
+  const ap = apelidos.get(c);
+  if (ap != null) return ap;
+  const n = Number(c);
+  return Number.isNaN(n) ? c : n;
+}
+
 /** Monta as linhas do layout SCI (uma por lançamento com conta).
- *  Débito/crédito usam o apelido SCI (de-para) quando houver; `bancoSci` já vem
- *  resolvido para o apelido do banco. */
-export function linhasSci(lancs: SciLanc[], bancoSci: number | string | "") {
+ *  Débito/crédito usam código reduzido (plano_de_contas_lcr.apelido); banco = CC nº 1. */
+export function linhasSci(
+  lancs: SciLanc[],
+  bancoCodigoLcr: number | null | undefined,
+  pdcApelidos: Map<string, number>,
+) {
+  const bancoSci = bancoCodigoLcr != null ? codSciReduzido(String(bancoCodigoLcr), pdcApelidos) : "";
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
-      const conta = codSci(l.conta!);
+      const conta = codSciReduzido(l.conta!.codigo, pdcApelidos);
       const banco: number | string = bancoSci;
       const valor = Number(l.valor ?? 0);
       // Inversão automática contábil: natureza_movimento (IA) > sinal > tipo.
@@ -108,8 +136,8 @@ export function linhasSci(lancs: SciLanc[], bancoSci: number | string | "") {
         // SCI espera valor absoluto na coluna VALOR — o sinal já foi
         // refletido no posicionamento débito/crédito acima.
         "VALOR": Math.abs(valor),
-        // Histórico como número quando possível (SCI espera código numérico).
-        "HISTÓRICO": (() => { const c = l.historico?.codigo ?? ""; const n = Number(c); return c && !Number.isNaN(n) ? n : c; })(),
+        // HISTÓRICO = código oficial (historicos_sci_lcr.codigo). Apelido histórico desconsiderado.
+        "HISTÓRICO": histSciCodigo(l.historico?.codigo),
         // Complemento dispensado quando o histórico tem PulaComplemento=Sim.
         "COMPLEMENTO": l.historico?.pula_complemento ? "" : (l.descricao ?? "").slice(0, 80),
         "DOCUMENTO": l.documento_numero ?? "",
@@ -124,9 +152,10 @@ export function baixarPlanilhaSciXls(
   empresaNome: string,
   competencia: string,
   lancs: SciLanc[],
-  bancoSci: number | string | "",
+  bancoCodigoLcr: number | null | undefined,
+  pdcApelidos: Map<string, number>,
 ): number {
-  const rows = linhasSci(lancs, bancoSci);
+  const rows = linhasSci(lancs, bancoCodigoLcr, pdcApelidos);
   const ws = XLSX.utils.json_to_sheet(rows, { header: COLUNAS });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Planilha de importação");
@@ -145,8 +174,8 @@ export type SciLancRico = {
   part_deb?: string | null;
   part_cred?: string | null;
   natureza_movimento?: string | null;
-  conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido?: string | null } | null;
-  historico: { codigo: string; descricao: string; sci_apelido?: string | null; pula_complemento?: boolean | null } | null;
+  conta: { codigo: string; descricao: string; tipo: string | null } | null;
+  historico: { codigo: string; descricao: string; pula_complemento?: boolean | null } | null;
 };
 
 // ── Validação pré-envio: bloqueia exportação se algum código de conta usado
@@ -175,32 +204,37 @@ export type SciPreviewRow = {
   debito: SciCelula;
   credito: SciCelula;
   valor: number;
-  historico: { codigo: string; apelido: string; nome: string };
+  historico: { codigo: string; nome: string };
   complemento: string;
   documento: string;
   part_deb: string;
   part_cred: string;
 };
 
-/** Código SCI da conta: apelido do de-para quando existir, senão o código LCR. */
-function codSci(c: { codigo: string; sci_apelido?: string | null }): number | string {
-  const v = c.sci_apelido && c.sci_apelido.trim() ? c.sci_apelido.trim() : c.codigo;
-  const n = Number(v);
-  return Number.isNaN(n) ? v : n;
+/** Código SCI do histórico: sempre historicos_sci_lcr.codigo (nunca sci_apelido). */
+export function histSciCodigo(codigo: string | null | undefined): number | string {
+  const c = (codigo ?? "").trim();
+  if (!c) return "";
+  const n = Number(c);
+  return Number.isNaN(n) ? c : n;
 }
 
 /** Monta as linhas da prévia (uma por lançamento), reproduzindo o layout do modelo.
- *  Débito/crédito usam o apelido SCI (de-para) quando disponível; `bancoSci` já vem
- *  resolvido para o apelido do banco. */
+ *  Mesmos códigos reduzidos do export .xls (plano_de_contas_lcr.apelido). */
 export function linhasSciPreview(
   lancs: SciLancRico[],
-  bancoSci: number | string | "",
+  bancoCodigoLcr: number | null | undefined,
+  pdcApelidos: Map<string, number>,
   bancoNome: string,
 ): SciPreviewRow[] {
+  const bancoSci = bancoCodigoLcr != null ? codSciReduzido(String(bancoCodigoLcr), pdcApelidos) : "";
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
-      const conta: SciCelula = { codigo: codSci(l.conta!), nome: l.conta!.descricao };
+      const conta: SciCelula = {
+        codigo: codSciReduzido(l.conta!.codigo, pdcApelidos),
+        nome: l.conta!.descricao,
+      };
       const banco: SciCelula = { codigo: bancoSci, nome: bancoNome || "Banco" };
       const valor = Number(l.valor ?? 0);
       const ld = ladoEfetivo({ natureza: l.natureza_movimento, valor, tipoConta: l.conta!.tipo });
@@ -212,10 +246,9 @@ export function linhasSciPreview(
         valor: Math.abs(valor),
         historico: {
           codigo: l.historico?.codigo ?? "",
-          apelido: l.historico?.sci_apelido ?? "",
           nome: l.historico?.descricao ?? "",
         },
-        complemento: (l.descricao ?? "").slice(0, 80),
+        complemento: l.historico?.pula_complemento ? "" : (l.descricao ?? "").slice(0, 80),
         documento: (l.documento_numero ?? "").slice(0, 80),
         part_deb: (l.part_deb ?? "").slice(0, 40),
         part_cred: (l.part_cred ?? "").slice(0, 40),
