@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { StatusPill } from "@/components/status-pill";
-import { getConciliacaoDetalhe, getEmpresa, listLancamentosConciliacao, conciliarParManual, editarLancamento, createLancamento, deleteLancamento, limparConciliacao, listPlanoContas, listDocumentos, enriquecerExtrato, listDocsSuporte } from "@/lib/lcr.functions";
+import { getConciliacaoDetalhe, getEmpresa, listLancamentosConciliacao, editarLancamento, createLancamento, deleteLancamento, limparConciliacao, listPlanoContas, listDocumentos, enriquecerExtrato, listDocsSuporte } from "@/lib/lcr.functions";
 import { DOC_TIPO_LABEL } from "@/lib/format";
 import { formatCompetencia } from "@/lib/format";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
@@ -54,10 +54,28 @@ function formatDataBR(iso: string | null | undefined): string {
 }
 
 type Linha = { data: string | null; descricao: string; valor: number; id?: string };
+type ResultadoSaldo = {
+  saldo_inicial: number | null;
+  saldo_final: number | null;
+  movimentacao_liquida: number;
+  saldo_calculado: number | null;
+  delta: number | null;
+  confere: boolean;
+  motivo?: string;
+};
+type LancFaltante = { id: string; data: string | null; valor: number; descricao?: string | null };
+type Faltantes = {
+  extrato_sem_classificacao: Linha[];
+  classificado_sem_extrato: LancFaltante[];
+  faltantes_count: number;
+};
 type Resultado = {
   total_razao: number; total_extrato: number; conciliados_count: number;
   conciliados: { razao: Linha; extrato: Linha; fonte: string; motivo?: string }[];
   divergencias_razao: Linha[]; divergencias_extrato: Linha[];
+  // Motor v3 (docs/conciliacao-v3-spec.md) — opcional pra compat com análises antigas.
+  saldo?: ResultadoSaldo;
+  faltantes?: Faltantes;
 } | null;
 
 async function baixar(path: string) {
@@ -336,9 +354,8 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
     }
   }
 
-  // seleção para pareamento manual + edição/inclusão de lançamento
-  const [selRazao, setSelRazao] = useState<number | null>(null);
-  const [selExtrato, setSelExtrato] = useState<number | null>(null);
+  // edição/inclusão de lançamento (o pareamento manual razão×extrato foi
+  // substituído pelo motor de saldo + faltantes — #131/#132)
   const [edit, setEdit] = useState<{ id: string; data: string; valor: string; descricao: string; conta_codigo: string; part_deb: string; part_cred: string } | null>(null);
   const [novo, setNovo] = useState<{ data: string; valor: string; descricao: string; conta_codigo: string } | null>(null);
   const [acting, setActing] = useState(false);
@@ -399,19 +416,9 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
     } finally { setActing(false); }
   }
 
-  async function conciliarManual() {
-    if (!conc || selRazao === null || selExtrato === null) return;
-    setActing(true);
-    try {
-      const res = await conciliarParManual({ data: { conciliacao_id: conc.id, razao_idx: selRazao, extrato_idx: selExtrato } });
-      setSelRazao(null); setSelExtrato(null);
-      await qc.invalidateQueries({ queryKey: key });
-      await qc.invalidateQueries({ queryKey: ["conciliacoes"] });
-      if (res.divergencias_count === 0) toast.success("Todas as divergências resolvidas — clique em Conciliar para finalizar.");
-      else toast.success("Par conciliado manualmente.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro");
-    } finally { setActing(false); }
+  function editarFaltante(id: string) {
+    const l = lancs.find((x) => x.id === id);
+    if (l) abrirEdicao(l);
   }
 
   async function salvarEdicao() {
@@ -715,30 +722,26 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </CardContent>
       </Card>
 
-      {/* Divergências inline (v2) — sempre visível quando há extrato */}
+      {/* Saldo + faltantes (motor v3) — sempre visível quando há extrato */}
       <div ref={divergenciasRef} className="mb-6">
-        {resultado && divCount === 0 && conc?.status !== "concluida" && (
+        {resultado?.saldo?.confere && (resultado?.faltantes?.faltantes_count ?? 0) === 0 && conc?.status !== "concluida" && (
           <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3">
             <div className="flex items-center gap-2 text-sm text-emerald-800">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <span className="font-medium">Valores conferem — pronto para conciliar</span>
+              <span className="font-medium">Saldo confere e não há transações faltantes — pronto para conciliar</span>
             </div>
           </div>
         )}
         {temExtrato && (
-          <DivergenciasPanel
-            divergenciasRazao={resultado?.divergencias_razao ?? []}
-            divergenciasExtrato={resultado?.divergencias_extrato ?? []}
-            divCount={divCount}
+          <SaldoFaltantesPanel
+            saldo={resultado?.saldo}
+            faltantes={resultado?.faltantes}
             analisado={!!resultado}
             revisaoPendente={aRever > 0}
-            selRazao={selRazao}
-            selExtrato={selExtrato}
             acting={acting}
-            onSelRazao={(i) => setSelRazao(selRazao === i ? null : i)}
-            onSelExtrato={(i) => setSelExtrato(selExtrato === i ? null : i)}
-            onAbrirNovo={() => abrirNovo()}
-            onConciliarManual={conciliarManual}
+            onClassificar={(l) => abrirNovo(l.descricao, l.valor, l.data ?? undefined)}
+            onEditar={editarFaltante}
+            onExcluir={(id) => excluirLancamento(id, lancs.find((x) => x.id === id)?.descricao)}
           />
         )}
         {resultado && divCount === 0 && conc?.status === "concluida" && (
@@ -893,88 +896,147 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
   );
 }
 
-// Painel inline de divergências (v2) — renderizado na aba Lançamentos.
-function DivergenciasPanel({ divergenciasRazao, divergenciasExtrato, divCount, analisado, revisaoPendente, selRazao, selExtrato, acting, onSelRazao, onSelExtrato, onAbrirNovo, onConciliarManual }: {
-  divergenciasRazao: Linha[];
-  divergenciasExtrato: Linha[];
-  divCount: number;
+// Painel v3 (motor de saldo + faltantes) — substitui o pareamento manual D/C.
+// KPIs de saldo inicial/final/movimentação/delta com badge confere/não confere,
+// e as duas listas de faltantes: extrato sem classificação, classificado sem extrato.
+function SaldoFaltantesPanel({ saldo, faltantes, analisado, revisaoPendente, acting, onClassificar, onEditar, onExcluir }: {
+  saldo?: ResultadoSaldo;
+  faltantes?: Faltantes;
   analisado: boolean;
   revisaoPendente: boolean;
-  selRazao: number | null;
-  selExtrato: number | null;
   acting: boolean;
-  onSelRazao: (i: number) => void;
-  onSelExtrato: (i: number) => void;
-  onAbrirNovo: () => void;
-  onConciliarManual: () => void;
+  onClassificar: (l: Linha) => void;
+  onEditar: (id: string) => void;
+  onExcluir: (id: string) => void;
 }) {
-  const vazio = divCount === 0;
+  const extratoSemClassificacao = faltantes?.extrato_sem_classificacao ?? [];
+  const classificadoSemExtrato = faltantes?.classificado_sem_extrato ?? [];
+  const faltantesCount = faltantes?.faltantes_count ?? 0;
   const emptyHint = revisaoPendente
     ? "Revise todos os lançamentos pendentes antes de analisar."
     : !analisado
-      ? "Clique em Analisar divergências para cruzar razão × extrato."
-      : "Nenhum item sem par — valores conferem.";
+      ? "Clique em Analisar divergências para calcular o saldo e cruzar razão × extrato."
+      : "Nenhuma pendência — tudo classificado e coberto pelo extrato.";
 
   return (
-    <Card className="overflow-hidden rounded-2xl border-2 border-amber-300 bg-[#fff8f0] shadow-none">
-      <div className="border-b border-amber-200/80 px-6 py-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
-          <h3 className="font-display text-lg leading-tight text-amber-950">O que não foi conciliado</h3>
-          {analisado && (
-            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">{divCount} {divCount === 1 ? "item" : "itens"}</span>
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SaldoMini label="Saldo inicial" value={saldo?.saldo_inicial ?? null} />
+        <SaldoMini label="Saldo final (informado)" value={saldo?.saldo_final ?? null} />
+        <SaldoMini label="Movimentação (D/C)" value={analisado ? (saldo?.movimentacao_liquida ?? 0) : null} signed />
+        <DeltaMini saldo={saldo} analisado={analisado} />
+      </div>
+
+      {analisado && saldo && !saldo.confere && (
+        <div className="flex items-start gap-2 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span>{saldo.motivo ?? "Saldo inicial + movimentação não bate com o saldo final informado."}</span>
+        </div>
+      )}
+
+      <Card className="overflow-hidden rounded-2xl border-2 border-amber-300 bg-[#fff8f0] shadow-none">
+        <div className="border-b border-amber-200/80 px-6 py-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+            <h3 className="font-display text-lg leading-tight text-amber-950">Transações faltantes</h3>
+            {analisado && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">{faltantesCount} {faltantesCount === 1 ? "item" : "itens"}</span>
+            )}
+          </div>
+          <p className="mt-1.5 text-sm text-amber-900/80">Toda linha do extrato precisa de classificação — e todo lançamento com origem no extrato precisa ter linha correspondente</p>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-amber-200/80">
+          <FaltanteCol titulo="Extrato sem classificação" count={extratoSemClassificacao.length} emptyHint={emptyHint}>
+            {extratoSemClassificacao.map((l, i) => (
+              <FaltanteRow key={i} data={l.data} descricao={l.descricao} valor={l.valor}>
+                <Button size="sm" variant="outline" className="h-7 rounded-full text-xs" disabled={acting} onClick={() => onClassificar(l)}>
+                  Classificar
+                </Button>
+              </FaltanteRow>
+            ))}
+          </FaltanteCol>
+          <FaltanteCol titulo="Classificado sem extrato" count={classificadoSemExtrato.length} emptyHint={emptyHint}>
+            {classificadoSemExtrato.map((l) => (
+              <FaltanteRow key={l.id} data={l.data} descricao={l.descricao ?? null} valor={l.valor}>
+                <button type="button" onClick={() => onEditar(l.id)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar / classificar">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" disabled={acting} onClick={() => onExcluir(l.id)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" title="Excluir lançamento">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </FaltanteRow>
+            ))}
+          </FaltanteCol>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function SaldoMini({ label, value, signed }: { label: string; value: number | null; signed?: boolean }) {
+  return (
+    <Card className="rounded-2xl border-0 shadow-soft">
+      <CardContent className="p-4">
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div className="mt-2 font-display text-2xl leading-tight">
+          {value == null ? (
+            <span className="text-lg text-muted-foreground">—</span>
+          ) : (
+            <span className={signed ? (value >= 0 ? "text-emerald-600" : "text-rose-600") : ""}>
+              {signed && value >= 0 ? "+" : ""}{brl(value)}
+            </span>
           )}
         </div>
-        <p className="mt-1.5 text-sm text-amber-900/80">Arrume o que estiver divergindo antes de concluir</p>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-amber-200/80">
-        <DivergCol
-          titulo="Na razão, sem par no extrato" linhas={divergenciasRazao}
-          sel={selRazao} onSel={onSelRazao} disabled={vazio || revisaoPendente}
-          emptyHint={emptyHint}
-        />
-        <DivergCol
-          titulo="No extrato, sem par na razão" linhas={divergenciasExtrato}
-          sel={selExtrato} onSel={onSelExtrato} disabled={vazio || revisaoPendente}
-          emptyHint={emptyHint}
-        />
-      </div>
-      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-amber-200/80 bg-amber-50/60 px-6 py-3">
-        <Button size="sm" variant="outline" className="rounded-full border-primary/30 bg-white" onClick={onAbrirNovo} disabled={revisaoPendente}>
-          Adicionar manual
-        </Button>
-        <Button size="sm" className="rounded-full" disabled={acting || revisaoPendente || vazio || selRazao === null || selExtrato === null} onClick={onConciliarManual}>
-          Conciliar par selecionado
-        </Button>
-      </div>
+      </CardContent>
     </Card>
   );
 }
 
-// Coluna de divergências com seleção (radio), edição/exclusão (lado da razão)
-// e botão "Incluir como lançamento" (lado do extrato).
-function DivergCol({ titulo, linhas, sel, onSel, disabled, emptyHint }: {
-  titulo: string; linhas: Linha[]; sel: number | null;
-  onSel: (i: number) => void; disabled?: boolean; emptyHint?: string;
+function DeltaMini({ saldo, analisado }: { saldo?: ResultadoSaldo; analisado: boolean }) {
+  const confere = saldo?.confere ?? false;
+  return (
+    <Card className={cn("rounded-2xl border-0 shadow-soft", analisado && !confere && "ring-1 ring-rose-300")}>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Delta (saldo)</div>
+          {analisado && saldo && (
+            <StatusPill variant={confere ? "now" : "back"}>{confere ? "Confere" : "Não confere"}</StatusPill>
+          )}
+        </div>
+        <div className={cn("mt-2 font-display text-2xl leading-tight", !analisado || saldo?.delta == null ? "" : confere ? "text-emerald-600" : "text-rose-600")}>
+          {!analisado || saldo?.delta == null ? <span className="text-lg text-muted-foreground">—</span> : brl(saldo.delta)}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Coluna de faltantes com contador + ação por item (classificar, ou editar/excluir).
+function FaltanteCol({ titulo, count, emptyHint, children }: {
+  titulo: string; count: number; emptyHint: string; children: React.ReactNode;
 }) {
   return (
     <div className="px-5 py-4">
-      <h4 className="mb-3 font-display text-sm font-semibold text-primary">{titulo}</h4>
+      <h4 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-primary">
+        {titulo}
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">{count}</span>
+      </h4>
       <div className="max-h-72 divide-y divide-amber-100 overflow-y-auto">
-        {linhas.map((l, i) => (
-          <div key={i} className={cn("flex items-center gap-3 py-2.5 text-sm", sel === i && "bg-primary/5 -mx-2 rounded-lg px-2")}>
-            <input type="radio" checked={sel === i} disabled={disabled} onChange={() => onSel(i)} className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-primary)] disabled:cursor-not-allowed" />
-            <button type="button" disabled={disabled} onClick={() => onSel(i)} className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default">
-              <span className="shrink-0 tabular-nums text-xs text-muted-foreground">{formatDataBR(l.data)}</span>
-              <span className="truncate" title={l.descricao}>{l.descricao}</span>
-            </button>
-            <span className="shrink-0 font-mono text-sm text-foreground">{brl(l.valor)}</span>
-          </div>
-        ))}
-        {linhas.length === 0 && (
-          <div className="py-8 text-center text-xs text-muted-foreground">{emptyHint ?? "Sem divergências."}</div>
-        )}
+        {count === 0 ? <div className="py-8 text-center text-xs text-muted-foreground">{emptyHint}</div> : children}
       </div>
+    </div>
+  );
+}
+
+function FaltanteRow({ data, descricao, valor, children }: {
+  data: string | null; descricao: string | null; valor: number; children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-3 py-2.5 text-sm">
+      <span className="w-16 shrink-0 tabular-nums text-xs text-muted-foreground">{formatDataBR(data)}</span>
+      <span className="min-w-0 flex-1 truncate" title={descricao ?? ""}>{descricao ?? "—"}</span>
+      <span className="shrink-0 font-mono text-sm text-foreground">{brl(valor)}</span>
+      <div className="flex shrink-0 items-center gap-1">{children}</div>
     </div>
   );
 }
