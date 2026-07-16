@@ -17,6 +17,17 @@ export type LancamentoConc = {
 const TOLERANCIA_SALDO = 0.01;
 const JANELA_DIAS = 3;
 
+// #fix-sinal-fallback-ia: `lancamentos.valor` é sempre gravado em módulo
+// (Math.abs em processar-documento) — o sinal fica só em `natureza_movimento`
+// ("debito" | "credito" | null). Sem aplicar este sinal, a movimentação líquida
+// calculada a partir de lançamentos (fallback lancamentos_ia em index.ts, usado
+// quando o extrato foi enviado como PDF/imagem sem CSV) fica sempre positiva,
+// quebrando a validação de saldo (validarSaldo). "credito"/null/desconhecido
+// mantêm o valor positivo (comportamento anterior para dados sem essa info).
+export function sinalPorNatureza(natureza: string | null | undefined): 1 | -1 {
+  return natureza === "debito" ? -1 : 1;
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }

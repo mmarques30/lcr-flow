@@ -12,8 +12,9 @@
 // refletem as pendências v3: saldo não confere (+1) e/ou faltantes (+N).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { detectarFaltantes, validarSaldo, type LancamentoConc, type LinhaExtrato } from "./saldo.ts";
+import { detectarFaltantes, sinalPorNatureza, validarSaldo, type LancamentoConc, type LinhaExtrato } from "./saldo.ts";
 import { avaliarTravaAnalisar, avaliarTravaFinalizar, contarRevisaoPendente } from "./travas.ts";
+import { formatoBinarioDetectado, parseCsv, type Linha } from "./parse-csv.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -23,8 +24,6 @@ const cors = {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const fail = (error: string) => json(200, { ok: false, error });
-
-type Linha = { data: string | null; descricao: string; valor: number; id?: string };
 
 // Extrai saldo_inicial/saldo_final dos dados que a IA já parseou em
 // processar-documento (mesma lógica de getConciliacaoDetalhe em lcr.functions.ts).
@@ -39,93 +38,6 @@ function pickNumero(obj: Record<string, unknown> | null | undefined, chaves: str
     if (!Number.isNaN(n)) return n;
   }
   return null;
-}
-
-// ---- parsing helpers -------------------------------------------------
-function splitCsvLine(line: string, delim: string): string[] {
-  const out: string[] = [];
-  let cur = "", q = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; }
-    else if (c === delim && !q) { out.push(cur); cur = ""; }
-    else cur += c;
-  }
-  out.push(cur);
-  return out.map((s) => s.trim());
-}
-
-function parseValor(s: string): number {
-  if (!s) return NaN;
-  let t = s.replace(/[R$\s]/gi, "").replace(/[()]/g, (m) => (m === "(" ? "-" : ""));
-  const neg = /-/.test(t);
-  t = t.replace(/-/g, "");
-  if (t.includes(".") && t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
-  else if (t.includes(",")) t = t.replace(",", ".");
-  const v = parseFloat(t);
-  return isNaN(v) ? NaN : (neg ? -v : v);
-}
-
-function parseData(s: string, anoFallback: number): string | null {
-  if (!s) return null;
-  s = s.trim();
-  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
-  if (m) {
-    let ano = m[3]; if (ano.length === 2) ano = `20${ano}`;
-    return `${ano}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-  }
-  m = s.match(/^(\d{1,2})[\/.-](\d{1,2})$/);
-  if (m) return `${anoFallback}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-  return null;
-}
-
-const idx = (header: string[], names: string[]) =>
-  header.findIndex((h) => names.some((n) => h.includes(n)));
-
-function parseCsv(texto: string, anoFallback: number): Linha[] {
-  const linhas = texto.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (linhas.length === 0) return [];
-  const delim = (linhas[0].match(/;/g)?.length ?? 0) >= (linhas[0].match(/,/g)?.length ?? 0) ? ";" : ",";
-  const head = splitCsvLine(linhas[0], delim).map((h) => h.toLowerCase());
-  const hasHeader = idx(head, ["data", "date", "dt"]) >= 0 || idx(head, ["valor", "value", "amount", "montante"]) >= 0;
-  let ciData = 0, ciDesc = 1, ciValor = 2, ciCred = -1, ciDeb = -1, ciTipo = -1, start = 0;
-  if (hasHeader) {
-    ciData = idx(head, ["data", "date", "dt"]);
-    // Prioriza coluna "descricao/descrição/description" sobre "historico_codigo" pra
-    // não exibir códigos crípticos como descrição na UI.
-    const ciDescricao = idx(head, ["descrição", "descricao", "description", "memo"]);
-    const ciHistorico = idx(head, ["hist", "lançamento", "lancamento"]);
-    ciDesc = ciDescricao >= 0 ? ciDescricao : ciHistorico;
-    ciValor = idx(head, ["valor", "value", "amount", "montante"]);
-    ciCred = idx(head, ["crédito", "credito", "credit", "entrada"]);
-    ciDeb = idx(head, ["débito", "debito", "debit", "saída", "saida"]);
-    ciTipo = idx(head, ["tipo", "type"]);
-    start = 1;
-  }
-  const out: Linha[] = [];
-  for (let i = start; i < linhas.length; i++) {
-    const cols = splitCsvLine(linhas[i], delim);
-    // Ignora linhas de saldo (inicial/final/anterior) que aparecem em alguns extratos
-    // bancários e não representam transações.
-    if (ciTipo >= 0 && /saldo/i.test(cols[ciTipo] ?? "")) continue;
-    if (/^\s*saldo\b/i.test(cols[ciDesc] ?? "")) continue;
-    let valor = NaN;
-    if (ciValor >= 0 && cols[ciValor] != null) valor = parseValor(cols[ciValor]);
-    if (isNaN(valor) && (ciCred >= 0 || ciDeb >= 0)) {
-      const cred = ciCred >= 0 ? parseValor(cols[ciCred] ?? "") : 0;
-      const deb = ciDeb >= 0 ? parseValor(cols[ciDeb] ?? "") : 0;
-      valor = (isNaN(cred) ? 0 : cred) - (isNaN(deb) ? 0 : Math.abs(deb));
-    }
-    if (isNaN(valor)) continue;
-    out.push({
-      data: parseData(cols[ciData] ?? "", anoFallback),
-      descricao: (cols[ciDesc] ?? cols.find((c, j) => j !== ciData && j !== ciValor && c) ?? "").slice(0, 200),
-      valor,
-    });
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------
@@ -199,17 +111,17 @@ Deno.serve(async (req) => {
   }
 
   const anoFallback = parseInt((conc.competencia ?? "2026-01").slice(0, 4), 10) || 2026;
-  const dl = async (path: string) => {
+  const dlBytes = async (path: string): Promise<Uint8Array> => {
     const { data, error } = await admin.storage.from("conciliacoes").download(path);
     if (error || !data) throw new Error(error?.message ?? "Falha ao baixar arquivo.");
-    return new TextDecoder().decode(new Uint8Array(await data.arrayBuffer()));
+    return new Uint8Array(await data.arrayBuffer());
   };
 
   // Razão = lançamentos da competência (gerados pela IA), direto do banco.
   // Não há mais upload de "razão SCI": a razão é a tabela de lançamentos da tela.
   const { data: lancRows, error: lErr } = await admin
     .from("lancamentos")
-    .select("id, data_lancamento, valor, descricao, conta_id, fonte_extrato, confidence")
+    .select("id, data_lancamento, valor, descricao, conta_id, fonte_extrato, confidence, natureza_movimento")
     .eq("empresa_id", conc.empresa_id)
     .eq("competencia", conc.competencia)
     .not("valor", "is", null)
@@ -230,10 +142,14 @@ Deno.serve(async (req) => {
     descricao: (r.descricao ?? "").slice(0, 200),
     valor: Number(r.valor) || 0,
   }));
+  // #fix-sinal-fallback-ia: lancamentos.valor é sempre gravado em módulo
+  // (Math.abs em processar-documento) — reaplica o sinal real via
+  // natureza_movimento. Sem isso, o fallback lancamentos_ia (abaixo) soma
+  // tudo como positivo e a validação de saldo nunca reflete a realidade.
   const lancamentosConc: LancamentoConc[] = (lancRows ?? []).map((r) => ({
     id: r.id as string,
     data: r.data_lancamento ?? null,
-    valor: Number(r.valor) || 0,
+    valor: sinalPorNatureza(r.natureza_movimento as string | null) * (Number(r.valor) || 0),
     contaId: (r.conta_id as string | null) ?? null,
     fonteExtrato: !!r.fonte_extrato,
     descricao: (r.descricao as string | null) ?? null,
@@ -257,14 +173,33 @@ Deno.serve(async (req) => {
   const saldoInicial = pickNumero(dadosExtratoDoc as Record<string, unknown> | null, ["saldo_inicial", "saldo_inicio", "saldo_anterior", "opening_balance", "balance_start"]);
   const saldoFinal = pickNumero(dadosExtratoDoc as Record<string, unknown> | null, ["saldo_final", "saldo_atual", "saldo_disponivel", "closing_balance", "balance_end"]);
 
+  // extratoFonte: de onde vêm as linhas do extrato pro motor de saldo/
+  // faltantes. "csv" = arquivo de texto (checagem independente da IA).
+  // "lancamentos_ia" = fallback quando o cliente sobe o extrato como PDF/XLS/
+  // imagem (sem CSV) — reaproveita os lançamentos fonte_extrato=true que a IA
+  // já extraiu em processar-documento. Nesse modo, "classificado sem extrato"
+  // fica sempre 0 (não há segunda fonte independente pra comparar).
   let extrato: Linha[];
+  let extratoFonte: "csv" | "lancamentos_ia";
   try {
-    extrato = parseCsv(await dl(conc.extrato_csv_url), anoFallback);
+    const bytes = await dlBytes(conc.extrato_csv_url);
+    const formatoBin = formatoBinarioDetectado(bytes);
+    if (formatoBin) {
+      extrato = lancamentosConc.filter((l) => l.fonteExtrato).map((l) => ({ id: l.id, data: l.data, descricao: l.descricao ?? "", valor: l.valor }));
+      extratoFonte = "lancamentos_ia";
+    } else {
+      extrato = parseCsv(new TextDecoder().decode(bytes), anoFallback);
+      extratoFonte = "csv";
+    }
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Falha ao ler o extrato.");
   }
   if (razao.length === 0) return fail("Não há lançamentos na razão desta competência. Processe um documento com IA antes de conciliar.");
-  if (extrato.length === 0) return fail("Extrato sem linhas válidas (verifique o CSV).");
+  if (extrato.length === 0) {
+    return fail(extratoFonte === "lancamentos_ia"
+      ? "Nenhum lançamento de extrato (fonte_extrato) encontrado — reprocesse o documento do extrato com IA."
+      : "Extrato sem linhas válidas (verifique o CSV).");
+  }
 
   // Motor v3 (#132 — pareamento D/C linha a linha removido): saldo (inicial +
   // movimentação ≈ final) e faltantes (extrato sem classificação / lançamento
@@ -277,6 +212,7 @@ Deno.serve(async (req) => {
     gerado_em: new Date().toISOString(),
     total_razao: razao.length,
     total_extrato: extrato.length,
+    extrato_fonte: extratoFonte,
     saldo,
     faltantes,
   };

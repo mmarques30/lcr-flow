@@ -73,6 +73,10 @@ type Faltantes = {
 // Motor v3 (docs/conciliacao-v3-spec.md): só saldo + faltantes.
 type Resultado = {
   total_razao: number; total_extrato: number;
+  // "lancamentos_ia": extrato foi enviado como PDF/XLS/imagem (sem CSV) — o
+  // motor usou os lançamentos fonte_extrato=true (já extraídos pela IA) como
+  // fonte do extrato. Nesse modo "classificado sem extrato" fica sempre 0.
+  extrato_fonte?: "csv" | "lancamentos_ia";
   saldo?: ResultadoSaldo;
   faltantes?: Faltantes;
 } | null;
@@ -754,6 +758,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             analisado={!!resultado}
             revisaoPendente={aRever > 0}
             acting={acting}
+            extratoFonte={resultado?.extrato_fonte}
             onClassificar={(l) => abrirNovo(l.descricao, l.valor, l.data ?? undefined)}
             onEditar={editarFaltante}
             onExcluir={(id) => excluirLancamento(id, lancs.find((x) => x.id === id)?.descricao)}
@@ -903,12 +908,13 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
 // Painel v3 (motor de saldo + faltantes) — substitui o pareamento manual D/C.
 // KPIs de saldo inicial/final/movimentação/delta com badge confere/não confere,
 // e as duas listas de faltantes: extrato sem classificação, classificado sem extrato.
-function SaldoFaltantesPanel({ saldo, faltantes, analisado, revisaoPendente, acting, onClassificar, onEditar, onExcluir }: {
+function SaldoFaltantesPanel({ saldo, faltantes, analisado, revisaoPendente, acting, extratoFonte, onClassificar, onEditar, onExcluir }: {
   saldo?: ResultadoSaldo;
   faltantes?: Faltantes;
   analisado: boolean;
   revisaoPendente: boolean;
   acting: boolean;
+  extratoFonte?: "csv" | "lancamentos_ia";
   onClassificar: (l: Linha) => void;
   onEditar: (id: string) => void;
   onExcluir: (id: string) => void;
@@ -924,6 +930,12 @@ function SaldoFaltantesPanel({ saldo, faltantes, analisado, revisaoPendente, act
 
   return (
     <div className="space-y-4">
+      {analisado && extratoFonte === "lancamentos_ia" && (
+        <div className="flex items-start gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+          <span>O extrato desta competência foi enviado como PDF/imagem (sem CSV) — o saldo e as faltantes usam os lançamentos já extraídos pela IA. "Classificado sem extrato" não se aplica nesse modo (sem uma segunda fonte independente pra comparar).</span>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SaldoMini label="Saldo inicial" value={saldo?.saldo_inicial ?? null} />
         <SaldoMini label="Saldo final (informado)" value={saldo?.saldo_final ?? null} />

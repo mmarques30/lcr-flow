@@ -8,6 +8,7 @@ import { formatMapaCtx, MAPA_REGRAS } from "./mapa-transacoes.ts";
 import { corrigirSugestoesMapa } from "./corrigir-mapa.ts";
 import { FORMATO_RESPOSTA_JSON, parseClassificacaoResposta, type ClassificacaoParsed } from "./parse-resposta.ts";
 import { filtrarJanelaCompetencia } from "./janela-competencia.ts";
+import { montarCsvSintetico } from "./csv-sintetico.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -294,10 +295,23 @@ Deno.serve(async (req) => {
   // Sobe o arquivo pro bucket de conciliações e vincula como extrato_csv_url.
   // Chamado quando confirmado (pelo upload OU pela IA) que o documento é
   // EXTRATO BANCÁRIO. Não cria lançamentos aqui — isso acontece no pós-IA.
-  async function uploadExtratoBucket(competenciaExtrato: string): Promise<string | null> {
-    const safeName = (doc.arquivo_nome ?? "extrato").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
+  //
+  // #mover-geracao-csv-edge: por padrão sobe o arquivo original (`bytes`) — vale
+  // pra CSV/TXT reais. Quando o original é binário (PDF/imagem/XLSX), o caller
+  // passa `conteudo`/`contentType`/`nomeArquivo` com um CSV sintético já gerado
+  // (ver montarCsvSintetico), porque `conciliar` (motor de saldo/faltantes) só
+  // sabe ler texto delimitado — subir o binário direto como extrato_csv_url
+  // deixava a conciliação sem 2ª fonte independente (detectada como binário e
+  // sem CSV pra analisar).
+  async function uploadExtratoBucket(
+    competenciaExtrato: string,
+    conteudo: Uint8Array = bytes,
+    contentType: string = file.type || "text/csv",
+    nomeArquivo: string = doc.arquivo_nome ?? "extrato",
+  ): Promise<string | null> {
+    const safeName = nomeArquivo.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
     const concPath = `${doc.empresa_id}/${competenciaExtrato}/extrato-${crypto.randomUUID()}-${safeName}`;
-    const { error: upErr } = await admin.storage.from("conciliacoes").upload(concPath, bytes, { upsert: false, cacheControl: "3600", contentType: file.type || "text/csv" });
+    const { error: upErr } = await admin.storage.from("conciliacoes").upload(concPath, conteudo, { upsert: false, cacheControl: "3600", contentType });
     if (upErr) { await markErro(`Falha ao vincular extrato à conciliação: ${upErr.message}`); return null; }
 
     const { data: existente } = await admin.from("conciliacoes").select("id").eq("empresa_id", doc.empresa_id).eq("competencia", competenciaExtrato).maybeSingle();
@@ -496,8 +510,12 @@ Deno.serve(async (req) => {
     }
   }
 
+  // #mover-geracao-csv-edge: só sobe o arquivo original direto quando ele já é
+  // texto delimitável (CSV/TXT real). PDF/imagem/XLSX geram CSV sintético mais
+  // abaixo, depois que os lançamentos (rowsJanela) estiverem disponíveis.
+  const extratoOriginalTextual = TEXTUAL.has(ext);
   let concPath: string | null = null;
-  if (isExtratoBancario) {
+  if (isExtratoBancario && extratoOriginalTextual) {
     concPath = await uploadExtratoBucket(competencia);
     if (!concPath) return fail("Falha ao vincular extrato.");
   }
@@ -633,6 +651,23 @@ Deno.serve(async (req) => {
     lancCriados = count ?? rowsJanela.length;
   }
   if (foraJanela) console.log(`janela competência: ${foraJanela} lançamento(s) fora de ±1 mês descartado(s)`);
+
+  // #mover-geracao-csv-edge: extrato original binário (PDF/imagem/XLSX) — gera o
+  // CSV sintético agora que rowsJanela existe e sobe como extrato_csv_url no
+  // lugar do binário. Documentos novos passam a ter sempre um CSV analisável
+  // por `conciliar`; o fallback formatoBinarioDetectado/lancamentos_ia em
+  // conciliar/index.ts continua existindo só pros registros antigos já
+  // contaminados (extrato_csv_url apontando pro binário).
+  if (isExtratoBancario && !extratoOriginalTextual) {
+    const csvSintetico = montarCsvSintetico(rowsJanela);
+    concPath = await uploadExtratoBucket(
+      competencia,
+      new TextEncoder().encode(csvSintetico),
+      "text/csv",
+      "extrato-sintetico.csv",
+    );
+    if (!concPath) return fail("Falha ao gerar CSV sintético do extrato.");
+  }
 
   await admin.from("documentos").update({
     tipo: tipoFinal,

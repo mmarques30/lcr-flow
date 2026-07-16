@@ -18,6 +18,7 @@ import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual }
 import { documentoComErroProcessamento } from "@/lib/documento-erros";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
 import { supabase } from "@/integrations/supabase/client";
+import { trackAction } from "@/lib/logs.functions";
 import { Sparkles, Loader2, ClipboardCheck, Download, FileSpreadsheet, X, Plus, Eye, ChevronRight, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentoRevisaoView } from "@/routes/_authenticated/revisar.$documentoId";
@@ -363,6 +364,17 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
 
   const previewRows = linhasSciPreview(lancsComPula, bancoCodigo, pdcApelidos, bancoNome);
 
+  // #135: Baixar SCI só libera depois da conciliação bancária concluída
+  // (docs/conciliacao-v3-spec.md — "Conciliar desbloqueia Baixar SCI").
+  const { data: concStatus } = useQuery({
+    queryKey: ["conc-status", empresaId, competencia],
+    queryFn: async () => {
+      const { data } = await supabase.from("conciliacoes").select("status").eq("empresa_id", empresaId).eq("competencia", competencia).maybeSingle();
+      return (data?.status as string | null) ?? null;
+    },
+  });
+  const conciliacaoConcluida = concStatus === "concluida";
+
   function baixarXls() {
     if (codigosValidos.size > 0) {
       const invalidos = validarLancamentosSci(lancsComPula, codigosValidos);
@@ -374,7 +386,10 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     }
     const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, bancoCodigo, pdcApelidos);
     if (n === 0) toast.warning("Nenhum lançamento com conta para exportar.");
-    else toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);
+    else {
+      toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);
+      void trackAction("gerou_sci", { clienteId: empresaId, detalhes: { competencia, total_lancamentos: n } });
+    }
   }
 
   async function gerar() {
@@ -392,10 +407,22 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
 
   return (
     <div className="space-y-5">
+      {!conciliacaoConcluida && (
+        <div className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+          <span>Conclua a conciliação bancária desta competência na aba <strong>Conciliação bancária</strong> para liberar o download do SCI.</span>
+        </div>
+      )}
       {/* Ações — título suprimido (já está no filtro de competência do header) */}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button size="sm" disabled={busy} onClick={gerar}><FileSpreadsheet className="mr-1 h-4 w-4" />{busy ? "Gerando…" : "Gerar SCI"}</Button>
-        <Button variant="outline" size="sm" disabled={lancs.length === 0} onClick={baixarXls} title="Baixa o arquivo de importação SCI (.xls) — uma linha por lançamento, layout do modelo">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={lancs.length === 0 || !conciliacaoConcluida}
+          onClick={baixarXls}
+          title={!conciliacaoConcluida ? "Conclua a conciliação bancária antes de exportar para o SCI" : "Baixa o arquivo de importação SCI (.xls) — uma linha por lançamento, layout do modelo"}
+        >
           <Download className="mr-1 h-4 w-4" />Baixar SCI (.xls)
         </Button>
         <Button variant="outline" size="sm" disabled={!linhas || linhas.length === 0} onClick={() => linhas && exportarCsv(empresaNome, competencia, linhas)}>

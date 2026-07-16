@@ -1,7 +1,15 @@
 // Testes do motor de saldo/faltantes (Conciliação v3). Roda com `deno test`
 // (mesmo runtime da Edge Function, sem dependências externas).
 import { assertEquals, assertAlmostEquals } from "jsr:@std/assert@1";
-import { detectarFaltantes, validarSaldo, type LancamentoConc, type LinhaExtrato } from "./saldo.ts";
+import { detectarFaltantes, sinalPorNatureza, validarSaldo, type LancamentoConc, type LinhaExtrato } from "./saldo.ts";
+
+Deno.test("sinalPorNatureza — debito é negativo, credito/null/desconhecido é positivo", () => {
+  assertEquals(sinalPorNatureza("debito"), -1);
+  assertEquals(sinalPorNatureza("credito"), 1);
+  assertEquals(sinalPorNatureza(null), 1);
+  assertEquals(sinalPorNatureza(undefined), 1);
+  assertEquals(sinalPorNatureza("outra_coisa"), 1);
+});
 
 Deno.test("validarSaldo — delta 0.01 confere", () => {
   const r = validarSaldo({
@@ -122,4 +130,22 @@ Deno.test("detectarFaltantes — competência sem faltantes (extrato 100% classi
   ];
   const r = detectarFaltantes({ extrato, lancamentos });
   assertEquals(r.faltantes_count, 0);
+});
+
+Deno.test("validarSaldo + sinalPorNatureza — fallback lancamentos_ia (extrato = lançamentos com valor em módulo) não fica sempre positivo", () => {
+  // Espelha o fallback em conciliar/index.ts: lancamentos.valor é sempre módulo
+  // (r.valor bruto do banco), natureza_movimento carrega o sinal real.
+  const lancamentosBrutos = [
+    { valor: 100, natureza: "debito" as const },
+    { valor: 50, natureza: "debito" as const },
+    { valor: 30, natureza: "credito" as const },
+  ];
+  const extrato: LinhaExtrato[] = lancamentosBrutos.map((l) => ({
+    data: "2026-07-05",
+    descricao: "",
+    valor: sinalPorNatureza(l.natureza) * l.valor,
+  }));
+  const r = validarSaldo({ saldoInicial: 1000, saldoFinal: 880, extrato });
+  assertEquals(r.movimentacao_liquida, -120);
+  assertEquals(r.confere, true);
 });
