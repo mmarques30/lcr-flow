@@ -12,12 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { Markdown } from "@/components/markdown";
-import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, getEmpresa, listPlanoContas, editarLancamento, type SciLinha } from "@/lib/lcr.functions";
-import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, validarLancamentosSci, type SciCelula } from "@/lib/sci-xls";
+import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, createDocumento, ensureCompetencia, listLancamentosConciliacao, getEmpresa, editarLancamento, type SciLinha } from "@/lib/lcr.functions";
+import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, mapaPdcApelidos, validarLancamentosSci, type SciCelula } from "@/lib/sci-xls";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { documentoComErroProcessamento } from "@/lib/documento-erros";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
 import { supabase } from "@/integrations/supabase/client";
+import { trackAction } from "@/lib/logs.functions";
 import { Sparkles, Loader2, ClipboardCheck, Download, FileSpreadsheet, X, Plus, Eye, ChevronRight, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentoRevisaoView } from "@/routes/_authenticated/revisar.$documentoId";
@@ -262,8 +263,8 @@ type SciLancDet = {
   natureza_movimento?: string | null;
   regra_id?: string | null;
   justificativa?: string | null;
-  conta: { codigo: string; descricao: string; tipo: string | null; sci_apelido: string | null } | null;
-  historico: { codigo: string; descricao: string; sci_apelido: string | null } | null;
+  conta: { codigo: string; descricao: string; tipo: string | null } | null;
+  historico: { codigo: string; descricao: string } | null;
 };
 
 // Célula código + nome para a prévia da planilha (débito/crédito).
@@ -335,18 +336,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
   const contasBanc = (emp as { contas_bancarias?: { banco: string | null }[] } | undefined)?.contas_bancarias ?? [];
   const bancoCodigo = bancoCodigoDe(contasBanc[0]?.banco ?? null);
   const bancoNome = contasBanc[0]?.banco ?? "";
-  // Apelido SCI do banco (de-para): resolve via plano de contas; cai no código LCR se não houver.
-  const { data: planoContas } = useQuery({ queryKey: ["plano-contas"], queryFn: () => listPlanoContas(), staleTime: 5 * 60_000 });
-  const sciApelidoBanco: number | string = (() => {
-    if (bancoCodigo == null) return "";
-    const pc = ((planoContas ?? []) as { codigo: string; sci_apelido: string | null }[]).find((c) => String(c.codigo) === String(bancoCodigo));
-    const v = pc?.sci_apelido?.trim() || String(bancoCodigo);
-    const n = Number(v);
-    return Number.isNaN(n) ? v : n;
-  })();
-  // Plano de Contas oficial LCR (Anexo 1) — set de códigos válidos p/ validação
-  // pré-envio + mapa "requer_participante" para destacar contas que exigem
-  // participante manual.
+  // Plano de Contas oficial LCR (Anexo 1) — códigos reduzidos SCI + validação pré-envio.
   const { data: pdcLcr } = useQuery({
     queryKey: ["plano-de-contas-lcr-codigos"],
     queryFn: async () => {
@@ -355,6 +345,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     },
     staleTime: 10 * 60_000,
   });
+  const pdcApelidos = mapaPdcApelidos(pdcLcr ?? []);
   const codigosValidos = new Set<string>((pdcLcr ?? []).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
   const requerParticipante = new Set<string>((pdcLcr ?? []).filter((c) => c.requer_participante).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
 
@@ -371,7 +362,18 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     ? { ...l, historico: { ...l.historico, pula_complemento: true } }
     : l);
 
-  const previewRows = linhasSciPreview(lancsComPula, sciApelidoBanco, bancoNome);
+  const previewRows = linhasSciPreview(lancsComPula, bancoCodigo, pdcApelidos, bancoNome);
+
+  // #135: Baixar SCI só libera depois da conciliação bancária concluída
+  // (docs/conciliacao-v3-spec.md — "Conciliar desbloqueia Baixar SCI").
+  const { data: concStatus } = useQuery({
+    queryKey: ["conc-status", empresaId, competencia],
+    queryFn: async () => {
+      const { data } = await supabase.from("conciliacoes").select("status").eq("empresa_id", empresaId).eq("competencia", competencia).maybeSingle();
+      return (data?.status as string | null) ?? null;
+    },
+  });
+  const conciliacaoConcluida = concStatus === "concluida";
 
   function baixarXls() {
     if (codigosValidos.size > 0) {
@@ -382,9 +384,12 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
         return;
       }
     }
-    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, sciApelidoBanco);
+    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, bancoCodigo, pdcApelidos);
     if (n === 0) toast.warning("Nenhum lançamento com conta para exportar.");
-    else toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);
+    else {
+      toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);
+      void trackAction("gerou_sci", { clienteId: empresaId, detalhes: { competencia, total_lancamentos: n } });
+    }
   }
 
   async function gerar() {
@@ -402,10 +407,22 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
 
   return (
     <div className="space-y-5">
+      {!conciliacaoConcluida && (
+        <div className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+          <span>Conclua a conciliação bancária desta competência na aba <strong>Conciliação bancária</strong> para liberar o download do SCI.</span>
+        </div>
+      )}
       {/* Ações — título suprimido (já está no filtro de competência do header) */}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button size="sm" disabled={busy} onClick={gerar}><FileSpreadsheet className="mr-1 h-4 w-4" />{busy ? "Gerando…" : "Gerar SCI"}</Button>
-        <Button variant="outline" size="sm" disabled={lancs.length === 0} onClick={baixarXls} title="Baixa o arquivo de importação SCI (.xls) — uma linha por lançamento, layout do modelo">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={lancs.length === 0 || !conciliacaoConcluida}
+          onClick={baixarXls}
+          title={!conciliacaoConcluida ? "Conclua a conciliação bancária antes de exportar para o SCI" : "Baixa o arquivo de importação SCI (.xls) — uma linha por lançamento, layout do modelo"}
+        >
           <Download className="mr-1 h-4 w-4" />Baixar SCI (.xls)
         </Button>
         <Button variant="outline" size="sm" disabled={!linhas || linhas.length === 0} onClick={() => linhas && exportarCsv(empresaNome, competencia, linhas)}>
@@ -455,7 +472,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">{brl(r.valor)}</TableCell>
                     <TableCell className="text-sm">
-                      <span className="font-mono text-xs">{r.historico.codigo || "—"}{r.historico.apelido && ` · ${r.historico.apelido}`}</span>
+                      <span className="font-mono text-xs">{r.historico.codigo || "—"}</span>
                       {r.historico.nome && <div className="text-xs text-muted-foreground">{r.historico.nome}</div>}
                     </TableCell>
                     <TableCell className="max-w-[16rem] p-1.5">

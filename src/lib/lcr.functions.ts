@@ -1015,42 +1015,6 @@ export const bulkConciliarLancamentos = createServerFn({ method: "POST" })
     return { ok: true, atualizados: rows?.length ?? 0 };
   });
 
-type ResLinha = { data: string | null; descricao: string; valor: number; id?: string };
-type ResConc = {
-  conciliados?: { razao: ResLinha; extrato: ResLinha; fonte: string; motivo?: string }[];
-  conciliados_count?: number;
-  divergencias_razao?: ResLinha[];
-  divergencias_extrato?: ResLinha[];
-  [k: string]: unknown;
-};
-
-// Concilia manualmente um par (divergência da razão + divergência do extrato),
-// movendo-os para os conciliados no resultado salvo da conciliação.
-export const conciliarParManual = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ conciliacao_id: z.string().uuid(), razao_idx: z.number().int().min(0), extrato_idx: z.number().int().min(0) }).parse(d))
-  .handler(async ({ context, data }) => {
-    const { data: conc, error } = await context.supabase.from("conciliacoes").select("id, resultado").eq("id", data.conciliacao_id).maybeSingle();
-    if (error) throw new Error(error.message);
-    const r = (conc?.resultado ?? null) as ResConc | null;
-    if (!r) throw new Error("Conciliação ainda não foi executada.");
-    const razao = r.divergencias_razao?.[data.razao_idx];
-    const extrato = r.divergencias_extrato?.[data.extrato_idx];
-    if (!razao || !extrato) throw new Error("Item não encontrado.");
-    r.conciliados = [...(r.conciliados ?? []), { razao, extrato, fonte: "manual" }];
-    r.divergencias_razao = (r.divergencias_razao ?? []).filter((_, i) => i !== data.razao_idx);
-    r.divergencias_extrato = (r.divergencias_extrato ?? []).filter((_, i) => i !== data.extrato_idx);
-    r.conciliados_count = r.conciliados.length;
-    const divergencias_count = (r.divergencias_razao?.length ?? 0) + (r.divergencias_extrato?.length ?? 0);
-    // Fluxo v2: zerar divergências habilita "Conciliar" — não finaliza automaticamente.
-    const status = divergencias_count === 0 ? "em_andamento" : "divergencias";
-    const { error: upErr } = await context.supabase.from("conciliacoes")
-      .update({ resultado: r as never, divergencias_count, status, concluido_em: null })
-      .eq("id", data.conciliacao_id);
-    if (upErr) throw new Error(upErr.message);
-    return { ok: true, divergencias_count };
-  });
-
 // Dispara o cruzamento extrato × documentos suporte (NF/recibo/planilha).
 // Cada lançamento gerado de uma linha do extrato pode ser enriquecido com
 // participante + nº do documento quando um doc suporte da mesma competência

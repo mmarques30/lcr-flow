@@ -7,6 +7,8 @@ import { chaveDedupParaDoc, deveMarcarDuplicata, _sobreposicao, dedupIntraDocume
 import { formatMapaCtx, MAPA_REGRAS } from "./mapa-transacoes.ts";
 import { corrigirSugestoesMapa } from "./corrigir-mapa.ts";
 import { FORMATO_RESPOSTA_JSON, parseClassificacaoResposta, type ClassificacaoParsed } from "./parse-resposta.ts";
+import { filtrarJanelaCompetencia } from "./janela-competencia.ts";
+import { montarCsvSintetico } from "./csv-sintetico.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -113,6 +115,16 @@ DEFINIÇÕES ADICIONAIS:
 3. Sugira os LANÇAMENTOS contábeis correspondentes.
 
 Regras:
+- IGNORE COMPLETAMENTE qualquer seção do extrato chamada "Próximos Lançamentos",
+  "Lançamentos Futuros", "Movimentações Futuras", "Lançamentos a Confirmar" ou
+  similar (comum em extratos Bradesco e outros quando extraídos no início do mês
+  seguinte). São movimentações AINDA NÃO EFETIVADAS na data de extração — NÃO
+  entram em lancamentos_sugeridos, mesmo que apareçam antes do fim do arquivo.
+  Extraia lançamentos SOMENTE da tabela principal de movimentações do período
+  (entre saldo anterior e saldo atual/final).
+- NÃO sugira lançamentos com data_lancamento fora do período do extrato
+  (periodo_inicio–periodo_fim) — em especial datas do dia 1 do mês SEGUINTE ao
+  período, que tipicamente pertencem à seção de próximos lançamentos acima.
 - Use EXCLUSIVAMENTE códigos de conta e de histórico que existem no plano de contas e na lista de históricos passados no contexto (contas analíticas/folhas).
 - Extrato bancário / fatura de cartão / movimento de conta de investimento: cada
   movimentação vira UM lançamento (fonte de razão).
@@ -283,10 +295,23 @@ Deno.serve(async (req) => {
   // Sobe o arquivo pro bucket de conciliações e vincula como extrato_csv_url.
   // Chamado quando confirmado (pelo upload OU pela IA) que o documento é
   // EXTRATO BANCÁRIO. Não cria lançamentos aqui — isso acontece no pós-IA.
-  async function uploadExtratoBucket(competenciaExtrato: string): Promise<string | null> {
-    const safeName = (doc.arquivo_nome ?? "extrato").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
+  //
+  // #mover-geracao-csv-edge: por padrão sobe o arquivo original (`bytes`) — vale
+  // pra CSV/TXT reais. Quando o original é binário (PDF/imagem/XLSX), o caller
+  // passa `conteudo`/`contentType`/`nomeArquivo` com um CSV sintético já gerado
+  // (ver montarCsvSintetico), porque `conciliar` (motor de saldo/faltantes) só
+  // sabe ler texto delimitado — subir o binário direto como extrato_csv_url
+  // deixava a conciliação sem 2ª fonte independente (detectada como binário e
+  // sem CSV pra analisar).
+  async function uploadExtratoBucket(
+    competenciaExtrato: string,
+    conteudo: Uint8Array = bytes,
+    contentType: string = file.type || "text/csv",
+    nomeArquivo: string = doc.arquivo_nome ?? "extrato",
+  ): Promise<string | null> {
+    const safeName = nomeArquivo.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
     const concPath = `${doc.empresa_id}/${competenciaExtrato}/extrato-${crypto.randomUUID()}-${safeName}`;
-    const { error: upErr } = await admin.storage.from("conciliacoes").upload(concPath, bytes, { upsert: false, cacheControl: "3600", contentType: file.type || "text/csv" });
+    const { error: upErr } = await admin.storage.from("conciliacoes").upload(concPath, conteudo, { upsert: false, cacheControl: "3600", contentType });
     if (upErr) { await markErro(`Falha ao vincular extrato à conciliação: ${upErr.message}`); return null; }
 
     const { data: existente } = await admin.from("conciliacoes").select("id").eq("empresa_id", doc.empresa_id).eq("competencia", competenciaExtrato).maybeSingle();
@@ -485,8 +510,12 @@ Deno.serve(async (req) => {
     }
   }
 
+  // #mover-geracao-csv-edge: só sobe o arquivo original direto quando ele já é
+  // texto delimitável (CSV/TXT real). PDF/imagem/XLSX geram CSV sintético mais
+  // abaixo, depois que os lançamentos (rowsJanela) estiverem disponíveis.
+  const extratoOriginalTextual = TEXTUAL.has(ext);
   let concPath: string | null = null;
-  if (isExtratoBancario) {
+  if (isExtratoBancario && extratoOriginalTextual) {
     concPath = await uploadExtratoBucket(competencia);
     if (!concPath) return fail("Falha ao vincular extrato.");
   }
@@ -580,17 +609,12 @@ Deno.serve(async (req) => {
     };
   });
 
-  // Filtro de janela de competência (±1 mês) — espelha o parser local, evita
-  // sangramento de datas de meses alheios (ex.: compras antigas na fatura, extrato
-  // multi-mês). Linha sem data válida passa (não dá p/ janelar).
-  const [cy, cm] = competencia.split("-").map(Number);
-  const compIdx = cy * 12 + (cm - 1);
-  const rowsJanela = rows.filter((r) => {
-    if (!r.data_lancamento) return true;
-    const [y, m] = r.data_lancamento.split("-").map(Number);
-    return Math.abs((y * 12 + (m - 1)) - compIdx) <= 1;
-  });
-  const foraJanela = rows.length - rowsJanela.length;
+  // Filtro de janela de competência (-1 mês / +0 mês) — espelha o parser local
+  // (_filtrar_janela_competencia em extrato_bancario.py). #139: extratos com
+  // seção "próximos lançamentos"/dia 1 do mês seguinte NÃO entram na competência
+  // anterior (janela simétrica ±1 permitia esse sangramento). 1 mês pra trás
+  // continua tolerado (compras antigas em fatura, extrato multi-mês).
+  const { mantidos: rowsJanela, descartados: foraJanela } = filtrarJanelaCompetencia(rows, competencia);
 
   // Reprocesso idempotente: remove a razão anterior DESTE documento antes de
   // reinserir (senão reprocessar o mesmo doc duplica a razão).
@@ -627,6 +651,23 @@ Deno.serve(async (req) => {
     lancCriados = count ?? rowsJanela.length;
   }
   if (foraJanela) console.log(`janela competência: ${foraJanela} lançamento(s) fora de ±1 mês descartado(s)`);
+
+  // #mover-geracao-csv-edge: extrato original binário (PDF/imagem/XLSX) — gera o
+  // CSV sintético agora que rowsJanela existe e sobe como extrato_csv_url no
+  // lugar do binário. Documentos novos passam a ter sempre um CSV analisável
+  // por `conciliar`; o fallback formatoBinarioDetectado/lancamentos_ia em
+  // conciliar/index.ts continua existindo só pros registros antigos já
+  // contaminados (extrato_csv_url apontando pro binário).
+  if (isExtratoBancario && !extratoOriginalTextual) {
+    const csvSintetico = montarCsvSintetico(rowsJanela);
+    concPath = await uploadExtratoBucket(
+      competencia,
+      new TextEncoder().encode(csvSintetico),
+      "text/csv",
+      "extrato-sintetico.csv",
+    );
+    if (!concPath) return fail("Falha ao gerar CSV sintético do extrato.");
+  }
 
   await admin.from("documentos").update({
     tipo: tipoFinal,

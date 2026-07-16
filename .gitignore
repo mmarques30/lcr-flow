@@ -33,3 +33,20 @@ dist-ssr
 
 # Supabase CLI temp (link do projeto local)
 supabase/.temp/
+
+# Segredos locais (arquivo já rastreado no histórico; isto só evita que
+# futuras alterações nele sejam incluídas automaticamente em `git add -A`)
+.env
+
+# Node portátil local usado sem instalação global
+.tools/
+
+# Artefatos gerados (planilhas exportadas etc.)
+outputs/
+
+# Lockfile do npm gerado por acidente — o repo usa bun.lock
+package-lock.json
+
+# Dado sensível local (nomes/e-mails de colaboradores) — scripts que o
+# consomem (ex.: scripts/diag_troca_senha.py) têm fallback se ausente
+config/colaboradores_contabil.csv
