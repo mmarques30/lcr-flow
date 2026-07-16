@@ -1,10 +1,17 @@
 // Edge Function: conciliar
-// Motor de conciliação híbrido: pareia razão (SCI) x extrato bancário.
-//   1) Regras: mesmo valor (centavos) + data próxima (±3 dias).
-//   2) IA (Claude): tenta casar o que sobrou por descrição/valor aproximado.
-// Grava o resultado em conciliacoes.resultado e atualiza status/divergências.
+// Motor de conciliação v3 (docs/conciliacao-v3-spec.md): conciliar NÃO é achar
+// par débito/crédito linha a linha. É validar que o saldo bate (saldo_inicial +
+// movimentação ≈ saldo_final, tolerância ±R$0,01) e que toda movimentação do
+// extrato está classificada — ver saldo.ts (validarSaldo/detectarFaltantes).
+//
+// O pareamento por regras abaixo é mantido apenas como COMPAT temporário para
+// os painéis "conciliados"/"divergências" ainda em uso pela UI v2 (será
+// removido em #132, junto da limpeza de resultado.conciliados/divergencias_*).
+// A chamada à IA (Claude) para pareamento foi removida — não faz mais parte
+// do motor v3 (a classificação já acontece em processar-documento).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { detectarFaltantes, validarSaldo, type LancamentoConc, type LinhaExtrato } from "./saldo.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -15,9 +22,22 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const fail = (error: string) => json(200, { ok: false, error });
 
-const MODEL = "claude-sonnet-4-6";
-
 type Linha = { data: string | null; descricao: string; valor: number; id?: string };
+
+// Extrai saldo_inicial/saldo_final dos dados que a IA já parseou em
+// processar-documento (mesma lógica de getConciliacaoDetalhe em lcr.functions.ts).
+function pickNumero(obj: Record<string, unknown> | null | undefined, chaves: string[]): number | null {
+  if (!obj || typeof obj !== "object") return null;
+  for (const k of chaves) {
+    const v = (obj as Record<string, unknown>)[k];
+    if (v == null || v === "") continue;
+    const n = typeof v === "number"
+      ? v
+      : Number(String(v).replace(/[^\d,.-]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."));
+    if (!Number.isNaN(n)) return n;
+  }
+  return null;
+}
 
 // ---- parsing helpers -------------------------------------------------
 function splitCsvLine(line: string, delim: string): string[] {
@@ -119,7 +139,6 @@ Deno.serve(async (req) => {
 
   const url = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
   const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
@@ -141,12 +160,24 @@ Deno.serve(async (req) => {
   if (!conc) return fail("Conciliação não encontrada.");
   if (!conc.extrato_csv_url) return fail("Importe o extrato bancário (CSV) antes de conciliar.");
 
-  // Finalização: exige análise prévia sem divergências abertas (fluxo v2).
+  // Finalização: exige análise prévia + travas v3 (saldo confere + sem
+  // faltantes) além da trava v2 (divergências de pareamento, mantida até #132).
   if (modo === "finalizar") {
     if (!conc.resultado) return fail("Analise as divergências antes de conciliar.");
     const pend = conc.divergencias_count ?? 0;
     if (pend > 0) return fail(`Existem ${pend} divergência(s) pendentes. Resolva antes de conciliar.`);
-    const r = conc.resultado as { conciliados_count?: number };
+    const r = conc.resultado as {
+      conciliados_count?: number;
+      saldo?: { confere?: boolean; motivo?: string };
+      faltantes?: { faltantes_count?: number };
+    };
+    if (r.saldo && r.saldo.confere !== true) {
+      return fail(r.saldo.motivo ?? "Saldo não confere. Verifique o extrato antes de conciliar.");
+    }
+    const faltantesCount = r.faltantes?.faltantes_count ?? 0;
+    if (faltantesCount > 0) {
+      return fail(`Existem ${faltantesCount} transação(ões) faltante(s) (extrato sem classificação ou lançamento sem extrato). Resolva antes de conciliar.`);
+    }
     const { error: finErr } = await admin
       .from("conciliacoes")
       .update({ status: "concluida", concluido_em: new Date().toISOString() })
@@ -172,7 +203,7 @@ Deno.serve(async (req) => {
   // Não há mais upload de "razão SCI": a razão é a tabela de lançamentos da tela.
   const { data: lancRows, error: lErr } = await admin
     .from("lancamentos")
-    .select("id, data_lancamento, valor, descricao")
+    .select("id, data_lancamento, valor, descricao, conta_id, fonte_extrato")
     .eq("empresa_id", conc.empresa_id)
     .eq("competencia", conc.competencia)
     .not("valor", "is", null)
@@ -184,6 +215,32 @@ Deno.serve(async (req) => {
     descricao: (r.descricao ?? "").slice(0, 200),
     valor: Number(r.valor) || 0,
   }));
+  const lancamentosConc: LancamentoConc[] = (lancRows ?? []).map((r) => ({
+    id: r.id as string,
+    data: r.data_lancamento ?? null,
+    valor: Number(r.valor) || 0,
+    contaId: (r.conta_id as string | null) ?? null,
+    fonteExtrato: !!r.fonte_extrato,
+    descricao: (r.descricao as string | null) ?? null,
+  }));
+
+  // Saldo inicial/final: extraído pela IA em processar-documento (documentos
+  // tipo=extrato, dados_extraidos). Sem isso, validarSaldo() já retorna
+  // confere=false com motivo explicativo (não derruba a análise).
+  const { data: extratoDoc } = await admin
+    .from("documentos")
+    .select("id, classificacao_ia, dados_extraidos")
+    .eq("empresa_id", conc.empresa_id)
+    .eq("competencia", conc.competencia)
+    .eq("tipo", "extrato")
+    .order("recebido_em", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const dadosExtratoDoc = (extratoDoc?.classificacao_ia as Record<string, unknown> | null)?.dados_extraidos
+    ?? extratoDoc?.dados_extraidos
+    ?? null;
+  const saldoInicial = pickNumero(dadosExtratoDoc as Record<string, unknown> | null, ["saldo_inicial", "saldo_inicio", "saldo_anterior", "opening_balance", "balance_start"]);
+  const saldoFinal = pickNumero(dadosExtratoDoc as Record<string, unknown> | null, ["saldo_final", "saldo_atual", "saldo_disponivel", "closing_balance", "balance_end"]);
 
   let extrato: Linha[];
   try {
@@ -213,74 +270,28 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 2) Pareamento por IA com o que sobrou (limite p/ controlar custo)
-  const restR = razao.map((l, i) => ({ l, i })).filter((x) => !usadoR[x.i]).slice(0, 60);
-  const restE = extrato.map((l, i) => ({ l, i })).filter((x) => !usadoE[x.i]).slice(0, 60);
-  if (apiKey && restR.length && restE.length) {
-    try {
-      const fmt = (arr: { l: Linha; i: number }[]) =>
-        arr.map((x) => `#${x.i} | ${x.l.data ?? "?"} | ${x.l.descricao} | ${x.l.valor.toFixed(2)}`).join("\n");
-      const SCHEMA = {
-        type: "object", additionalProperties: false,
-        properties: {
-          pares: {
-            type: "array",
-            items: {
-              type: "object", additionalProperties: false,
-              properties: { r: { type: "integer" }, e: { type: "integer" }, motivo: { type: "string" } },
-              required: ["r", "e"],
-            },
-          },
-        },
-        required: ["pares"],
-      };
-      const apiResp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          max_tokens: 1500,
-          system:
-            "Você concilia lançamentos contábeis (razão) com o extrato bancário. " +
-            "Pareie linhas que representam a MESMA transação, mesmo com descrições diferentes ou pequena diferença de data. " +
-            "Só una quando houver alta confiança (valores iguais ou muito próximos e descrição compatível). Não invente pares.",
-          messages: [{
-            role: "user",
-            content: [{
-              type: "text",
-              text: `RAZÃO (índice | data | descrição | valor):\n${fmt(restR)}\n\nEXTRATO (índice | data | descrição | valor):\n${fmt(restE)}\n\nRetorne os pares (r = índice da razão, e = índice do extrato).`,
-            }],
-          }],
-          output_config: { format: { type: "json_schema", schema: SCHEMA } },
-        }),
-      });
-      if (apiResp.ok) {
-        const dataApi = await apiResp.json();
-        const tb = (dataApi.content ?? []).find((b: { type: string }) => b.type === "text");
-        const pares = JSON.parse(tb?.text ?? '{"pares":[]}').pares ?? [];
-        for (const p of pares) {
-          const r = p.r, e = p.e;
-          if (Number.isInteger(r) && Number.isInteger(e) && razao[r] && extrato[e] && !usadoR[r] && !usadoE[e]) {
-            usadoR[r] = true; usadoE[e] = true;
-            conciliados.push({ razao: razao[r], extrato: extrato[e], fonte: "ia", motivo: p.motivo });
-          }
-        }
-      }
-    } catch { /* IA é best-effort: se falhar, segue só com regras */ }
-  }
-
   const divergencias_razao = razao.filter((_, i) => !usadoR[i]);
   const divergencias_extrato = extrato.filter((_, i) => !usadoE[i]);
   const divergencias_count = divergencias_razao.length + divergencias_extrato.length;
+
+  // Motor v3: saldo (inicial + movimentação ≈ final) e faltantes (extrato sem
+  // classificação / lançamento fonte_extrato sem CSV correspondente).
+  const extratoLinhas: LinhaExtrato[] = extrato.map((l) => ({ data: l.data, descricao: l.descricao, valor: l.valor }));
+  const saldo = validarSaldo({ saldoInicial, saldoFinal, extrato: extratoLinhas });
+  const faltantes = detectarFaltantes({ extrato: extratoLinhas, lancamentos: lancamentosConc });
 
   const resultado = {
     gerado_em: new Date().toISOString(),
     total_razao: razao.length,
     total_extrato: extrato.length,
+    // Compat v2 (painéis de pareamento) — removido em #132.
     conciliados_count: conciliados.length,
     conciliados,
     divergencias_razao,
     divergencias_extrato,
+    // Motor v3 (docs/conciliacao-v3-spec.md).
+    saldo,
+    faltantes,
   };
 
   // Análise: grava resultado; conclusão só via modo "finalizar".
@@ -296,5 +307,13 @@ Deno.serve(async (req) => {
     .eq("id", conc.id);
   if (upErr) return fail(upErr.message);
 
-  return json(200, { ok: true, modo: "analisar", divergencias_count, conciliados: conciliados.length, status: novoStatus });
+  return json(200, {
+    ok: true,
+    modo: "analisar",
+    divergencias_count,
+    conciliados: conciliados.length,
+    status: novoStatus,
+    saldo,
+    faltantes_count: faltantes.faltantes_count,
+  });
 });
