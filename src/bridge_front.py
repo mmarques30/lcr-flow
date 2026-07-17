@@ -312,6 +312,12 @@ def linha_para_lancamento(linha: dict, banco_cod: int, conta_map: dict, hist_map
         conta_cod = deb  # fallback (transação sem banco identificado)
     conta_id = conta_map.get(str(conta_cod))
     hist_id = hist_map.get(str(linha.get("historico"))) if linha.get("historico") not in (None, "", "None") else None
+    # natureza_movimento (perspectiva do banco no extrato): mesma regra de
+    # sugestoes_motor/_conta_contrapartida — conta_cod no lado "debito" do
+    # motor ⇒ banco foi creditado do outro lado ⇒ saída de caixa ("debito").
+    # Sem isso, lancamentos.natureza_movimento fica null e o sinal (+/-) no
+    # front e no motor de saldo (sinalPorNatureza) trata tudo como positivo.
+    natureza = "debito" if str(conta_cod) == str(deb) else "credito"
     return {
         "empresa_id": empresa_id,
         "competencia": competencia,
@@ -321,6 +327,7 @@ def linha_para_lancamento(linha: dict, banco_cod: int, conta_map: dict, hist_map
         "historico_id": hist_id,
         "data_lancamento": _iso_data(linha.get("data")),
         "valor": float(linha.get("valor") or 0),
+        "natureza_movimento": natureza,
         "descricao": _descricao_lancamento(linha),
         "status": "gerada",
         "confidence": float(linha.get("confianca")) if linha.get("confianca") is not None else None,
