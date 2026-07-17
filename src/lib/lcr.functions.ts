@@ -1204,7 +1204,40 @@ export const editarLancamento = createServerFn({ method: "POST" })
         }
       } catch { /* aprendizado é best-effort; não bloqueia a edição */ }
     }
-    return { ok: true };
+
+    // Propagação retroativa (#138): quando conta e/ou participante são
+    // corrigidos manualmente, a correção reflete em lançamentos com a mesma
+    // descrição normalizada em competências futuras (>= 2026-01) JÁ
+    // PROCESSADAS — não só em documentos novos (pedido explícito do cliente
+    // na reunião de alinhamento). A RPC pula meses já concluídos (evita
+    // dessincronia com o que já foi exportado pro SCI) e lançamentos já
+    // confirmados manualmente por um humano em mês futuro. Best-effort:
+    // nunca derruba a edição do lançamento original.
+    let propagados = 0;
+    let pulados_concluida = 0;
+    let pulados_confirmados = 0;
+    const editouClassificacao = !!data.conta_codigo
+      || (data.part_deb != null && data.part_deb !== "")
+      || (data.part_cred != null && data.part_cred !== "");
+    if (editouClassificacao) {
+      try {
+        const { data: prop, error: propErr } = await context.supabase
+          .rpc("propagar_lancamento_por_descricao", { p_lancamento_id: data.id });
+        if (propErr) {
+          console.error("[editarLancamento] propagar_lancamento_por_descricao falhou:", propErr.message);
+        } else if (prop) {
+          const linha = (Array.isArray(prop) ? prop[0] : prop) as
+            { atualizados?: number; pulados_concluida?: number; pulados_confirmados?: number } | null;
+          propagados = linha?.atualizados ?? 0;
+          pulados_concluida = linha?.pulados_concluida ?? 0;
+          pulados_confirmados = linha?.pulados_confirmados ?? 0;
+        }
+      } catch (e) {
+        console.error("[editarLancamento] erro inesperado ao propagar:", e instanceof Error ? e.message : e);
+      }
+    }
+
+    return { ok: true, propagados, pulados_concluida, pulados_confirmados };
   });
 
 // Inclusão manual de lançamento na competência (botão "incluir" na conciliação).

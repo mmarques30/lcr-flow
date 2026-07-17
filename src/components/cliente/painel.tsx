@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { Markdown } from "@/components/markdown";
 import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, listLancamentosConciliacao, getEmpresa, editarLancamento, type SciLinha } from "@/lib/lcr.functions";
+import { avisarPropagacao } from "@/lib/propagacao-toast";
 import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, mapaPdcApelidos, validarLancamentosSci, type SciCelula } from "@/lib/sci-xls";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { documentoComErroProcessamento } from "@/lib/documento-erros";
@@ -285,8 +286,12 @@ function CelEditavel({ id, initial, campo, placeholder, maxLength = 80, mono = f
     if (!id || val === initial) return;
     setBusy(true);
     try {
-      await editarLancamento({ data: { id, [campo]: val || "" } as { id: string; descricao?: string; documento_numero?: string; part_deb?: string; part_cred?: string } });
+      const resultado = await editarLancamento({ data: { id, [campo]: val || "" } as { id: string; descricao?: string; documento_numero?: string; part_deb?: string; part_cred?: string } });
       qc.invalidateQueries({ queryKey: ["lanc-conc"] });
+      // #138: participante (part_deb/part_cred) propaga por descrição para
+      // meses futuros já processados — avisa só quando há algo relevante,
+      // sem poluir a edição inline com um toast de "atualizado" a cada blur.
+      avisarPropagacao(resultado);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar");
       setVal(initial);

@@ -15,6 +15,7 @@ import { getConciliacaoDetalhe, getEmpresa, listLancamentosConciliacao, editarLa
 import { DOC_TIPO_LABEL } from "@/lib/format";
 import { formatCompetencia } from "@/lib/format";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
+import { avisarPropagacao } from "@/lib/propagacao-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
 import { ChevronLeft, Download, CheckCircle2, Sparkles, Wand2, ListChecks, AlertTriangle, FileText, Link2, Pencil, ChevronsUpDown, Check, Plus, Trash2, ArrowUpFromLine, Info } from "lucide-react";
@@ -435,7 +436,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
     if (!edit) return;
     setActing(true);
     try {
-      await editarLancamento({ data: {
+      const resultado = await editarLancamento({ data: {
         id: edit.id,
         data_lancamento: edit.data || undefined,
         valor: edit.valor ? Number(edit.valor.replace(",", ".")) : undefined,
@@ -448,7 +449,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       await qc.invalidateQueries({ queryKey: ["lanc-conc"] });
       await qc.invalidateQueries({ queryKey: ["documentos"] });
       await invalidarAnaliseAposEdicao();
-      toast.success("Lançamento atualizado.");
+      avisarPropagacao(resultado, "Lançamento atualizado.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
     } finally { setActing(false); }

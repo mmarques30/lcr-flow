@@ -23,7 +23,7 @@
 | Contas T / C | Só **analítica** aceita lançamento (ex. T 29 → analítica 20) | ~33:23–37:13 |
 | Contrapartida banco | D/C deve trazer conta analítica **e** banco (ex. 148 ↔ 657 Itaú) | ~42:38–44:13 |
 | Banco múltiplas CC | Padrão = **conta nº 1**; personalização por cliente = fase futura | ~46:52–48:44 |
-| Propagação | Por **`normalizarDescricao()`**; competências **> editada** e **≥ 2026-01**; inclui meses **já processados** | ~01:03:30–01:07:37 |
+| Propagação | Por **`normalizarDescricao()`**; competências **> editada** e **≥ 2026-01**; inclui meses **já processados**, exceto **concluídos** (não reabre) e lançamentos já **confirmados por humano** (`confidence = 1`) | ~01:03:30–01:07:37 |
 | Não alterar | Competências **2025** | ~01:04:35 |
 | Extrato fora da competência | Ignorar “próximos lançamentos” / dia 1 do mês seguinte | João/Cleiton ~01:21:40 |
 
@@ -71,9 +71,12 @@ flowchart TB
     XLS --> SCI[Import SCI]
   end
 
-  subgraph prop [Propagação]
-    EDIT[editarLancamento] --> NORM[normalizarDescricao]
+  subgraph prop [Propagação #138]
+    EDIT[editarLancamento] --> NORM[normalizar_descricao]
     NORM --> FUT[comp > editada AND comp >= 2026-01]
+    FUT --> SKIP{mês concluída OU confidence=1?}
+    SKIP -->|sim| PULA[pulado — contabilizado no toast]
+    SKIP -->|não| PROPAGA[conta_id/part_deb/part_cred + confidence=1]
   end
 
   L --> UI
@@ -126,14 +129,35 @@ NFs/recibos (`fonte_extrato = false`) **não** entram em “sem extrato”.
 
 **Gate:** `Baixar SCI` disabled se `conciliacoes.status !== 'concluida'`.
 
-### Propagação
+### Propagação (#138)
 
-Ao salvar edição (conta, histórico, participantes):
+Ao salvar edição de conta e/ou participante (`editarLancamento`), a correção se
+propaga automaticamente para lançamentos com a mesma descrição em competências
+futuras **já processadas** — não só em documentos novos:
 
-- Chave: `normalizarDescricao(descricao)` + `empresa_id`
+- Chave: `normalizar_descricao(descricao)` (função SQL, espelha `normalizarDescricao()` do TS) + `empresa_id`
 - Escopo: `competencia > :editada` **AND** `competencia >= '2026-01'`
-- Inclui competências **já processadas** no banco (analogia “agenda recorrente” ~01:09:44)
-- RPC: `propagar_lancamento_por_descricao` + preview de N lançamentos afetados
+- Inclui competências **já processadas** no banco (analogia "agenda recorrente" ~01:09:44)
+- **Regra final (decidida com o cliente, fechando o gap da reunião):**
+  - **Bloqueia meses já `concluida`** — não altera nem reabre, evita dessincronia
+    silenciosa com o que já foi exportado pro SCI. Reabertura automática fica
+    para o [#143](https://github.com/mmarques30/lcr-flow/issues/143) (futuro).
+  - **Pula lançamentos já confirmados manualmente por humano** (`confidence = 1`)
+    em meses futuros — só propaga onde a IA ainda decide sozinha.
+  - Campos propagados: `conta_id`, `part_deb`/`part_cred` (coalesce — só
+    sobrescreve se a origem tiver valor); resultado marca `confidence = 1` e
+    `part_aprendido = true` nos lançamentos atualizados.
+- RPC: `propagar_lancamento_por_descricao(p_lancamento_id uuid)` (`SECURITY DEFINER`),
+  chamada best-effort a partir de `editarLancamento` — nunca derruba a edição
+  original em caso de falha.
+  - Retorno: `{ atualizados, pulados_concluida, pulados_confirmados }`
+  - UI mostra toast com os três números (atualizado com sucesso / pulado por
+    mês concluído / pulado por confirmação humana)
+- Auditoria: o `UPDATE` da RPC dispara `trg_audit_lancamentos` normalmente —
+  toda propagação já fica registrada em `audit_log` sem trabalho extra.
+- Fora de escopo (adiado): propagar histórico contábil (`hist_sci_codigo`) —
+  depende do [#140](https://github.com/mmarques30/lcr-flow/issues/140) (editar
+  histórico na UI, ainda sem campo em `editarLancamento`).
 
 ### Edição na UI
 

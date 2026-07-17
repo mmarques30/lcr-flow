@@ -1713,6 +1713,15 @@ export type Database = {
         }[]
       }
       is_admin: { Args: never; Returns: boolean }
+      normalizar_descricao: { Args: { p_texto: string }; Returns: string }
+      propagar_lancamento_por_descricao: {
+        Args: { p_lancamento_id: string }
+        Returns: {
+          atualizados: number
+          pulados_concluida: number
+          pulados_confirmados: number
+        }[]
+      }
       qualidade_carteira: {
         Args: { p_competencias: string[] }
         Returns: {
