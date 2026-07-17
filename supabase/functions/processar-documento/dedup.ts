@@ -3,7 +3,7 @@
 // (src/parsers/extrato_bancario.py). O banco NÃO entra na chave (o nº da conta já o
 // identifica dentro do cliente). Ver dedup.test.ts.
 
-export type LancRow = { data_lancamento?: string | null; valor?: number | null };
+export type LancRow = { data_lancamento?: string | null; valor?: number | null; descricao?: string | null };
 
 // Dígitos sem zeros à esquerda; null se vazio → não deduplica.
 export function _digitosSemZeros(s: unknown): string | null {
@@ -105,14 +105,27 @@ export function deveMarcarDuplicata(
   return _sobreposicao(novasLinhas, origLancs) >= OVERLAP_MIN_DEDUP;
 }
 
-// Dedup tipo A: linhas repetidas no MESMO documento (mesma data+valor).
+// Dedup tipo A: linhas repetidas no MESMO documento (mesma data+valor+descrição).
 // Mantém a 1ª ocorrência; descarta as demais antes do insert.
+//
+// #backlog-crm "adiantamento cliente 26/06": a chave ANTES não incluía a
+// descrição — duas transações REAIS e diferentes (ex. dois adiantamentos de
+// clientes distintos, mesmo valor, mesmo dia) colidiam na mesma chave data+
+// valor e uma delas era descartada por engano, sem aviso a ninguém. Exigir
+// também a descrição igual reduz drasticamente esse falso positivo: só
+// remove quando a linha é, na prática, uma repetição textual idêntica (o
+// caso real de "eco" do banco/IA que este dedup deveria cobrir).
 export function chaveIntraDoc(r: LancRow): string | null {
   const v = Number(r?.valor);
   if (!Number.isFinite(v)) return null;
   const d = String(r?.data_lancamento ?? "").slice(0, 10);
   if (!d) return null;
-  return `${d}|${(Math.round(Math.abs(v) * 100) / 100).toFixed(2)}`;
+  const desc = String(r?.descricao ?? "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${d}|${(Math.round(Math.abs(v) * 100) / 100).toFixed(2)}|${desc}`;
 }
 
 export function dedupIntraDocumento<T extends LancRow>(items: T[]): T[] {

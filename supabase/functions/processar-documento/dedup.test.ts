@@ -108,16 +108,28 @@ Deno.test("deveMarcarDuplicata: sem original ou sem razão no original → falso
   assertEquals(deveMarcarDuplicata(null, true, lancs, lancs), false); // sem chave (investimento)
 });
 
-Deno.test("dedupIntraDocumento remove repetidas mesma data+valor", () => {
+Deno.test("dedupIntraDocumento remove repetidas mesma data+valor+descrição (eco real)", () => {
   const items = [
-    { data_lancamento: "2026-06-01", valor: 1443.0, descricao: "PIX recebido" },
-    { data_lancamento: "2026-06-01", valor: 1443.0, descricao: "PIX recebido dup" },
+    { data_lancamento: "2026-06-01", valor: 1443.0, descricao: "PIX recebido João Silva" },
+    { data_lancamento: "2026-06-01", valor: 1443.0, descricao: "pix recebido joão silva" }, // mesmo texto, case/acento diferentes
     { data_lancamento: "2026-06-02", valor: 100 },
   ];
   const out = dedupIntraDocumento(items);
   assertEquals(out.length, 2);
   assertEquals(out[0].valor, 1443);
   assertEquals(out[1].valor, 100);
+});
+
+Deno.test("#backlog-crm dedupIntraDocumento NÃO remove mesma data+valor com descrição diferente (adiantamento cliente 26/06)", () => {
+  // Duas transações REAIS e distintas (adiantamento de dois clientes diferentes,
+  // mesmo valor, mesmo dia) não podem ser tratadas como duplicata — a chave
+  // antiga (só data+valor) apagava uma delas por engano.
+  const items = [
+    { data_lancamento: "2026-06-26", valor: 5000.0, descricao: "Adiantamento cliente Delta Consultoria" },
+    { data_lancamento: "2026-06-26", valor: 5000.0, descricao: "Adiantamento cliente Beta Suprimentos" },
+  ];
+  const out = dedupIntraDocumento(items);
+  assertEquals(out.length, 2);
 });
 
 Deno.test("#fix-dedup-falso-positivo: extrato pequeno subconjunto de um grande NÃO é duplicata automática", () => {
