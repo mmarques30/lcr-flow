@@ -248,8 +248,21 @@ def sobreposicao(a: set, b: set) -> float:
     return len(a & b) / min(len(a), len(b))
 
 
+def _chave_dedup_intra(data_str: str, valor: float, descricao: str) -> tuple:
+    """Chave do dedup intra-doc: data+valor+descrição normalizada.
+    #backlog-crm "adiantamento cliente 26/06": ANTES a chave era só
+    data+valor — duas transações REAIS e diferentes (ex. adiantamento de dois
+    clientes distintos, mesmo valor, mesmo dia) colidiam e uma era descartada
+    por engano, sem aviso. Exigir a descrição também igual restringe o dedup
+    ao caso real que ele deveria cobrir: repetição textual idêntica (eco do
+    banco/parser), não coincidência de valor."""
+    desc_norm = re.sub(r"\s+", " ", unicodedata.normalize("NFKD", descricao or "")
+                        .encode("ascii", "ignore").decode("ascii").upper()).strip()
+    return (data_str, round(abs(float(valor)), 2), desc_norm)
+
+
 def dedup_intra_transacoes(transacoes: list) -> list:
-    """Remove transações repetidas no mesmo extrato (tipo A: mesma data+valor).
+    """Remove transações repetidas no mesmo extrato (mesma data+valor+descrição).
     Mantém a 1ª ocorrência — evita classificar/insertar a mesma linha N vezes."""
     seen, out = set(), []
     for t in transacoes or []:
@@ -258,7 +271,7 @@ def dedup_intra_transacoes(transacoes: list) -> list:
             out.append(t)
             continue
         d = (_iso_data(t.get("data")) or "")[:10]
-        key = (d, round(abs(float(v)), 2))
+        key = _chave_dedup_intra(d, v, t.get("descricao") or "")
         if key in seen:
             continue
         seen.add(key)
@@ -267,7 +280,7 @@ def dedup_intra_transacoes(transacoes: list) -> list:
 
 
 def dedup_intra_lancamentos(lancamentos: list) -> list:
-    """Remove lançamentos repetidos antes do insert (mesma data_lancamento+valor)."""
+    """Remove lançamentos repetidos antes do insert (mesma data_lancamento+valor+descrição)."""
     seen, out = set(), []
     for l in lancamentos or []:
         v = l.get("valor")
@@ -275,7 +288,7 @@ def dedup_intra_lancamentos(lancamentos: list) -> list:
             out.append(l)
             continue
         d = (l.get("data_lancamento") or "")[:10]
-        key = (d, round(abs(float(v)), 2))
+        key = _chave_dedup_intra(d, v, l.get("descricao") or "")
         if key in seen:
             continue
         seen.add(key)
