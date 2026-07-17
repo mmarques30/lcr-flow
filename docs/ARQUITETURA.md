@@ -3,6 +3,22 @@
 
 ---
 
+> ## ⚠️ Nota de atualização (2026-07-16) — leia antes de confiar neste documento
+>
+> Este arquivo descreve o **plano original** (v1.0, jun/2026). Boa parte da stack real em produção hoje **diverge** do que está escrito abaixo. Principais divergências confirmadas em auditoria ao vivo na VPS:
+>
+> | Descrito aqui (v1.0) | Realidade em produção (confirmado 2026-07-16) |
+> |---|---|
+> | Orquestração via **n8n self-hosted (Docker)** | Serviço **systemd** rodando `orquestrar.py` (Python) direto na VPS; cron shells (`scripts/tick_cobranca.sh`, `drain_*.sh`) disparam o processamento — sem n8n, sem Docker |
+> | Parsers bancários Itaú/Bradesco/Santander | `extrato_bancario.py` com **auto-detecção de banco** (`detectar_banco`) — hoje cobre mais bancos (Caixa, Inter, XP…), mas até 2026-07-16 tinha `banco="itau"` hardcoded em vários call-sites (corrigido nesta data) |
+> | Um único pipeline de extração | **Dois pipelines paralelos**: (1) Python determinístico (Gestta → parser → CSV real, preferencial) e (2) Edge Function `processar-documento` com IA como **fallback** (`extrato_fallback_edge=True` já é o padrão em produção via cron) quando o parser Python falha |
+> | — | Motor de **conciliação v3** (saldo inicial+movimentação≈final, travas de revisão/saldo/faltantes) rodando como Supabase Edge Function (`conciliar`) — não existia na v1.0, é a evolução do fluxo "SCI importa lançamentos" |
+> | — | **Dois frontends** apontam para o mesmo repo/branch `main` do GitHub (`mmarques30/lcr-flow`): Vercel (ambiente de dev/testes) e **Lovable** (`nexus-lcr-core.lovable.app`, usado de fato pelo cliente) |
+>
+> **Regra prática:** antes de assumir qualquer afirmação deste documento como verdade atual, confira o código/infra real (SSH na VPS, `systemctl status`, `crontab -l`, painel do Lovable/Vercel) — não só a documentação. Ver checklist de ambiente em `.cursor/rules/checklist-ambiente-sessao.mdc`.
+
+---
+
 ## Visão Geral
 
 Sistema de automação fim a fim do processo de Integração e Conciliação Bancária de Clientes.

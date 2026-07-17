@@ -1,0 +1,38 @@
+---
+description: Checklist de perguntas de ambiente a confirmar no início de sessões de trabalho no projeto LCR (evita retrabalho por suposições erradas sobre arquitetura/ambiente)
+alwaysApply: true
+---
+
+# Checklist de ambiente — confirmar antes de planejar/implementar
+
+Lição da retro de 2026-07-16: a maior perda de tempo não foi codar, foi **descobrir
+fatos de ambiente no meio do trabalho** que já eram conhecíveis desde o início.
+Antes de montar um plano ou começar a implementar algo não-trivial, confirme:
+
+1. **Fonte de requisitos**: se o pedido vem de uma reunião/transcrição, peça a
+   transcrição completa (não só o resumo) antes de montar o plano — resumos
+   perdem decisões que geram retrabalho depois.
+2. **Documentação vs. realidade**: docs como `docs/ARQUITETURA.md` podem estar
+   desatualizadas (ex.: descreve n8n/Docker, mas a VPS roda systemd + Python
+   direto). Ao tocar em infra/pipeline, confirme a realidade (SSH, `systemctl
+   status`, `crontab -l`, ler o código-fonte) antes de confiar só na doc.
+3. **Qual frontend o cliente usa de fato**: existem dois frontends síncronos com
+   o mesmo `main` do GitHub (`mmarques30/lcr-flow`) — Vercel (dev/teste) e
+   **Lovable** (`nexus-lcr-core.lovable.app`, usado pelo cliente). Ao validar
+   uma mudança "para o cliente", teste no Lovable, não só no Vercel.
+4. **Permissões de admin/deploy**: antes de propor automação de deploy (deploy
+   key, GitHub Actions, etc.), confirme se você tem permissão de admin no repo
+   — colaborador sem admin não consegue cadastrar deploy keys/secrets.
+5. **Pipeline duplo de extrato**: há dois caminhos para gerar `extrato_csv_url`
+   — Python determinístico (preferencial) e Edge Function com IA (fallback,
+   `extrato_fallback_edge=True` já é padrão em produção). Ao investigar bug de
+   extrato/CSV, verifique qual dos dois gerou o arquivo antes de corrigir.
+6. **Dados de teste limpos**: para testar o caminho feliz completo (saldo
+   confere → Conciliar → SCI), é preciso uma competência sem lançamentos
+   pendentes de revisão (confiança ≥ 80% e conta atribuída). Dados reais de
+   cliente quase sempre têm pendências — não assuma que qualquer cliente/mês
+   serve para esse teste.
+7. **Múltiplos worktrees**: `D:\IAPLICADA\LCR` e `D:\IAPLICADA\LCR-front` podem
+   ser worktrees do mesmo repositório (`mmarques30/lcr-flow`) em branches
+   diferentes. Confirme com `git remote -v` e `git worktree list` antes de
+   assumir que são repositórios independentes.
