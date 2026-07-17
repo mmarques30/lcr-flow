@@ -198,7 +198,7 @@ futuras **já processadas** — não só em documentos novos:
 | Issue | Tarefa | Status |
 |-------|--------|--------|
 | [#138](https://github.com/mmarques30/lcr-flow/issues/138) | RPC propagação cross-competência | ✅ Implementado e mesclado (PR #146) — ver seção "Propagação (#138)" acima |
-| [#140](https://github.com/mmarques30/lcr-flow/issues/140) | Editar histórico na conciliação | Pendente |
+| [#140](https://github.com/mmarques30/lcr-flow/issues/140) | Editar histórico na conciliação | ✅ Implementado e mesclado (PR #148) |
 | [#137](https://github.com/mmarques30/lcr-flow/issues/137) | Log inatividade + eventos | Pendente |
 
 ---

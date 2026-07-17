@@ -266,7 +266,6 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
     setSubtab("lancamentos");
     setTimeout(() => divergenciasRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
-  const visiveisLancs = soARevisar ? extratoLancs.filter(precisaRevisao) : extratoLancs;
   const semSuporteExtrato = extratoLancs.filter((l) => !l.enriquecido).length;
 
   // Extratos bancários que a IA NÃO conseguiu processar nesta competência.
@@ -278,6 +277,15 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
 
   const conc = data?.conciliacao ?? null;
   const resultado = (conc?.resultado ?? null) as Resultado;
+  // "Sem match" = lançamentos classificado_sem_extrato (faltante #2 do motor de
+  // saldo, saldo.ts): vieram do extrato (fonte_extrato=true) mas o CSV atual não
+  // tem mais a linha correspondente (ex.: CSV reenviado sem aquele movimento).
+  const idsSemMatch = new Set((resultado?.faltantes?.classificado_sem_extrato ?? []).map((f) => f.id));
+  const [soSemMatch, setSoSemMatch] = useState(false);
+  const semMatchCount = extratoLancs.filter((l) => idsSemMatch.has(l.id)).length;
+  const visiveisLancs = extratoLancs
+    .filter((l) => !soARevisar || precisaRevisao(l))
+    .filter((l) => !soSemMatch || idsSemMatch.has(l.id));
   // Motor v3 (#132/#133 — pareamento D/C removido): saldo confere + faltantes = 0.
   const saldoConfere = resultado?.saldo?.confere === true;
   const faltantesCount = resultado?.faltantes?.faltantes_count ?? 0;
@@ -636,11 +644,20 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
           <div className="flex items-center gap-2">
             <ListChecks className="h-4 w-4 text-primary" />
             <h3 className="font-display text-lg">Lançamentos do extrato</h3>
-            <span className="text-xs text-muted-foreground">· {extratoLancs.length} linha(s){soARevisar ? " · filtrando revisão" : ""}</span>
+            <span className="text-xs text-muted-foreground">
+              · {visiveisLancs.length}{visiveisLancs.length !== extratoLancs.length ? ` de ${extratoLancs.length}` : ""} linha(s)
+              {soARevisar ? " · filtrando revisão" : ""}{soSemMatch ? " · filtrando sem match" : ""}
+            </span>
           </div>
           <div className="flex items-center gap-2">
-            {soARevisar && (
-              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setSoARevisar(false)}>Ver todos</Button>
+            {semMatchCount > 0 && (
+              <label className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 text-xs", soSemMatch ? "bg-rose-100 font-medium text-rose-800 ring-1 ring-rose-300" : "text-muted-foreground")} title="Lançamentos que vieram do extrato mas o CSV atual não tem mais a linha correspondente (ex.: CSV reenviado sem esse movimento)">
+                <input type="checkbox" checked={soSemMatch} onChange={(e) => setSoSemMatch(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer accent-[var(--color-primary)]" />
+                Só sem match ({semMatchCount})
+              </label>
+            )}
+            {(soARevisar || soSemMatch) && (
+              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setSoARevisar(false); setSoSemMatch(false); }}>Ver todos</Button>
             )}
             {semSuporteExtrato > 0 && (
             <Button size="sm" variant="outline" disabled={acting} className="h-8" onClick={async () => {
@@ -738,7 +755,10 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                     </TableRow>
                   );
                 })}
-                {!lancLoading && soARevisar && extratoLancs.length > 0 && visiveisLancs.length === 0 && (
+                {!lancLoading && soSemMatch && visiveisLancs.length === 0 && (
+                  <TableRow><TableCell colSpan={7} className="py-8 text-center text-emerald-700">Nenhum lançamento sem match — todos têm linha correspondente no extrato atual.</TableCell></TableRow>
+                )}
+                {!lancLoading && !soSemMatch && soARevisar && extratoLancs.length > 0 && visiveisLancs.length === 0 && (
                   <TableRow><TableCell colSpan={7} className="py-8 text-center text-emerald-700">Nada a revisar no extrato — pode analisar divergências.</TableCell></TableRow>
                 )}
                 {!lancLoading && extratoLancs.length === 0 && (
