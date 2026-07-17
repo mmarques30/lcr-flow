@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { StatusPill } from "@/components/status-pill";
-import { getConciliacaoDetalhe, getEmpresa, listLancamentosConciliacao, editarLancamento, createLancamento, deleteLancamento, limparConciliacao, listPlanoContas, listDocumentos, enriquecerExtrato, listDocsSuporte } from "@/lib/lcr.functions";
+import { getConciliacaoDetalhe, getEmpresa, listLancamentosConciliacao, editarLancamento, createLancamento, deleteLancamento, limparConciliacao, listPlanoContas, listHistoricosSci, listDocumentos, enriquecerExtrato, listDocsSuporte } from "@/lib/lcr.functions";
 import { DOC_TIPO_LABEL } from "@/lib/format";
 import { formatCompetencia } from "@/lib/format";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
@@ -125,6 +125,7 @@ type LancConc = {
   part_aprendido?: boolean | null;
   documento_numero?: string | null;
   documento_suporte_id?: string | null;
+  natureza_movimento?: string | null;
   conta: { codigo: string; descricao: string; tipo: string | null } | null;
   historico: { codigo: string; descricao: string } | null;
 };
@@ -367,7 +368,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
 
   // edição/inclusão de lançamento (o pareamento manual razão×extrato foi
   // substituído pelo motor de saldo + faltantes — #131/#132)
-  const [edit, setEdit] = useState<{ id: string; data: string; valor: string; descricao: string; conta_codigo: string; part_deb: string; part_cred: string } | null>(null);
+  const [edit, setEdit] = useState<{ id: string; data: string; valor: string; descricao: string; conta_codigo: string; historico_codigo: string; part_deb: string; part_cred: string } | null>(null);
   const [novo, setNovo] = useState<{ data: string; valor: string; descricao: string; conta_codigo: string } | null>(null);
   const [acting, setActing] = useState(false);
 
@@ -378,6 +379,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       valor: l.valor != null ? String(Math.abs(l.valor)) : "",
       descricao: l.descricao ?? "",
       conta_codigo: l.conta?.codigo ?? "",
+      historico_codigo: l.historico?.codigo ?? "",
       part_deb: l.part_deb ?? "",
       part_cred: l.part_cred ?? "",
     });
@@ -442,6 +444,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         valor: edit.valor ? Number(edit.valor.replace(",", ".")) : undefined,
         descricao: edit.descricao || undefined,
         conta_codigo: edit.conta_codigo || undefined,
+        historico_codigo: edit.historico_codigo || undefined,
         part_deb: edit.part_deb.trim() || null,
         part_cred: edit.part_cred.trim() || null,
       } });
@@ -678,7 +681,13 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                     : l.enriquecido
                       ? { label: "Com suporte", variant: "now" as const }
                       : statusExtrato(l);
-                  const valorPositivo = (l.valor ?? 0) >= 0;
+                  // Sinal/cor pela natureza real do movimento — não pelo sinal de l.valor,
+                  // que o sistema sempre persiste absoluto (ver nota em sci-xls.ts). Sem
+                  // natureza conhecida (lançamento manual/legado) fica neutro: não dá pra
+                  // saber se é entrada ou saída, então não assume nenhum dos dois.
+                  const natureza = (l.natureza_movimento ?? "").toLowerCase();
+                  const valorPositivo = natureza.startsWith("c"); // creditou o banco → entrada
+                  const valorNegativo = natureza.startsWith("d"); // debitou o banco → saída
                   return (
                     <TableRow key={l.id} className={cn(alerta && "bg-amber-50", semSuporte && "bg-amber-50/60")}>
                       <TableCell className="text-sm">{formatDataBR(l.data_lancamento)}</TableCell>
@@ -712,8 +721,8 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                         })()}
                         {l.documento_numero ? <div className="font-mono text-[10px] text-muted-foreground">NF {l.documento_numero}</div> : null}
                       </TableCell>
-                      <TableCell className={cn("text-right font-mono text-sm", valorPositivo ? "text-emerald-600" : "text-foreground")}>
-                        {l.valor == null ? "—" : <>{valorPositivo ? "+" : ""}{brl(l.valor)}</>}
+                      <TableCell className={cn("text-right font-mono text-sm", valorPositivo && "text-emerald-600", valorNegativo && "text-rose-600")}>
+                        {l.valor == null ? "—" : <>{valorPositivo ? "+" : valorNegativo ? "-" : ""}{brl(l.valor)}</>}
                       </TableCell>
                       <TableCell><StatusPill variant={statusInfo.variant}>{statusInfo.label}</StatusPill></TableCell>
                       <TableCell className="text-right">
@@ -880,7 +889,10 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
           <DialogHeader><DialogTitle className="font-display text-2xl">Editar lançamento</DialogTitle></DialogHeader>
           {edit && (
             <div className="space-y-4">
-              <div className="space-y-1.5"><Label>Conta contábil</Label><ContaCombobox value={edit.conta_codigo} onChange={(codigo) => setEdit({ ...edit, conta_codigo: codigo })} /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5"><Label>Conta contábil</Label><ContaCombobox value={edit.conta_codigo} onChange={(codigo) => setEdit({ ...edit, conta_codigo: codigo })} /></div>
+                <div className="space-y-1.5"><Label>Histórico contábil</Label><HistoricoCombobox value={edit.historico_codigo} onChange={(codigo) => setEdit({ ...edit, historico_codigo: codigo })} /></div>
+              </div>
               <div className="space-y-1.5"><Label>Descrição</Label><Input value={edit.descricao} onChange={(e) => setEdit({ ...edit, descricao: e.target.value })} /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Data (AAAA-MM-DD)</Label><Input value={edit.data} onChange={(e) => setEdit({ ...edit, data: e.target.value })} placeholder="2026-06-30" /></div>
@@ -1085,6 +1097,44 @@ function ContaCombobox({ value, onChange }: { value: string; onChange: (codigo: 
                   <Check className={cn("mr-2 h-4 w-4", value === c.codigo ? "opacity-100" : "opacity-0")} />
                   <span className="font-mono text-xs mr-2">{c.codigo}</span>
                   <span className="truncate">{c.descricao}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// Seletor de histórico contábil pesquisável (código ou nome) sobre o Plano de
+// Históricos SCI oficial — #140.
+function HistoricoCombobox({ value, onChange }: { value: string; onChange: (codigo: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useQuery({ queryKey: ["historicos-sci"], queryFn: () => listHistoricosSci(), staleTime: 5 * 60_000 });
+  const historicos = (data ?? []) as { codigo: number; nome: string; apelido: string | null }[];
+  const sel = historicos.find((h) => String(h.codigo) === value);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between font-normal">
+          <span className="truncate text-left">
+            {sel ? <><span className="font-mono text-xs">{sel.codigo}</span> · {sel.nome}</> : (value ? value : <span className="text-muted-foreground">Selecionar histórico…</span>)}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[22rem] max-w-[90vw] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Buscar por código ou nome…" />
+          <CommandList>
+            <CommandEmpty>{isLoading ? "Carregando…" : "Nenhum histórico encontrado."}</CommandEmpty>
+            <CommandGroup>
+              {historicos.map((h) => (
+                <CommandItem key={h.codigo} value={`${h.codigo} ${h.nome}`} onSelect={() => { onChange(String(h.codigo)); setOpen(false); }}>
+                  <Check className={cn("mr-2 h-4 w-4", value === String(h.codigo) ? "opacity-100" : "opacity-0")} />
+                  <span className="font-mono text-xs mr-2">{h.codigo}</span>
+                  <span className="truncate">{h.nome}</span>
                 </CommandItem>
               ))}
             </CommandGroup>

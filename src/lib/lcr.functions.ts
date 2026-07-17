@@ -1125,6 +1125,7 @@ export const editarLancamento = createServerFn({ method: "POST" })
     valor: z.number().optional(),
     descricao: z.string().max(200).optional(),
     conta_codigo: z.string().max(40).optional(),
+    historico_codigo: z.string().max(20).optional(),
     documento_numero: z.string().max(80).nullable().optional(),
     part_deb: z.string().max(120).nullable().optional(),
     part_cred: z.string().max(120).nullable().optional(),
@@ -1138,11 +1139,17 @@ export const editarLancamento = createServerFn({ method: "POST" })
     if (data.part_cred !== undefined) patch.part_cred = data.part_cred;
     if (data.documento_numero !== undefined) patch.documento_numero = data.documento_numero;
 
+    // empresa_id do lançamento — precisamos tanto pra resolver a conta (#131) quanto
+    // pro histórico (#140), então busca uma vez só se qualquer um dos dois vier.
+    let empresaId: string | null = null;
+    if (data.conta_codigo || data.historico_codigo) {
+      const { data: lanc } = await context.supabase.from("lancamentos").select("empresa_id").eq("id", data.id).maybeSingle();
+      empresaId = (lanc as { empresa_id?: string | null } | null)?.empresa_id ?? null;
+    }
+
     // Atribuir/corrigir conta: resolve o código → conta_id no escopo da empresa
     // (conta específica da empresa tem prioridade sobre a global, empresa_id null).
     if (data.conta_codigo) {
-      const { data: lanc } = await context.supabase.from("lancamentos").select("empresa_id").eq("id", data.id).maybeSingle();
-      const empresaId = (lanc as { empresa_id?: string | null } | null)?.empresa_id ?? null;
       const { data: contas, error: cErr } = await context.supabase
         .from("plano_contas").select("id, empresa_id, codigo").eq("codigo", data.conta_codigo);
       if (cErr) throw new Error(cErr.message);
@@ -1151,6 +1158,37 @@ export const editarLancamento = createServerFn({ method: "POST" })
       if (!conta) throw new Error(`Conta "${data.conta_codigo}" não encontrada no plano de contas.`);
       patch.conta_id = conta.id;
       patch.confidence = 1; // conta definida por humano → sai de "a revisar"
+    }
+
+    // Atribuir/corrigir histórico contábil (#140): fonte oficial é
+    // historicos_sci_lcr (Anexo 2 do SCI). O front/export ainda lê pelo join
+    // legado historico_id → historicos_contabeis(codigo) (docs/conciliacao-v3-spec.md
+    // §Export SCI), então mantemos os dois em sincronia — mesmo padrão que
+    // processar-documento já usa na ingestão automática (find-or-create por empresa).
+    if (data.historico_codigo) {
+      const { data: hist, error: hErr } = await context.supabase
+        .from("historicos_sci_lcr").select("codigo, nome").eq("codigo", Number(data.historico_codigo)).maybeSingle();
+      if (hErr) throw new Error(hErr.message);
+      const h = hist as { codigo: number; nome: string } | null;
+      if (!h) throw new Error(`Histórico "${data.historico_codigo}" não encontrado no Plano de Históricos SCI.`);
+      patch.hist_sci_codigo = h.codigo;
+      if (empresaId) {
+        const codigoStr = String(h.codigo);
+        const { data: existente, error: findErr } = await context.supabase
+          .from("historicos_contabeis").select("id")
+          .eq("empresa_id", empresaId).eq("codigo", codigoStr).maybeSingle();
+        if (findErr) throw new Error(findErr.message);
+        let historicoId = (existente as { id: string } | null)?.id ?? null;
+        if (!historicoId) {
+          const { data: criado, error: insErr } = await context.supabase
+            .from("historicos_contabeis")
+            .insert({ empresa_id: empresaId, codigo: codigoStr, descricao: h.nome } as never)
+            .select("id").single();
+          if (insErr) throw new Error(insErr.message);
+          historicoId = (criado as { id: string }).id;
+        }
+        patch.historico_id = historicoId;
+      }
     }
 
     if (Object.keys(patch).length === 0) return { ok: true };
@@ -1820,6 +1858,20 @@ export const listPlanoContas = createServerFn({ method: "GET" })
       .range(0, 4999);
     if (error) throw new Error(error.message);
     return (data ?? []).slice().sort((a, b) => (parseInt(a.codigo, 10) || 0) - (parseInt(b.codigo, 10) || 0));
+  });
+
+// Plano de Históricos SCI (Anexo 2) — fonte oficial do código exportado na
+// coluna HISTÓRICO (#134/#140). Usado pelo combobox de edição de histórico.
+export const listHistoricosSci = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("historicos_sci_lcr")
+      .select("codigo, nome, apelido, pula_complemento")
+      .order("codigo")
+      .range(0, 4999);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as { codigo: number; nome: string; apelido: string | null; pula_complemento: boolean }[];
   });
 
 // ====================================================================
