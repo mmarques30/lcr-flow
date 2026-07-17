@@ -11,8 +11,11 @@ Nao roda em produção via cron/automação: a empresa tem nome propositalmente
 fora do padrão para nunca casar com o fuzzy-match do orquestrador (resolver_empresa),
 is_demo=true e ativo=false para não entrar nos KPIs/alertas do dashboard.
 
-Requer no .env (raiz do repo): SUPABASE_URL (ou VITE_SUPABASE_URL) e
-SUPABASE_SERVICE_ROLE_KEY.
+Requer SUPABASE_URL (ou VITE_SUPABASE_URL) e SUPABASE_SERVICE_ROLE_KEY em algum
+.env. O .env deste repo (LCR-front) às vezes não tem a service role key (foi
+resetado por algo externo em 2026-07-17) — por isso também tenta o .env do
+worktree irmão (repo LCR, pasta "../LCR"), que costuma ter a chave completa.
+Ver .cursor/rules/checklist-ambiente-sessao.mdc (item "Múltiplos worktrees").
 """
 import os
 import sys
@@ -22,24 +25,36 @@ from dotenv import load_dotenv
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(ROOT, ".env"))
+if not os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
+    load_dotenv(os.path.join(os.path.dirname(ROOT), "LCR", ".env"), override=False)
 URL = (os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL") or "").rstrip("/")
 SR = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
+if not SR:
+    print("ERRO: SUPABASE_SERVICE_ROLE_KEY nao encontrado em LCR-front/.env nem em ../LCR/.env.")
+    sys.exit(1)
 H = {"apikey": SR, "Authorization": f"Bearer {SR}", "Content-Type": "application/json"}
 HREAD = {"apikey": SR, "Authorization": f"Bearer {SR}"}
 
 RAZAO_SOCIAL = "ZZZ SANDBOX QA - NAO E CLIENTE REAL"
 CNPJ = "00.000.000/0001-91"
 COMPETENCIA = "2026-08"
-CONTA_BB_ID = "1fbabe78-ef1b-40e8-8bdb-c8103ddf5458"  # plano_contas global: "Banco do Brasil" (codigo 7)
 HIST_RECEB_ID = "388b882f-42ce-412c-ade3-c61019fed2cd"  # historicos_contabeis: "Recebimento de clientes" (codigo 477)
-PDC_CODIGO_BANCO = 1048  # plano_de_contas_lcr: "Banco do Brasil 1" (analitica, tipo=C)
 HIST_SCI_CODIGO = 19  # historicos_sci_lcr: "Aquisição de investimento" (qualquer codigo valido serve p/ teste)
+# A Planilha SCI (src/lib/sci-xls.ts:linhasSci/linhasSciPreview) resolve
+# Debito/Credito a partir de lancamentos.conta_id (join com plano_contas) de UM
+# lado, e do banco cadastrado em contas_bancarias (via bancoCodigoDe) do OUTRO
+# lado — NAO usa pdc_codigo/hist_sci_codigo pra isso. Se conta_id apontar pro
+# mesmo banco da empresa, Debito=Credito=banco na previa (bug encontrado na
+# retro de 2026-07-17: nao usar CONTA_BB_ID aqui!). Por isso a contrapartida
+# usa contas analiticas DIFERENTES do banco, e diferentes entre credito/debito.
+CONTA_CREDITO_ID = "3033c1da-eb81-45da-b6fb-162dd448bdc2"  # plano_contas global: "Aplicação - Banco XP Investimentos" (codigo 1170)
+CONTA_DEBITO_ID = "0e75a827-087b-4462-a2dd-aca8c6ca0aa8"  # plano_contas global: "Fornecedores" (codigo 148)
 
 SALDO_INICIAL = 10000.00
 MOVS = [
-    {"data": f"{COMPETENCIA}-05", "descricao": "Recebimento cliente Delta Consultoria", "valor": 5000.00, "tipo": "credito"},
-    {"data": f"{COMPETENCIA}-10", "descricao": "Pagamento fornecedor Beta Suprimentos", "valor": 2000.00, "tipo": "debito"},
-    {"data": f"{COMPETENCIA}-15", "descricao": "Tarifa de manutencao de conta", "valor": 100.00, "tipo": "debito"},
+    {"data": f"{COMPETENCIA}-05", "descricao": "Recebimento cliente Delta Consultoria", "valor": 5000.00, "tipo": "credito", "conta_id": CONTA_CREDITO_ID},
+    {"data": f"{COMPETENCIA}-10", "descricao": "Pagamento fornecedor Beta Suprimentos", "valor": 2000.00, "tipo": "debito", "conta_id": CONTA_DEBITO_ID},
+    {"data": f"{COMPETENCIA}-15", "descricao": "Tarifa de manutencao de conta", "valor": 100.00, "tipo": "debito", "conta_id": CONTA_DEBITO_ID},
 ]
 MOV_NET = sum(m["valor"] if m["tipo"] == "credito" else -m["valor"] for m in MOVS)
 SALDO_FINAL = round(SALDO_INICIAL + MOV_NET, 2)
@@ -167,9 +182,8 @@ def criar_lancamentos(empresa_id: str, documento_id: str):
                 "valor": m["valor"],
                 "descricao": m["descricao"],
                 "natureza_movimento": m["tipo"],
-                "conta_id": CONTA_BB_ID,
+                "conta_id": m["conta_id"],
                 "historico_id": HIST_RECEB_ID,
-                "pdc_codigo": PDC_CODIGO_BANCO,
                 "hist_sci_codigo": HIST_SCI_CODIGO,
                 "confidence": 1.0,
                 "fonte_extrato": True,
