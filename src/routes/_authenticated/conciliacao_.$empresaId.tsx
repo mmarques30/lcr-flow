@@ -505,21 +505,9 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
   return (
     <>
       <Tabs value={subtab} onValueChange={(v) => setSubtab(v as typeof subtab)}>
-        <TabsList className="mb-1 h-auto w-full justify-start gap-8 rounded-none bg-transparent p-0 shadow-none">
-          <TabsTrigger
-            value="lancamentos"
-            className="inline-flex items-center gap-2 rounded-none border-0 bg-transparent px-0 py-2 text-sm font-semibold text-muted-foreground shadow-none transition-colors data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
-          >
-            <span className={cn("h-2 w-2 shrink-0 rounded-full bg-primary", subtab !== "lancamentos" && "opacity-0")} aria-hidden />
-            Lançamentos
-          </TabsTrigger>
-          <TabsTrigger
-            value="conciliacao"
-            className="inline-flex items-center gap-2 rounded-none border-0 bg-transparent px-0 py-2 text-sm font-semibold text-muted-foreground shadow-none transition-colors data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
-          >
-            <span className={cn("h-2 w-2 shrink-0 rounded-full bg-primary", subtab !== "conciliacao" && "opacity-0")} aria-hidden />
-            Conciliação
-          </TabsTrigger>
+        <TabsList className="mb-4">
+          <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>
+          <TabsTrigger value="conciliacao">Conciliação</TabsTrigger>
         </TabsList>
 
         {/* ─────────── Aba Lançamentos: cards + tabela do extrato + docs suporte ─────────── */}
