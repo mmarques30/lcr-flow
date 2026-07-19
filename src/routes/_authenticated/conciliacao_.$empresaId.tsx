@@ -282,10 +282,40 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
   // tem mais a linha correspondente (ex.: CSV reenviado sem aquele movimento).
   const idsSemMatch = new Set((resultado?.faltantes?.classificado_sem_extrato ?? []).map((f) => f.id));
   const [soSemMatch, setSoSemMatch] = useState(false);
+  const [soSemSuporte, setSoSemSuporte] = useState(false);
   const semMatchCount = extratoLancs.filter((l) => idsSemMatch.has(l.id)).length;
   const visiveisLancs = extratoLancs
     .filter((l) => !soARevisar || precisaRevisao(l))
-    .filter((l) => !soSemMatch || idsSemMatch.has(l.id));
+    .filter((l) => !soSemMatch || idsSemMatch.has(l.id))
+    .filter((l) => !soSemSuporte || !l.enriquecido);
+
+  // Documentos suporte (NF/recibo) desta competência — mesma query da
+  // DocsSuporteCard (cache compartilhado) só pra alimentar o resumo no topo.
+  const { data: docsSuporteData } = useQuery({
+    queryKey: ["docs-suporte", empresaId, competencia],
+    queryFn: () => listDocsSuporte({ data: { empresa_id: empresaId, competencia } }),
+  });
+  const docsSuporteLista = (docsSuporteData ?? []) as Array<{ id: string; lancamento_match: unknown | null }>;
+  const orfaosDocs = docsSuporteLista.filter((d) => !d.lancamento_match).length;
+  const docsSuporteRef = useRef<HTMLDivElement>(null);
+  function irParaSemSuporte() {
+    setSubtab("lancamentos");
+    setSoARevisar(false);
+    setSoSemMatch(false);
+    setSoSemSuporte(true);
+    setTimeout(() => tabelaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  }
+  function irParaSemMatch() {
+    setSubtab("lancamentos");
+    setSoARevisar(false);
+    setSoSemSuporte(false);
+    setSoSemMatch(true);
+    setTimeout(() => tabelaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  }
+  function irParaDocsOrfaos() {
+    setSubtab("lancamentos");
+    setTimeout(() => docsSuporteRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  }
   // Motor v3 (#132/#133 — pareamento D/C removido): saldo confere + faltantes = 0.
   const saldoConfere = resultado?.saldo?.confere === true;
   const faltantesCount = resultado?.faltantes?.faltantes_count ?? 0;
@@ -638,6 +668,39 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </div>
       )}
 
+      {/* Resumo de correspondência — destaca de cara o que precisa de atenção
+          (sem esperar o usuário rolar até a tabela ou o card de docs suporte
+          no fim da página). Pedido do backlog CRM: "ajustar a exibição de
+          extratos sem correspondência e documentos suporte sem par". */}
+      {(semSuporteExtrato > 0 || semMatchCount > 0 || orfaosDocs > 0) && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/60 px-5 py-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-amber-900">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            Pendências de correspondência nesta competência
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {semSuporteExtrato > 0 && (
+              <button type="button" onClick={irParaSemSuporte} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 hover:shadow-sm">
+                <div className="font-display text-xl leading-tight text-amber-800">{semSuporteExtrato}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Lançamento(s) do extrato sem documento suporte (NF/recibo)</div>
+              </button>
+            )}
+            {semMatchCount > 0 && (
+              <button type="button" onClick={irParaSemMatch} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 hover:shadow-sm">
+                <div className="font-display text-xl leading-tight text-amber-800">{semMatchCount}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Lançamento(s) sem linha correspondente no extrato atual</div>
+              </button>
+            )}
+            {orfaosDocs > 0 && (
+              <button type="button" onClick={irParaDocsOrfaos} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 hover:shadow-sm">
+                <div className="font-display text-xl leading-tight text-amber-800">{orfaosDocs}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Documento(s) suporte recebido(s) sem par no extrato</div>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Lançamentos do extrato — apenas linhas originadas do extrato bancário */}
       <Card className="mb-6" ref={tabelaRef}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-3">
@@ -646,18 +709,24 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             <h3 className="font-display text-lg">Lançamentos do extrato</h3>
             <span className="text-xs text-muted-foreground">
               · {visiveisLancs.length}{visiveisLancs.length !== extratoLancs.length ? ` de ${extratoLancs.length}` : ""} linha(s)
-              {soARevisar ? " · filtrando revisão" : ""}{soSemMatch ? " · filtrando sem match" : ""}
+              {soARevisar ? " · filtrando revisão" : ""}{soSemMatch ? " · filtrando sem match" : ""}{soSemSuporte ? " · filtrando sem suporte" : ""}
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {semSuporteExtrato > 0 && (
+              <label className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 text-xs", soSemSuporte ? "bg-amber-100 font-medium text-amber-800 ring-1 ring-amber-300" : "text-muted-foreground")} title="Lançamentos do extrato sem nenhum documento suporte (NF/recibo) vinculado ainda">
+                <input type="checkbox" checked={soSemSuporte} onChange={(e) => setSoSemSuporte(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer accent-[var(--color-primary)]" />
+                Só sem suporte ({semSuporteExtrato})
+              </label>
+            )}
             {semMatchCount > 0 && (
               <label className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 text-xs", soSemMatch ? "bg-rose-100 font-medium text-rose-800 ring-1 ring-rose-300" : "text-muted-foreground")} title="Lançamentos que vieram do extrato mas o CSV atual não tem mais a linha correspondente (ex.: CSV reenviado sem esse movimento)">
                 <input type="checkbox" checked={soSemMatch} onChange={(e) => setSoSemMatch(e.target.checked)} className="h-3.5 w-3.5 cursor-pointer accent-[var(--color-primary)]" />
                 Só sem match ({semMatchCount})
               </label>
             )}
-            {(soARevisar || soSemMatch) && (
-              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setSoARevisar(false); setSoSemMatch(false); }}>Ver todos</Button>
+            {(soARevisar || soSemMatch || soSemSuporte) && (
+              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setSoARevisar(false); setSoSemMatch(false); setSoSemSuporte(false); }}>Ver todos</Button>
             )}
             {semSuporteExtrato > 0 && (
             <Button size="sm" variant="outline" disabled={acting} className="h-8" onClick={async () => {
@@ -755,10 +824,13 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                     </TableRow>
                   );
                 })}
-                {!lancLoading && soSemMatch && visiveisLancs.length === 0 && (
+                {!lancLoading && soSemSuporte && visiveisLancs.length === 0 && (
+                  <TableRow><TableCell colSpan={7} className="py-8 text-center text-emerald-700">Nenhum lançamento sem suporte — todos têm documento vinculado.</TableCell></TableRow>
+                )}
+                {!lancLoading && !soSemSuporte && soSemMatch && visiveisLancs.length === 0 && (
                   <TableRow><TableCell colSpan={7} className="py-8 text-center text-emerald-700">Nenhum lançamento sem match — todos têm linha correspondente no extrato atual.</TableCell></TableRow>
                 )}
-                {!lancLoading && !soSemMatch && soARevisar && extratoLancs.length > 0 && visiveisLancs.length === 0 && (
+                {!lancLoading && !soSemMatch && !soSemSuporte && soARevisar && extratoLancs.length > 0 && visiveisLancs.length === 0 && (
                   <TableRow><TableCell colSpan={7} className="py-8 text-center text-emerald-700">Nada a revisar no extrato — pode analisar divergências.</TableCell></TableRow>
                 )}
                 {!lancLoading && extratoLancs.length === 0 && (
@@ -800,7 +872,9 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       </div>
 
       {/* Documentos suporte recebidos — sinalização de falta de suporte (A) fica aqui, não vira sub-aba */}
-      <DocsSuporteCard empresaId={empresaId} competencia={competencia} />
+      <div ref={docsSuporteRef}>
+        <DocsSuporteCard empresaId={empresaId} competencia={competencia} />
+      </div>
         </TabsContent>
 
         {/* ─────────── Aba Conciliação: ação de conciliar + o que foi conciliado ─────────── */}
@@ -1172,6 +1246,8 @@ function DocsSuporteCard({ empresaId, competencia }: { empresaId: string; compet
   });
   const lista = (docs ?? []) as Array<{ id: string; tipo: string; arquivo_nome: string | null; recebido_em: string; lancamento_match: { id: string; descricao: string | null; valor: number | null } | null }>;
   const orfaos = lista.filter((d) => !d.lancamento_match).length;
+  const [soOrfaos, setSoOrfaos] = useState(false);
+  const listaVisivel = lista.filter((d) => !soOrfaos || !d.lancamento_match);
   return (
     <Card className="mb-6">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-3">
@@ -1179,17 +1255,22 @@ function DocsSuporteCard({ empresaId, competencia }: { empresaId: string; compet
           <FileText className="h-4 w-4 text-primary" />
           <h3 className="font-display text-lg">Documentos suporte recebidos</h3>
           <Info className="h-3.5 w-3.5 text-muted-foreground" aria-label="Comprovantes vinculados às linhas do extrato" />
-          {lista.length > 0 && <span className="text-xs text-muted-foreground">· {lista.length}{orfaos > 0 ? ` · ${orfaos} sem match` : ""}</span>}
+          {lista.length > 0 && <span className="text-xs text-muted-foreground">· {listaVisivel.length}{listaVisivel.length !== lista.length ? ` de ${lista.length}` : ""}{orfaos > 0 ? ` · ${orfaos} sem match` : ""}</span>}
         </div>
-        {orfaos > 0 && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-            <AlertTriangle className="h-3 w-3" /> {orfaos} sem linha correspondente no extrato
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {orfaos > 0 && (
+            <label className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium", soOrfaos ? "bg-amber-100 text-amber-800 ring-1 ring-amber-300" : "bg-amber-100 text-amber-700")} title="Documentos suporte recebidos sem nenhuma linha correspondente no extrato">
+              <input type="checkbox" checked={soOrfaos} onChange={(e) => setSoOrfaos(e.target.checked)} className="h-3 w-3 cursor-pointer accent-amber-700" />
+              <AlertTriangle className="h-3 w-3" /> {orfaos} sem linha correspondente no extrato
+            </label>
+          )}
+        </div>
       </div>
       <CardContent className="p-0">
         {lista.length === 0 ? (
           <div className="px-6 py-8 text-center text-sm text-muted-foreground">Nenhum documento suporte recebido nesta competência.</div>
+        ) : listaVisivel.length === 0 ? (
+          <div className="px-6 py-8 text-center text-sm text-emerald-700">Nenhum documento sem par — todos têm linha correspondente no extrato.</div>
         ) : (
         <Table>
           <TableHeader>
@@ -1201,7 +1282,7 @@ function DocsSuporteCard({ empresaId, competencia }: { empresaId: string; compet
             </TableRow>
           </TableHeader>
           <TableBody>
-            {lista.map((d) => (
+            {listaVisivel.map((d) => (
               <TableRow key={d.id} className={cn(!d.lancamento_match && "bg-amber-50/40")}>
                 <TableCell className="text-sm truncate max-w-[20rem]" title={d.arquivo_nome ?? ""}>
                   {d.arquivo_nome ?? "—"}
