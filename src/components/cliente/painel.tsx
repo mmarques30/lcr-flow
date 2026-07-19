@@ -308,9 +308,11 @@ function CelEditavel({ id, initial, campo, placeholder, maxLength = 80, mono = f
       placeholder={placeholder}
       disabled={!id || busy}
       className={cn(
-        "w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-sm outline-none transition-colors",
+        // text-xs (não text-sm): a coluna COMPLEMENTO é estreita (max-w-16rem) e
+        // com fonte maior o texto ficava cortado visualmente na célula.
+        "w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-xs outline-none transition-colors",
         "hover:border-border hover:bg-muted/40 focus:border-primary focus:bg-card",
-        mono && "font-mono text-xs",
+        mono && "font-mono",
         busy && "opacity-50",
       )}
     />

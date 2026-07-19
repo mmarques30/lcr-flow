@@ -564,6 +564,70 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </div>
       )}
 
+      {/* Resumo de correspondência — destaca de cara o que precisa de atenção
+          (sem esperar o usuário rolar até a tabela ou o card de docs suporte
+          no fim da página). Pedido do backlog CRM: "ajustar a exibição de
+          extratos sem correspondência e documentos suporte sem par". Fica
+          acima dos cards de extrato/movimentação por pedido explícito. */}
+      {(semSuporteExtrato > 0 || semMatchCount > 0 || orfaosDocs > 0) && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/60 px-5 py-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-amber-900">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            Pendências de correspondência nesta competência
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {semSuporteExtrato > 0 && (
+              <button type="button" onClick={irParaSemSuporte} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 hover:shadow-sm">
+                <div className="font-display text-xl leading-tight text-amber-800">{semSuporteExtrato}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Lançamento(s) do extrato sem documento suporte (NF/recibo)</div>
+              </button>
+            )}
+            {semMatchCount > 0 && (
+              <button type="button" onClick={irParaSemMatch} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 hover:shadow-sm">
+                <div className="font-display text-xl leading-tight text-amber-800">{semMatchCount}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Lançamento(s) sem linha correspondente no extrato atual</div>
+              </button>
+            )}
+            {orfaosDocs > 0 && (
+              <button type="button" onClick={irParaDocsOrfaos} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 hover:shadow-sm">
+                <div className="font-display text-xl leading-tight text-amber-800">{orfaosDocs}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Documento(s) suporte recebido(s) sem par no extrato</div>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Ações principais — antes viviam encaixadas dentro do card "Outros
+          lançamentos" (parecia desconfigurado: botões pequenos empilhados no
+          canto de um card de estatística). Agora ficam numa barra própria,
+          acima dos cards, no mesmo padrão dos outros títulos de seção. */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-display text-lg">Extrato e movimentação do período</h3>
+        <div className="flex items-center gap-2">
+          <Button size="sm" disabled={!podeAnalisar} onClick={analisarDivergencias} className="h-8 rounded-full"
+            title={aRever > 0 ? `${aRever} lançamento(s) pendentes de revisão` : (!temExtrato ? "Aguardando o extrato" : "Cruzar razão × extrato")}>
+            <Sparkles className="mr-1 h-3.5 w-3.5" />{busy === "analisar" ? "Analisando…" : "Analisar divergências"}
+          </Button>
+          <Button
+            size="sm"
+            variant={podeFinalizar ? "default" : "secondary"}
+            disabled={!podeFinalizar}
+            onClick={finalizarConciliacao}
+            className={cn("h-8 rounded-full", !podeFinalizar && "bg-muted text-muted-foreground hover:bg-muted")}
+            title={
+              aRever > 0 ? `${aRever} lançamento(s) pendentes de revisão`
+                : !resultado ? "Analise as divergências primeiro"
+                : !saldoConfere ? (resultado.saldo?.motivo ?? "Saldo não confere")
+                : faltantesCount > 0 ? `${faltantesCount} transação(ões) faltante(s) pendente(s)`
+                : "Finalizar conciliação"
+            }
+          >
+            <Wand2 className="mr-1 h-3.5 w-3.5" />{busy === "finalizar" ? "Conciliando…" : "Conciliar"}
+          </Button>
+        </div>
+      </div>
+
       {/* KPI strip: extrato + movimentado + outros lançamentos (3 cards) */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Card className="rounded-2xl border-0 shadow-soft">
@@ -610,32 +674,8 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
 
         <Card className="rounded-2xl border-0 shadow-soft">
           <CardContent className="p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <ListChecks className="h-4 w-4" />
-              </div>
-              <div className="flex flex-col items-end gap-1.5 sm:flex-row sm:items-center">
-                <Button size="sm" disabled={!podeAnalisar} onClick={analisarDivergencias} className="h-8 rounded-full"
-                  title={aRever > 0 ? `${aRever} lançamento(s) pendentes de revisão` : (!temExtrato ? "Aguardando o extrato" : "Cruzar razão × extrato")}>
-                  <Sparkles className="mr-1 h-3.5 w-3.5" />{busy === "analisar" ? "Analisando…" : "Analisar divergências"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant={podeFinalizar ? "default" : "secondary"}
-                  disabled={!podeFinalizar}
-                  onClick={finalizarConciliacao}
-                  className={cn("h-8 rounded-full", !podeFinalizar && "bg-muted text-muted-foreground hover:bg-muted")}
-                  title={
-                    aRever > 0 ? `${aRever} lançamento(s) pendentes de revisão`
-                      : !resultado ? "Analise as divergências primeiro"
-                      : !saldoConfere ? (resultado.saldo?.motivo ?? "Saldo não confere")
-                      : faltantesCount > 0 ? `${faltantesCount} transação(ões) faltante(s) pendente(s)`
-                      : "Finalizar conciliação"
-                  }
-                >
-                  <Wand2 className="mr-1 h-3.5 w-3.5" />{busy === "finalizar" ? "Conciliando…" : "Conciliar"}
-                </Button>
-              </div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <ListChecks className="h-4 w-4" />
             </div>
             <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground">Outros lançamentos</div>
             <div className="font-display text-2xl leading-tight">{outrosLancs.toLocaleString("pt-BR")}</div>
@@ -665,39 +705,6 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
               </li>
             ))}
           </ul>
-        </div>
-      )}
-
-      {/* Resumo de correspondência — destaca de cara o que precisa de atenção
-          (sem esperar o usuário rolar até a tabela ou o card de docs suporte
-          no fim da página). Pedido do backlog CRM: "ajustar a exibição de
-          extratos sem correspondência e documentos suporte sem par". */}
-      {(semSuporteExtrato > 0 || semMatchCount > 0 || orfaosDocs > 0) && (
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/60 px-5 py-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-amber-900">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            Pendências de correspondência nesta competência
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {semSuporteExtrato > 0 && (
-              <button type="button" onClick={irParaSemSuporte} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 hover:shadow-sm">
-                <div className="font-display text-xl leading-tight text-amber-800">{semSuporteExtrato}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">Lançamento(s) do extrato sem documento suporte (NF/recibo)</div>
-              </button>
-            )}
-            {semMatchCount > 0 && (
-              <button type="button" onClick={irParaSemMatch} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 hover:shadow-sm">
-                <div className="font-display text-xl leading-tight text-amber-800">{semMatchCount}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">Lançamento(s) sem linha correspondente no extrato atual</div>
-              </button>
-            )}
-            {orfaosDocs > 0 && (
-              <button type="button" onClick={irParaDocsOrfaos} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-400 hover:shadow-sm">
-                <div className="font-display text-xl leading-tight text-amber-800">{orfaosDocs}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">Documento(s) suporte recebido(s) sem par no extrato</div>
-              </button>
-            )}
-          </div>
         </div>
       )}
 
@@ -843,8 +850,11 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
         </CardContent>
       </Card>
 
-      {/* Saldo + faltantes (motor v3) — sempre visível quando há extrato */}
+      {/* Saldo + faltantes (motor v3) — sempre visível quando há extrato.
+          Título de seção adicionado pra dar contexto aos 4 cards de saldo e
+          separar visualmente do bloco de "Transações faltantes" acima dele. */}
       <div ref={divergenciasRef} className="mb-6">
+        {temExtrato && <h3 className="mb-3 font-display text-lg">Resultado da análise: saldo e transações faltantes</h3>}
         {resultado?.saldo?.confere && (resultado?.faltantes?.faltantes_count ?? 0) === 0 && conc?.status !== "concluida" && (
           <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3">
             <div className="flex items-center gap-2 text-sm text-emerald-800">
@@ -1117,8 +1127,13 @@ function SaldoMini({ label, value, signed }: { label: string; value: number | nu
 
 function DeltaMini({ saldo, analisado }: { saldo?: ResultadoSaldo; analisado: boolean }) {
   const confere = saldo?.confere ?? false;
+  // Só marca o card como "alerta" quando há de fato um saldo calculado que não
+  // confere — sem isso, `!confere` também ficava true na ausência de dados
+  // (saldo undefined), pintando o card de vermelho mesmo numa conciliação já
+  // concluída/ok só porque o resultado antigo não tinha o campo saldo.
+  const naoConfere = analisado && !!saldo && !confere;
   return (
-    <Card className={cn("rounded-2xl border-0 shadow-soft", analisado && !confere && "ring-1 ring-rose-300")}>
+    <Card className={cn("rounded-2xl border-0 shadow-soft", naoConfere && "ring-1 ring-rose-300")}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Delta (saldo)</div>
