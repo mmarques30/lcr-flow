@@ -30,11 +30,19 @@ export type SciLanc = {
   historico: { codigo: string; pula_complemento?: boolean | null } | null;
 };
 
-/** Resolve o código LCR do banco a partir do nome da conta bancária. */
+/** Remove acentos (ex. "Itaú" → "itau") para comparação tolerante a diacríticos. */
+function semAcento(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Resolve o código LCR do banco a partir do nome da conta bancária.
+ *  Bug 21/07: faltava normalizar acento — "Itaú" (cadastro real do cliente)
+ *  nunca casava com a chave "itau" do dicionário, deixando o código do banco
+ *  em branco na Planilha SCI mesmo com o nome aparecendo corretamente. */
 export function bancoCodigoDe(bancoNome: string | null | undefined): number | null {
-  const b = (bancoNome ?? "").toLowerCase();
+  const b = semAcento((bancoNome ?? "").toLowerCase());
   for (const [nome, cod] of Object.entries(BANCO_PARA_CODIGO)) {
-    if (b.includes(nome.trim())) return cod;
+    if (b.includes(semAcento(nome.trim()))) return cod;
   }
   return null;
 }
