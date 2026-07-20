@@ -947,6 +947,59 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
                 </div>
                 <span className="text-xs text-emerald-700">{resultado.total_razao} lançamento(s) na razão · {resultado.total_extrato} linha(s) no extrato</span>
               </div>
+
+              <div>
+                <h3 className="mb-2 font-display text-lg">Transações desta conciliação</h3>
+                <Card>
+                  <CardContent className="p-0">
+                    <div className="max-h-[28rem] overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-20">Data</TableHead>
+                            <TableHead>Descrição</TableHead>
+                            <TableHead>Conta</TableHead>
+                            <TableHead className="text-right">Valor</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {[...lancs]
+                            .sort((a, b) => (a.data_lancamento ?? "").localeCompare(b.data_lancamento ?? ""))
+                            .map((l) => {
+                              // Mesma regra de sinal/cor da tabela de Lançamentos (natureza_movimento,
+                              // não o sinal de l.valor — ver nota em sci-xls.ts).
+                              const natureza = (l.natureza_movimento ?? "").toLowerCase();
+                              const valorPositivo = natureza.startsWith("c");
+                              const valorNegativo = natureza.startsWith("d");
+                              return (
+                                <TableRow key={l.id}>
+                                  <TableCell className="text-sm">{formatDataBR(l.data_lancamento)}</TableCell>
+                                  <TableCell className="max-w-[22rem] truncate text-sm" title={l.descricao ?? ""}>{l.descricao}</TableCell>
+                                  <TableCell className="text-sm">
+                                    {l.conta ? (
+                                      <>
+                                        <span className="font-mono text-xs">{l.conta.codigo}</span>
+                                        <div className="text-xs text-muted-foreground">{l.conta.descricao}</div>
+                                      </>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">—</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className={cn("text-right font-mono text-sm", valorPositivo && "text-emerald-600", valorNegativo && "text-rose-600")}>
+                                    {l.valor == null ? "—" : <>{valorPositivo ? "+" : valorNegativo ? "-" : ""}{brl(l.valor)}</>}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          {lancs.length === 0 && (
+                            <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">Nenhuma transação nesta competência.</TableCell></TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           )}
         </TabsContent>
