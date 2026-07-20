@@ -109,25 +109,28 @@ export function codSciReduzido(
   return Number.isNaN(n) ? c : n;
 }
 
-// ── #136: Contas T (sintética/título) não aceitam lançamento no SCI — só a
-// analítica (filha) aceita. Ex.: T 29 "ADIANTAMENTO A SÓCIOS" → analítica 20
-// "Adiantamento a Sócios" (classificacao 01.1.2.07 → 01.1.2.07.001).
+// ── #136: Contas T (sintética/título) e C (consolidada) não aceitam lançamento
+// no SCI — só a analítica (filha) aceita. Ex.: T 29 "ADIANTAMENTO A SÓCIOS" →
+// analítica 20 "Adiantamento a Sócios" (classificacao 01.1.2.07 → 01.1.2.07.001).
+// Ex. C: 1170 "Aplicação - Banco XP Investimentos" (tipo C, 3 filhas) → ambígua,
+// bloqueia export em vez de usar o código da própria conta-guarda-chuva.
+const TIPOS_NAO_ANALITICOS = ["T", "C"];
 export type PdcTC = { codigo: number; classificacao: string; tipo: string | null };
 export type ResolucaoTC =
-  | { status: "analitica" } // já é conta que aceita lançamento (tipo != 'T')
-  | { status: "resolvido"; codigoResolvido: number } // T com filha analítica única
-  | { status: "ambigua"; candidatos: number[] } // T com mais de uma filha analítica
-  | { status: "sem_filha" }; // T sem nenhuma filha analítica cadastrada
+  | { status: "analitica" } // já é conta que aceita lançamento (tipo não é T nem C)
+  | { status: "resolvido"; codigoResolvido: number } // T/C com filha analítica única
+  | { status: "ambigua"; candidatos: number[] } // T/C com mais de uma filha analítica
+  | { status: "sem_filha" }; // T/C sem nenhuma filha analítica cadastrada
 
-/** Resolve uma conta sintética (T) para sua filha analítica, via prefixo de
- *  `classificacao` (ex. "01.1.2.07" é prefixo de "01.1.2.07.001"). Contas que
- *  já não são "T" retornam { status: "analitica" } sem nenhuma mudança. */
+/** Resolve uma conta sintética (T) ou consolidada (C) para sua filha analítica,
+ *  via prefixo de `classificacao` (ex. "01.1.2.07" é prefixo de "01.1.2.07.001").
+ *  Contas que já não são T/C retornam { status: "analitica" } sem nenhuma mudança. */
 export function resolverContaAnalitica(codigo: string | number, pdc: readonly PdcTC[]): ResolucaoTC {
   const cod = Number(codigo);
   const conta = pdc.find((r) => r.codigo === cod);
-  if (!conta || conta.tipo !== "T") return { status: "analitica" };
+  if (!conta || !TIPOS_NAO_ANALITICOS.includes(conta.tipo ?? "")) return { status: "analitica" };
   const prefixo = `${conta.classificacao}.`;
-  const filhas = pdc.filter((r) => r.tipo !== "T" && r.classificacao.startsWith(prefixo));
+  const filhas = pdc.filter((r) => !TIPOS_NAO_ANALITICOS.includes(r.tipo ?? "") && r.classificacao.startsWith(prefixo));
   if (filhas.length === 0) return { status: "sem_filha" };
   if (filhas.length === 1) return { status: "resolvido", codigoResolvido: filhas[0].codigo };
   return { status: "ambigua", candidatos: filhas.map((f) => f.codigo).sort((a, b) => a - b) };
@@ -153,7 +156,7 @@ export function linhasSci(
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
-      // #136: contas sintéticas (T) resolvem para a filha analítica antes do código reduzido.
+      // #136: contas sintéticas (T) ou consolidadas (C) resolvem para a filha analítica antes do código reduzido.
       const conta = codSciReduzido(codigoParaExportSci(l.conta!.codigo, pdcTC), pdcApelidos);
       const banco: number | string = bancoSci;
       const valor = Number(l.valor ?? 0);
@@ -230,13 +233,13 @@ export function validarLancamentosSci(
       out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null, motivo: "código fora do Plano de Contas oficial LCR" });
       continue;
     }
-    // #136: conta sintética (T) sem filha analítica única não pode ser exportada.
+    // #136: conta sintética (T) ou consolidada (C) sem filha analítica única não pode ser exportada.
     if (pdcTC.length > 0) {
       const r = resolverContaAnalitica(c, pdcTC);
       if (r.status === "ambigua") {
-        out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null, motivo: `conta sintética (T) com ${r.candidatos.length} filhas analíticas — reclassifique manualmente` });
+        out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null, motivo: `conta sintética/consolidada (T/C) com ${r.candidatos.length} filhas analíticas — reclassifique manualmente` });
       } else if (r.status === "sem_filha") {
-        out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null, motivo: "conta sintética (T) sem filha analítica cadastrada" });
+        out.push({ id: l.id, codigo: String(c), descricao: l.conta?.descricao ?? null, motivo: "conta sintética/consolidada (T/C) sem filha analítica cadastrada" });
       }
     }
   }
@@ -278,7 +281,7 @@ export function linhasSciPreview(
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
-      // #136: mesma resolução T → filha analítica usada no export real, para a prévia bater com o .xls.
+      // #136: mesma resolução T/C → filha analítica usada no export real, para a prévia bater com o .xls.
       const conta: SciCelula = {
         codigo: codSciReduzido(codigoParaExportSci(l.conta!.codigo, pdcTC), pdcApelidos),
         nome: l.conta!.descricao,
