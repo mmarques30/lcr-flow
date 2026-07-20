@@ -13,7 +13,7 @@ const TIPOS_DEBITO = ["ativo", "despesa", "custo", "deducoes"];
 const TIPOS_CREDITO = ["passivo", "receita", "resultado", "patrimonio"];
 
 // Cabeçalho EXATO do modelo SCI (ordem e acentuação importam).
-const COLUNAS = [
+export const COLUNAS = [
   "DATA", "DÉBITO", "CRÉDITO", "PART DÉB", "PART CRED", "VALOR",
   "HISTÓRICO", "COMPLEMENTO", "DOCUMENTO", "CENTRO DE CUSTO DÉB", "CENTRO DE CUSTO CRED",
 ];

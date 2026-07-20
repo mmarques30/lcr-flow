@@ -14,7 +14,7 @@ import { StatusPill, variantFor } from "@/components/status-pill";
 import { Markdown } from "@/components/markdown";
 import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, listLancamentosConciliacao, getEmpresa, editarLancamento, type SciLinha } from "@/lib/lcr.functions";
 import { avisarPropagacao } from "@/lib/propagacao-toast";
-import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSciPreview, mapaPdcApelidos, validarLancamentosSci, type SciCelula } from "@/lib/sci-xls";
+import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSci, linhasSciPreview, mapaPdcApelidos, validarLancamentosSci, COLUNAS as COLUNAS_SCI, type SciCelula } from "@/lib/sci-xls";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { documentoComErroProcessamento } from "@/lib/documento-erros";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
@@ -230,13 +230,21 @@ function UploadDocDialog({ empresaId, competenciaPadrao }: { empresaId: string; 
 }
 
 // --------------------------------------------------------------- Planilha SCI
-function exportarCsv(empresa: string, competencia: string, linhas: SciLinha[]) {
+// #melhoria-csv-sci: o CSV baixado precisa seguir o MESMO layout do modelo de
+// importação (config/08_-_Modelo_Planilha_Importacao_Lctos_SCI.xls) — uma linha
+// por lançamento, nas mesmas 11 colunas do .xls — em vez de um resumo agregado
+// por conta (formato antigo, que não servia para importar no SCI).
+function exportarCsvSci(empresa: string, competencia: string, linhas: ReturnType<typeof linhasSci>) {
   const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
-  const header = ["Código", "Descrição", "Tipo", "Total"].join(";");
-  const corpo = linhas.map((l) => [esc(l.codigo), esc(l.descricao), esc(l.tipo), brl(l.total)].join(";"));
-  const totalGeral = linhas.reduce((s, l) => s + l.total, 0);
-  const rodape = ["", "", esc("TOTAL"), brl(totalGeral)].join(";");
-  const csv = "﻿" + [header, ...corpo, rodape].join("\r\n");
+  const header = COLUNAS_SCI.join(";");
+  const corpo = linhas.map((l) =>
+    COLUNAS_SCI.map((col) => {
+      const v = (l as Record<string, string | number>)[col];
+      if (col === "VALOR") return brl(Number(v ?? 0));
+      return v === "" || v == null ? "" : esc(String(v));
+    }).join(";"),
+  );
+  const csv = "\uFEFF" + [header, ...corpo].join("\r\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -393,6 +401,24 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     }
   }
 
+  // Mesmo layout/dados do .xls (baixarXls), só que em texto CSV — usado quando
+  // o cliente prefere/precisa importar CSV em vez do binário .xls.
+  function baixarCsv() {
+    if (codigosValidos.size > 0) {
+      const invalidos = validarLancamentosSci(lancsComPula, codigosValidos, pdcTC);
+      if (invalidos.length > 0) {
+        const primeiros = invalidos.slice(0, 5).map((i) => `${i.codigo}${i.descricao ? ` (${i.descricao})` : ""}${i.motivo ? ` — ${i.motivo}` : ""}`).join("; ");
+        toast.error(`Exportação bloqueada: ${invalidos.length} lançamento(s) com problema de classificação — ${primeiros}${invalidos.length > 5 ? "…" : ""}`);
+        return;
+      }
+    }
+    const rows = linhasSci(lancsComPula, bancoCodigo, pdcApelidos, pdcTC);
+    if (rows.length === 0) { toast.warning("Nenhum lançamento com conta para exportar."); return; }
+    exportarCsvSci(empresaNome, competencia, rows);
+    toast.success(`CSV gerado — ${rows.length} lançamento(s) no layout de importação SCI.`);
+    void trackAction("gerou_sci_csv", { clienteId: empresaId, detalhes: { competencia, total_lancamentos: rows.length } });
+  }
+
   async function gerar() {
     setBusy(true);
     try {
@@ -426,7 +452,13 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
         >
           <Download className="mr-1 h-4 w-4" />Baixar SCI (.xls)
         </Button>
-        <Button variant="outline" size="sm" disabled={!linhas || linhas.length === 0} onClick={() => linhas && exportarCsv(empresaNome, competencia, linhas)}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={lancs.length === 0 || !conciliacaoConcluida}
+          onClick={baixarCsv}
+          title={!conciliacaoConcluida ? "Conclua a conciliação bancária antes de exportar para o SCI" : "Baixa o mesmo layout do .xls, em CSV — uma linha por lançamento"}
+        >
           <Download className="mr-1 h-4 w-4" />Baixar CSV
         </Button>
       </div>
