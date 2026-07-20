@@ -1195,12 +1195,20 @@ export const editarLancamento = createServerFn({ method: "POST" })
     const { error } = await context.supabase.from("lancamentos").update(patch as never).eq("id", data.id);
     if (error) throw new Error(error.message);
 
-    // Aprendizado de participante (Mari): ao preencher part_deb/part_cred
-    // manualmente, memoriza o padrão (descrição normalizada + conta + partes)
-    // por empresa p/ o enriquecer-extrato autopreencher no futuro. Edição por
-    // cima re-aprende (valor novo prevalece + incrementa frequência). Não-fatal:
-    // um erro aqui nunca deve derrubar a edição do lançamento.
-    if ((data.part_deb != null && data.part_deb !== "") || (data.part_cred != null && data.part_cred !== "")) {
+    // Aprendizado (Mari): memoriza o padrão (descrição normalizada → conta +
+    // participante) por empresa p/ o enriquecer-extrato autopreencher em
+    // documentos NOVOS no futuro. Antes só disparava com part_deb/part_cred
+    // preenchidos — uma correção de SÓ a conta contábil (o caso mais comum)
+    // não ensinava nada, mesmo já propagando (#138) pra lançamentos já
+    // existentes em meses futuros. Cliente reportou isso na validação de
+    // 18/07 ("edição inline de categorias" não aprendia). Agora dispara
+    // também só com conta_codigo. Ao atualizar um padrão já aprendido,
+    // preserva part_deb/part_cred existentes quando o valor novo vier vazio
+    // (nem toda edição de conta reafirma/limpa o participante). Edição por
+    // cima re-aprende (valor novo prevalece + incrementa frequência).
+    // Não-fatal: um erro aqui nunca deve derrubar a edição do lançamento.
+    const tocouParticipante = (data.part_deb != null && data.part_deb !== "") || (data.part_cred != null && data.part_cred !== "");
+    if (!!data.conta_codigo || tocouParticipante) {
       try {
         const { data: lanc } = await context.supabase
           .from("lancamentos")
@@ -1214,16 +1222,21 @@ export const editarLancamento = createServerFn({ method: "POST" })
           const agora = new Date().toISOString();
           const { data: existente } = await context.supabase
             .from("aprendizado_participante")
-            .select("id, frequencia")
+            .select("id, frequencia, part_deb, part_cred")
             .eq("empresa_id", row.empresa_id)
             .eq("padrao_descricao", padrao)
             .maybeSingle();
-          const ap = existente as { id: string; frequencia: number | null } | null;
+          const ap = existente as { id: string; frequencia: number | null; part_deb: string | null; part_cred: string | null } | null;
+          // Só sobrescreve part_deb/part_cred já aprendidos se esta edição de
+          // fato informou um valor novo (não-vazio) — evita que uma edição
+          // que só corrige a conta apague um participante aprendido antes.
+          const partDeb = (data.part_deb && data.part_deb !== "") ? data.part_deb : (ap?.part_deb ?? null);
+          const partCred = (data.part_cred && data.part_cred !== "") ? data.part_cred : (ap?.part_cred ?? null);
           if (ap) {
             await context.supabase.from("aprendizado_participante").update({
               conta_codigo: contaCodigo,
-              part_deb: data.part_deb ?? null,
-              part_cred: data.part_cred ?? null,
+              part_deb: partDeb,
+              part_cred: partCred,
               frequencia: (ap.frequencia ?? 1) + 1,
               ultima_ocorrencia: agora,
             } as never).eq("id", ap.id);
@@ -1232,8 +1245,8 @@ export const editarLancamento = createServerFn({ method: "POST" })
               empresa_id: row.empresa_id,
               padrao_descricao: padrao,
               conta_codigo: contaCodigo,
-              part_deb: data.part_deb ?? null,
-              part_cred: data.part_cred ?? null,
+              part_deb: partDeb,
+              part_cred: partCred,
               frequencia: 1,
               ultima_ocorrencia: agora,
               criado_por: context.userId ?? null,

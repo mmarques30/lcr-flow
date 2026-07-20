@@ -165,15 +165,21 @@ Deno.serve(async (req) => {
   let aprendidosAplicados = 0;
   if (mapaAprend.size) {
     for (const l of lancsTyped) {
-      const jaTem = (l.part_deb && l.part_deb.trim()) || (l.part_cred && l.part_cred.trim());
-      if (jaTem) continue;
       const padrao = normalizarDescricao(l.descricao);
       if (!padrao) continue;
       const ap = mapaAprend.get(padrao);
-      if (!ap || (!ap.part_deb && !ap.part_cred)) continue;
-      const patch: Record<string, unknown> = { part_aprendido: true };
-      if (ap.part_deb) patch.part_deb = ap.part_deb.slice(0, 200);
-      if (ap.part_cred) patch.part_cred = ap.part_cred.slice(0, 200);
+      if (!ap) continue;
+      const patch: Record<string, unknown> = {};
+      // Participante e conta aplicam de forma INDEPENDENTE (cada um só se o
+      // lançamento ainda não tiver aquele campo) — antes, um lançamento que já
+      // chegasse com participante preenchido (ex.: extraído direto do extrato)
+      // pulava o aprendizado por completo e nunca recebia a conta aprendida.
+      const jaTemParticipante = (l.part_deb && l.part_deb.trim()) || (l.part_cred && l.part_cred.trim());
+      if (!jaTemParticipante && (ap.part_deb || ap.part_cred)) {
+        patch.part_aprendido = true;
+        if (ap.part_deb) patch.part_deb = ap.part_deb.slice(0, 200);
+        if (ap.part_cred) patch.part_cred = ap.part_cred.slice(0, 200);
+      }
       // conta só se o lançamento estiver SEM conta — não sobrescreve a classificação da IA.
       if (!l.conta_id && ap.conta_codigo) {
         const { data: contas } = await admin.from("plano_contas").select("id, empresa_id, codigo").eq("codigo", ap.conta_codigo);
@@ -181,6 +187,7 @@ Deno.serve(async (req) => {
         const conta = lista.find((c) => c.empresa_id === body.empresa_id) ?? lista.find((c) => c.empresa_id === null) ?? lista[0];
         if (conta) patch.conta_id = conta.id;
       }
+      if (Object.keys(patch).length === 0) continue;
       const { error } = await admin.from("lancamentos").update(patch).eq("id", l.id);
       if (!error) aprendidosAplicados++;
     }
