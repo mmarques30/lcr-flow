@@ -1847,31 +1847,47 @@ export const savePresetPermissoes = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// Plano de contas real (1187 contas) — range alto p/ superar o limite padrão.
+// Plano de contas real (1187 contas) — o PostgREST tem um limite físico de linhas
+// por requisição (db-max-rows, tipicamente 1000) que IGNORA um .range() maior; por
+// isso paginamos em loop até esgotar as páginas, senão contas fora das primeiras
+// ~1000 somem do combobox (#bugfix-1170: mesmo problema causava bloqueio no export SCI).
 export const listPlanoContas = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
-      .from("plano_contas")
-      .select("codigo, descricao, tipo, ativo, sci_apelido")
-      .order("codigo")
-      .range(0, 4999);
-    if (error) throw new Error(error.message);
-    return (data ?? []).slice().sort((a, b) => (parseInt(a.codigo, 10) || 0) - (parseInt(b.codigo, 10) || 0));
+    const pageSize = 1000;
+    const all: { codigo: string; descricao: string | null; tipo: string | null; ativo: boolean | null; sci_apelido: string | null }[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await context.supabase
+        .from("plano_contas")
+        .select("codigo, descricao, tipo, ativo, sci_apelido")
+        .order("codigo")
+        .range(offset, offset + pageSize - 1);
+      if (error) throw new Error(error.message);
+      all.push(...(data ?? []));
+      if (!data || data.length < pageSize) break;
+    }
+    return all.slice().sort((a, b) => (parseInt(a.codigo, 10) || 0) - (parseInt(b.codigo, 10) || 0));
   });
 
 // Plano de Históricos SCI (Anexo 2) — fonte oficial do código exportado na
 // coluna HISTÓRICO (#134/#140). Usado pelo combobox de edição de histórico.
+// Paginado em loop pelo mesmo motivo do #bugfix-1170 (db-max-rows ignora .range() maior).
 export const listHistoricosSci = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
-      .from("historicos_sci_lcr")
-      .select("codigo, nome, apelido, pula_complemento")
-      .order("codigo")
-      .range(0, 4999);
-    if (error) throw new Error(error.message);
-    return (data ?? []) as { codigo: number; nome: string; apelido: string | null; pula_complemento: boolean }[];
+    const pageSize = 1000;
+    const all: { codigo: number; nome: string; apelido: string | null; pula_complemento: boolean }[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await context.supabase
+        .from("historicos_sci_lcr")
+        .select("codigo, nome, apelido, pula_complemento")
+        .order("codigo")
+        .range(offset, offset + pageSize - 1);
+      if (error) throw new Error(error.message);
+      all.push(...((data ?? []) as typeof all));
+      if (!data || data.length < pageSize) break;
+    }
+    return all;
   });
 
 // ====================================================================

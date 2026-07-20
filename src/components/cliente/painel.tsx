@@ -345,11 +345,25 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
   const bancoNome = contasBanc[0]?.banco ?? "";
   // Plano de Contas oficial LCR (Anexo 1) — códigos reduzidos SCI + validação pré-envio.
   // classificacao/tipo alimentam a resolução #136 (conta T sintética → filha analítica).
+  // #bugfix-1170: o PostgREST tem um limite físico de linhas por requisição (db-max-rows,
+  // tipicamente 1000) que IGNORA um .range() maior — a tabela tem >1000 contas oficiais,
+  // então sem paginar em loop, contas fora das primeiras ~1000 (ex.: 1170) somem de
+  // codigosValidos e a exportação SCI é bloqueada por engano ("fora do Plano de Contas").
   const { data: pdcLcr } = useQuery({
     queryKey: ["plano-de-contas-lcr-codigos"],
     queryFn: async () => {
-      const { data } = await supabase.from("plano_de_contas_lcr").select("codigo, apelido, requer_participante, classificacao, tipo");
-      return (data ?? []) as { codigo: number; apelido: number | null; requer_participante: boolean; classificacao: string; tipo: string | null }[];
+      const pageSize = 1000;
+      const all: { codigo: number; apelido: number | null; requer_participante: boolean; classificacao: string; tipo: string | null }[] = [];
+      for (let offset = 0; ; offset += pageSize) {
+        const { data } = await supabase
+          .from("plano_de_contas_lcr")
+          .select("codigo, apelido, requer_participante, classificacao, tipo")
+          .order("codigo")
+          .range(offset, offset + pageSize - 1);
+        all.push(...((data ?? []) as typeof all));
+        if (!data || data.length < pageSize) break;
+      }
+      return all;
     },
     staleTime: 10 * 60_000,
   });
