@@ -212,7 +212,7 @@ futuras **já processadas** — não só em documentos novos:
 | Export SCI **multi-mês** (jan–jun consolidado) | ~01:12:18 — possível, exige mudança de modelo |
 | Flag docs a solicitar + e-mail Gestta | ~00:19:25 — não pedir NF da própria LCR |
 | Personalização banco CC por cliente | ~00:48:44 — após fase 1 estável |
-| Contas **“C” (consolidadas)** sem filhas no Plano de Contas atual | João ~00:37:13–00:39:53 — Mariana pediu ao Cleyton/João reenvio do Plano de Contas “aberto” com as contas-filha. **Depende de arquivo novo do cliente**, não é tarefa de código |
+| Contas **“C” (consolidadas)** sem filhas no Plano de Contas atual | João ~00:37:13–00:39:53 — Mariana pediu ao Cleyton/João reenvio do Plano de Contas “aberto” com as contas-filha. ✅ **Resolvido (21/07):** cliente reenviou (planilhas “Razão Contábil \| Final” + “Cod. Histórico”), dados aplicados a `plano_de_contas_lcr`/`historicos_sci_lcr`. Conferido: as 19 contas tipo C hoje cadastradas têm pelo menos 1 filha analítica com classificação correspondente |
 
 ---
 

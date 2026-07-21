@@ -498,11 +498,6 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
     } finally { setActing(false); }
   }
 
-  function editarFaltante(id: string) {
-    const l = lancs.find((x) => x.id === id);
-    if (l) abrirEdicao(l);
-  }
-
   async function salvarEdicao() {
     if (!edit) return;
     setActing(true);
@@ -771,6 +766,9 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
               <Sparkles className="mr-1 h-3.5 w-3.5" />Enriquecer ({semSuporteExtrato})
             </Button>
             )}
+            <Button size="sm" variant="outline" className="h-8" onClick={() => abrirNovo()}>
+              <Plus className="mr-1 h-3.5 w-3.5" />Novo lançamento
+            </Button>
           </div>
         </div>
         <CardContent className="p-0">
@@ -873,8 +871,13 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       </Card>
 
       {/* Saldo + faltantes (motor v3) — sempre visível quando há extrato.
-          Título de seção adicionado pra dar contexto aos 4 cards de saldo e
-          separar visualmente do bloco de "Transações faltantes" acima dele. */}
+          O card "Transações faltantes" (listas de extrato sem classificação /
+          classificado sem extrato) foi removido a pedido do cliente — a
+          contagem ainda trava "Conciliar" (faltantesCount), só não tem mais
+          uma listagem dedicada nesta tela; os itens de "classificado sem
+          extrato" seguem visíveis via o filtro "Só sem match" na tabela
+          principal, e "extrato sem classificação" via o botão "Novo
+          lançamento" no cabeçalho dela. */}
       <div ref={divergenciasRef} className="mb-6">
         {temExtrato && <h3 className="mb-3 font-display text-lg">Resultado da análise: saldo e transações faltantes</h3>}
         {resultado?.saldo?.confere && (resultado?.faltantes?.faltantes_count ?? 0) === 0 && conc?.status !== "concluida" && (
@@ -890,12 +893,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
             saldo={resultado?.saldo}
             faltantes={resultado?.faltantes}
             analisado={!!resultado}
-            revisaoPendente={aRever > 0}
-            acting={acting}
             extratoFonte={resultado?.extrato_fonte}
-            onClassificar={(l) => abrirNovo(l.descricao, l.valor, l.data ?? undefined)}
-            onEditar={editarFaltante}
-            onExcluir={(id) => excluirLancamento(id, lancs.find((x) => x.id === id)?.descricao)}
           />
         )}
         {resultado && conc?.status === "concluida" && (
@@ -1100,28 +1098,15 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
 // Painel v3 (motor de saldo + faltantes) — substitui o pareamento manual D/C.
 // KPIs de saldo inicial/final/movimentação/delta com badge confere/não confere,
 // e as duas listas de faltantes: extrato sem classificação, classificado sem extrato.
-function SaldoFaltantesPanel({ saldo, faltantes, analisado, revisaoPendente, acting, extratoFonte, onClassificar, onEditar, onExcluir }: {
+function SaldoFaltantesPanel({ saldo, faltantes, analisado, extratoFonte }: {
   saldo?: ResultadoSaldo;
   faltantes?: Faltantes;
   analisado: boolean;
-  revisaoPendente: boolean;
-  acting: boolean;
   extratoFonte?: "csv" | "lancamentos_ia";
-  onClassificar: (l: Linha) => void;
-  onEditar: (id: string) => void;
-  onExcluir: (id: string) => void;
 }) {
-  const extratoSemClassificacao = faltantes?.extrato_sem_classificacao ?? [];
-  const classificadoSemExtrato = faltantes?.classificado_sem_extrato ?? [];
-  const faltantesCount = faltantes?.faltantes_count ?? 0;
   // #fix-sinal-ia: alerta não-bloqueante — só exibe, não trava nem soma na
   // contagem de faltantes acima (motivo no comentário do tipo Faltantes).
   const divergenciasSinal = faltantes?.divergencias_sinal ?? [];
-  const emptyHint = revisaoPendente
-    ? "Revise todos os lançamentos pendentes antes de analisar."
-    : !analisado
-      ? "Clique em Analisar divergências para calcular o saldo e cruzar razão × extrato."
-      : "Nenhuma pendência — tudo classificado e coberto pelo extrato.";
 
   return (
     <div className="space-y-4">
@@ -1168,42 +1153,6 @@ function SaldoFaltantesPanel({ saldo, faltantes, analisado, revisaoPendente, act
           </div>
         </div>
       )}
-
-      <Card className="overflow-hidden rounded-2xl border-2 border-amber-300 bg-[#fff8f0] shadow-none">
-        <div className="border-b border-amber-200/80 px-6 py-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
-            <h3 className="font-display text-lg leading-tight text-amber-950">Transações faltantes</h3>
-            {analisado && (
-              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">{faltantesCount} {faltantesCount === 1 ? "item" : "itens"}</span>
-            )}
-          </div>
-          <p className="mt-1.5 text-sm text-amber-900/80">Toda linha do extrato precisa de classificação — e todo lançamento com origem no extrato precisa ter linha correspondente</p>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-amber-200/80">
-          <FaltanteCol titulo="Extrato sem classificação" count={extratoSemClassificacao.length} emptyHint={emptyHint}>
-            {extratoSemClassificacao.map((l, i) => (
-              <FaltanteRow key={i} data={l.data} descricao={l.descricao} valor={l.valor}>
-                <Button size="sm" variant="outline" className="h-7 rounded-full text-xs" disabled={acting} onClick={() => onClassificar(l)}>
-                  Classificar
-                </Button>
-              </FaltanteRow>
-            ))}
-          </FaltanteCol>
-          <FaltanteCol titulo="Classificado sem extrato" count={classificadoSemExtrato.length} emptyHint={emptyHint}>
-            {classificadoSemExtrato.map((l) => (
-              <FaltanteRow key={l.id} data={l.data} descricao={l.descricao ?? null} valor={l.valor}>
-                <button type="button" onClick={() => onEditar(l.id)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar / classificar">
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                <button type="button" disabled={acting} onClick={() => onExcluir(l.id)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50" title="Excluir lançamento">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </FaltanteRow>
-            ))}
-          </FaltanteCol>
-        </div>
-      </Card>
     </div>
   );
 }
@@ -1248,36 +1197,6 @@ function DeltaMini({ saldo, analisado }: { saldo?: ResultadoSaldo; analisado: bo
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-// Coluna de faltantes com contador + ação por item (classificar, ou editar/excluir).
-function FaltanteCol({ titulo, count, emptyHint, children }: {
-  titulo: string; count: number; emptyHint: string; children: React.ReactNode;
-}) {
-  return (
-    <div className="px-5 py-4">
-      <h4 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-primary">
-        {titulo}
-        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">{count}</span>
-      </h4>
-      <div className="max-h-72 divide-y divide-amber-100 overflow-y-auto">
-        {count === 0 ? <div className="py-8 text-center text-xs text-muted-foreground">{emptyHint}</div> : children}
-      </div>
-    </div>
-  );
-}
-
-function FaltanteRow({ data, descricao, valor, children }: {
-  data: string | null; descricao: string | null; valor: number; children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3 py-2.5 text-sm">
-      <span className="w-16 shrink-0 tabular-nums text-xs text-muted-foreground">{formatDataBR(data)}</span>
-      <span className="min-w-0 flex-1 truncate" title={descricao ?? ""}>{descricao ?? "—"}</span>
-      <span className="shrink-0 font-mono text-sm text-foreground">{brl(valor)}</span>
-      <div className="flex shrink-0 items-center gap-1">{children}</div>
-    </div>
   );
 }
 
