@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bancoCodigoDe, ehBancoPlaceholder, melhorContaBancaria, resolverContaAnalitica, type PdcTC } from "./sci-xls";
+import { bancoCodigoDe, compararClassificacao, ehBancoPlaceholder, melhorContaBancaria, profundidadeClassificacao, resolverContaAnalitica, type PdcTC } from "./sci-xls";
 
 describe("ehBancoPlaceholder", () => {
   it("trata string vazia, null e undefined como placeholder", () => {
@@ -161,5 +161,31 @@ describe("resolverContaAnalitica", () => {
 
   it("código inexistente no plano de contas retorna analitica (sem dado para resolver)", () => {
     expect(resolverContaAnalitica(123456, pdc)).toEqual({ status: "analitica" });
+  });
+});
+
+describe("compararClassificacao", () => {
+  it("ordena numericamente segmento a segmento — '9' vem antes de '10', não como string", () => {
+    const lista = ["01.1.1.02.010", "01.1.1.02.9", "01.1.1.02.001"];
+    expect(lista.slice().sort(compararClassificacao)).toEqual(["01.1.1.02.001", "01.1.1.02.9", "01.1.1.02.010"]);
+  });
+
+  it("pai (prefixo mais curto) vem antes dos filhos", () => {
+    const lista = ["01.1.1.02.001", "01.1.1.02", "01.1.1.02.002"];
+    expect(lista.slice().sort(compararClassificacao)).toEqual(["01.1.1.02", "01.1.1.02.001", "01.1.1.02.002"]);
+  });
+
+  it("classificações iguais retornam 0", () => {
+    expect(compararClassificacao("01.1.1.02", "01.1.1.02")).toBe(0);
+  });
+});
+
+describe("profundidadeClassificacao", () => {
+  it("conta com 4 segmentos tem profundidade 4", () => {
+    expect(profundidadeClassificacao("01.1.1.02")).toBe(4);
+  });
+
+  it("conta filha com 5 segmentos tem profundidade 5 (um nível abaixo do pai)", () => {
+    expect(profundidadeClassificacao("01.1.1.02.001")).toBe(5);
   });
 });

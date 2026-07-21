@@ -232,6 +232,30 @@ export function resolverContaAnalitica(codigo: string | number, pdc: readonly Pd
   return { status: "ambigua", candidatos: filhas.map((f) => f.codigo).sort((a, b) => a - b) };
 }
 
+/** Compara duas `classificacao` (ex. "01.1.1.02.010" x "01.1.1.02.9") segmento a
+ *  segmento, numericamente — ordenação alfabética simples (string) erra porque
+ *  "10" < "9" como texto. Usado pra exibir o Plano de Contas na ordem real da
+ *  planilha (pedido Mariana 20/07: "se ele fez ordem alfabética, não tá
+ *  considerando o que é correto"), não em ordem alfabética/numérica do `codigo`. */
+export function compararClassificacao(a: string, b: string): number {
+  const partsA = a.split(".").map((s) => parseInt(s, 10));
+  const partsB = b.split(".").map((s) => parseInt(s, 10));
+  const len = Math.max(partsA.length, partsB.length);
+  for (let i = 0; i < len; i++) {
+    const na = partsA[i] ?? -1;
+    const nb = partsB[i] ?? -1;
+    if (na !== nb) return na - nb;
+  }
+  return 0;
+}
+
+/** Profundidade hierárquica de uma `classificacao` (nº de segmentos) — usada pra
+ *  indentar visualmente pai (T/C) x filha no Plano de Contas e no combobox de
+ *  conta contábil (#hierarquia-tc, pedido Mariana 20/07). */
+export function profundidadeClassificacao(classificacao: string): number {
+  return classificacao.split(".").length;
+}
+
 /** Aplica resolverContaAnalitica e devolve o código final a usar no export —
  *  quando não há resolução automática (ambígua ou sem filha), mantém o
  *  código original (o bloqueio de export fica a cargo de validarLancamentosSci). */
