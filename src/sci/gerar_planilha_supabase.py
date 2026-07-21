@@ -62,16 +62,33 @@ BANCO_PARA_CODIGO = {
     "caixa": 8,
     "santander": 10,
     "itau": 657,
+    # "pagseguro"/"pagbank" precisam vir ANTES de "inter": "PagSeguro Internet
+    # S/A" (nome legal oficial) contém "internet", que colidia com a chave
+    # "inter" (Banco Inter) — achado na auditoria de 21/07 (VITALENTO e outros).
+    "pagseguro": 946,
+    "pagbank": 946,
     "inter": 658,
     "sicoob": 659,
     "sicredi": 775,
     "original": 779,
+    "nu pagamentos": 821,
     "nubank": 821,
     "xp ": 823,
     "c6": 809,
     "stone": 910,
-    "pagbank": 946,
     "btg": 1031,
+    # Adicionados na auditoria de 21/07 (~44 empresas com conta valida mas
+    # nome de banco fora do dicionario) — codigos confirmados em
+    # plano_de_contas_lcr.
+    "safra": 818,
+    "cora": 917,
+    "mercado pago": 960,
+    "wise": 1292,
+    "bs2": 830,
+    "afinz": 1197,
+    # "208" é o código COMPE oficial do BTG Pactual no Brasil — a IA às vezes
+    # extrai o código em vez do nome (ex. "Banco 208") — achado auditoria 21/07.
+    "208": 1031,
 }
 
 COLUNAS_SCI = [
@@ -244,11 +261,18 @@ def _sem_acento(s: str) -> str:
 def _eh_banco_placeholder(banco: str | None) -> bool:
     """Nome de banco "placeholder" — a IA não conseguiu identificar o banco
     no documento original (ex. "Não identificado", "Desconhecido", "N/A").
+    Ampliado na auditoria de 21/07: "não disponível"/"não explícito" também
+    são placeholders (ex. "Informação não disponível no documento") — antes
+    passavam batido e entravam como "conta válida" no _melhor_conta_bancaria,
+    às vezes vencendo um registro anterior mais específico (regressão real
+    encontrada no cliente PLENUS).
     Espelha ehBancoPlaceholder (src/lib/sci-xls.ts)."""
     t = _sem_acento((banco or "").strip().lower())
     if not t or t == "n/a":
         return True
-    return any(p in t for p in ("identificado", "especificado", "desconhecido", "informado"))
+    return any(
+        p in t for p in ("identificado", "especificado", "desconhecido", "informado", "disponivel", "explicito")
+    )
 
 
 def _melhor_conta_bancaria(contas: list[dict]) -> dict | None:
