@@ -237,7 +237,7 @@ futuras **já processadas** — não só em documentos novos:
 |-------|--------|--------|
 | [#138](https://github.com/mmarques30/lcr-flow/issues/138) | RPC propagação cross-competência | ✅ Implementado e mesclado (PR #146) — ver seção "Propagação (#138)" acima |
 | [#140](https://github.com/mmarques30/lcr-flow/issues/140) | Editar histórico na conciliação | ✅ Implementado e mesclado (PR #148) |
-| [#137](https://github.com/mmarques30/lcr-flow/issues/137) | Log inatividade + eventos | Pendente |
+| [#137](https://github.com/mmarques30/lcr-flow/issues/137) | Log inatividade + eventos | ✅ Implementado — ver seção "Observabilidade (#137)" abaixo |
 | — | Code review 20–21/07: guard propagação, paginação (>1000/5000 linhas), sinal cruzado, sinal débito/crédito, testes automatizados | ✅ Aplicado — ver seções "Sinal débito/crédito" acima e "Testes automatizados" abaixo |
 
 ### Tier 2/3 (standby — depende de feedback do cliente)
@@ -251,6 +251,32 @@ futuras **já processadas** — não só em documentos novos:
 | Backfill ~1.297 lançamentos com `extrato_csv_url` apontando pra binário (não-CSV) | 3 camadas propostas (reparse / CSV sintético via IA / reprocessar) | Backlog — retomar com números corretos |
 | Automação de recebimento/cruzamento pós-fluxo estável (item 3 do CRM) | Depende de esclarecimento do cliente sobre o que automatizar | Pendente |
 
+### Observabilidade (#137)
+
+Infra de log (`logs_uso` + `trackAction`, `src/lib/logs.functions.ts`) e o
+dashboard `/gestao/logs` já existiam (de outra frente); faltava só emitir os
+5 eventos do escopo do #137 e a métrica "tempo médio revisão → SCI":
+
+- Eventos passam a ser emitidos em `conciliacao_.$empresaId.tsx`:
+  - `abriu_conciliacao` — no mount da tela (por empresa + competência)
+  - `analisou_divergencias` — ao concluir "Analisar divergências" (com `divergencias_count`)
+  - `finalizou_conciliacao` — ao concluir "Conciliar" (com `conciliados`)
+  - `aprovou_lancamento` — ao salvar edição de lançamento com conta definida
+  - `gerou_sci` — já existia (`painel.tsx`, botão "Baixar SCI")
+- **Pausa após 5min de inatividade:** em vez de um timer client-side (heartbeat),
+  a métrica é calculada de forma analítica a partir dos timestamps dos 5 eventos
+  acima: `calcularTempoRevisaoSci` (`src/lib/logs.functions.ts`) soma os
+  intervalos entre eventos consecutivos de um mesmo cliente, mas **não soma**
+  (pausa) qualquer intervalo > 5min — o bloco de contagem reinicia no evento
+  seguinte. Mesmo padrão já usado pra sessões gerais (`SESSAO_GAP_MS`, 30min),
+  só que com um limiar mais estrito específico pra esse processo.
+- Dashboard `/gestao/logs` → nova aba **"Conciliação → SCI"**: tempo médio
+  ativo, nº de processos medidos, nº de SCIs gerados no período, e tabela com
+  os processos individuais (cliente, início, fim, tempo ativo).
+- Testado (`src/lib/logs.functions.test.ts`, vitest): soma de intervalos
+  consecutivos, pausa em gap > 5min, múltiplos clientes, eventos fora do
+  escopo/sem `cliente_id` ignorados, média ignorando processos sem sinal.
+
 ### Testes automatizados
 
 Cobertura adicionada no code review de 20–21/07 (antes: zero testes nas
@@ -263,6 +289,7 @@ funções puras de `sci-xls.ts` e nos loops de paginação):
 | `supabase/functions/conciliar/paginar.test.ts` (deno test) | Deno | `paginarTodas` (edge — `conciliar/index.ts`) |
 | `supabase/functions/processar-documento/parse-csv-sinal.test.ts` (deno test) | Deno | `parseCsvComSinal` (override de sinal na ingestão) |
 | `supabase/functions/conciliar/saldo.test.ts` (deno test) | Deno | `validarSaldo`, `detectarFaltantes` (sinal cruzado), `detectarDivergenciaSinal` |
+| `src/lib/logs.functions.test.ts` (vitest) | Node | `calcularTempoRevisaoSci`, `mediaTempoRevisaoSci` (métrica revisão → SCI do #137) |
 
 Rodar: `npm run test` (front) e `deno test supabase/functions/` (edge, requer
 `deno` instalado — `npx -y deno@latest test ...` funciona sem instalação global).

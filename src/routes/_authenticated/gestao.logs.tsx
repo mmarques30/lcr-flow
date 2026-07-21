@@ -10,10 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAcesso } from "@/lib/guard";
-import { analiseUso, fmtDuracao, telaLabel, ACAO_LABEL, type AnaliseUsuario } from "@/lib/logs.functions";
+import { analiseUso, analiseTempoRevisaoSci, fmtDuracao, telaLabel, ACAO_LABEL, type AnaliseUsuario } from "@/lib/logs.functions";
 import { getHistoricoCerebro } from "@/lib/lcr.functions";
 import { supabase } from "@/integrations/supabase/client";
-import { Download, Users, Activity, Brain, Timer, Clock, MonitorSmartphone, ChevronDown, Workflow } from "lucide-react";
+import { Download, Users, Activity, Brain, Timer, Clock, MonitorSmartphone, ChevronDown, Workflow, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +41,12 @@ function LogsPage() {
   const { data: cerebro } = useQuery({
     queryKey: ["historico-cerebro", "all", "all"],
     queryFn: () => getHistoricoCerebro({ data: {} }),
+    staleTime: 60_000,
+  });
+  // #137 — tempo médio revisão → SCI (pausa após 5min de inatividade).
+  const { data: tempoSci } = useQuery({
+    queryKey: ["tempo-revisao-sci", dias],
+    queryFn: () => analiseTempoRevisaoSci(dias),
     staleTime: 60_000,
   });
   // Nome dos clientes para os processos (id → nome curto)
@@ -116,6 +122,7 @@ function LogsPage() {
           <TabsTrigger value="atividade">Atividade</TabsTrigger>
           <TabsTrigger value="cerebro">Cérebro</TabsTrigger>
           <TabsTrigger value="produtividade">Produtividade</TabsTrigger>
+          <TabsTrigger value="conciliacao-sci">Conciliação → SCI</TabsTrigger>
         </TabsList>
 
         {/* ── PESSOAS: tabela-resumo, clique abre trilha completa ── */}
@@ -273,6 +280,51 @@ function LogsPage() {
             <div className="border-t border-border bg-muted/30 px-4 py-2.5 text-[11px] text-muted-foreground">
               Processo = bloco contínuo de trabalho num mesmo cliente (início quando abre o cliente, fim quando troca de cliente ou para por 30min).
               É o tempo por processo executado — base do cálculo de ROI. Clique numa linha para ver os processos da pessoa.
+            </div>
+          </Card>
+        </TabsContent>
+        {/* ── CONCILIAÇÃO → SCI (#137): tempo ativo, pausa após 5min idle ── */}
+        <TabsContent value="conciliacao-sci">
+          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+            <Card className="rounded-2xl border-0 p-4 shadow-soft">
+              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground"><FileSpreadsheet className="h-3.5 w-3.5" /> Tempo médio revisão → SCI</div>
+              <div className="mt-1.5 font-display text-2xl font-bold">{tempoSci && tempoSci.amostras > 0 ? fmtDuracao(tempoSci.media_ms) : "—"}</div>
+            </Card>
+            <Card className="rounded-2xl border-0 p-4 shadow-soft">
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Processos medidos</div>
+              <div className="mt-1.5 font-display text-2xl font-bold">{tempoSci?.amostras ?? 0}</div>
+            </Card>
+            <Card className="rounded-2xl border-0 p-4 shadow-soft">
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">SCI gerados no período</div>
+              <div className="mt-1.5 font-display text-2xl font-bold">{tempoSci?.processos.length ?? 0}</div>
+            </Card>
+          </div>
+          <Card className="rounded-3xl border-0 shadow-soft overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Início</TableHead>
+                  <TableHead>SCI gerado</TableHead>
+                  <TableHead className="text-right">Tempo ativo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...(tempoSci?.processos ?? [])].reverse().slice(0, 100).map((p, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-medium">{nomeCliente(p.cliente_id)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{fmtDataHora(p.inicio)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{fmtDataHora(p.fim)}</TableCell>
+                    <TableCell className="text-right"><Badge variant="secondary">{p.duracao_ativa_ms > 0 ? fmtDuracao(p.duracao_ativa_ms) : "—"}</Badge></TableCell>
+                  </TableRow>
+                ))}
+                {(tempoSci?.processos.length ?? 0) === 0 && (
+                  <TableRow><TableCell colSpan={4} className="py-12 text-center text-sm text-muted-foreground">Nenhum "Baixar SCI" registrado no período.</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+            <div className="border-t border-border bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
+              Tempo ativo = do primeiro evento de conciliação (abriu/analisou/finalizou/aprovou) até "Baixar SCI", somando só os intervalos ≤ 5min entre eventos — pausas maiores (aba aberta ociosa) não entram na conta.
             </div>
           </Card>
         </TabsContent>

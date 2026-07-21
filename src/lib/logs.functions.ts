@@ -12,6 +12,8 @@ export type TrackAcao =
   | "perguntou_cerebro"
   | "reportou_oportunidade"
   | "abriu_conciliacao"
+  | "analisou_divergencias"
+  | "finalizou_conciliacao"
   | "importou_documento"
   | (string & {});
 
@@ -51,6 +53,8 @@ export const ACAO_LABEL: Record<string, string> = {
   perguntou_cerebro: "Perguntou ao Cérebro",
   reportou_oportunidade: "Reportou oportunidade",
   abriu_conciliacao: "Abriu conciliação",
+  analisou_divergencias: "Analisou divergências",
+  finalizou_conciliacao: "Finalizou conciliação",
   importou_documento: "Importou documento",
 };
 
@@ -287,6 +291,102 @@ export async function analiseUso(diasAtras = 30): Promise<AnaliseGeral> {
 
   usuarios.sort((a, b) => b.tempo_total_ms - a.tempo_total_ms);
   return { usuarios, total_eventos: totalEventos, ativos_hoje: ativosHoje, tempo_total_ms: tempoTotalGeral, perguntas_cerebro: perguntasCerebro };
+}
+
+// ---------- tempo revisão → SCI (#137) --------------------------------------
+
+/** Após 5min sem nenhum dos eventos abaixo, considera o trabalho pausado —
+ * o intervalo de inatividade não entra na duração ativa do processo. */
+const IDLE_PAUSA_MS = 5 * 60_000;
+
+const ACOES_REVISAO_SCI = new Set<string>([
+  "abriu_conciliacao",
+  "analisou_divergencias",
+  "finalizou_conciliacao",
+  "aprovou_lancamento",
+  "gerou_sci",
+]);
+
+export type ProcessoRevisaoSci = {
+  cliente_id: string;
+  inicio: string;
+  fim: string; // timestamp do gerou_sci que encerra o bloco
+  duracao_ativa_ms: number;
+};
+
+/**
+ * Duração ATIVA entre o início do trabalho de conciliação (abriu/analisou/
+ * finalizou/aprovou) e a geração do SCI, por cliente. "Ativa" = soma dos
+ * intervalos entre eventos consecutivos relevantes, pausando (não somando)
+ * qualquer intervalo > 5min de inatividade — cliques/eventos resetam o
+ * contador (escopo original do #137). Espera `logs` ordenados por
+ * `criado_em` ASC (mesmo contrato de `analiseUso`); ordena internamente por
+ * segurança.
+ */
+export function calcularTempoRevisaoSci(logs: readonly LogRow[]): ProcessoRevisaoSci[] {
+  const porCliente = new Map<string, LogRow[]>();
+  for (const l of logs) {
+    if (!l.cliente_id || !ACOES_REVISAO_SCI.has(l.acao)) continue;
+    const arr = porCliente.get(l.cliente_id) ?? [];
+    arr.push(l);
+    porCliente.set(l.cliente_id, arr);
+  }
+
+  const processos: ProcessoRevisaoSci[] = [];
+  for (const [clienteId, eventosRaw] of porCliente) {
+    const eventos = [...eventosRaw].sort((a, b) => new Date(a.criado_em).getTime() - new Date(b.criado_em).getTime());
+    let inicioBloco: string | null = null;
+    let duracaoAtiva = 0;
+    for (let i = 0; i < eventos.length; i++) {
+      const atual = eventos[i];
+      if (inicioBloco === null) inicioBloco = atual.criado_em;
+      if (atual.acao === "gerou_sci") {
+        processos.push({ cliente_id: clienteId, inicio: inicioBloco, fim: atual.criado_em, duracao_ativa_ms: duracaoAtiva });
+        inicioBloco = null;
+        duracaoAtiva = 0;
+        continue;
+      }
+      const prox = eventos[i + 1];
+      if (!prox) break;
+      const gap = new Date(prox.criado_em).getTime() - new Date(atual.criado_em).getTime();
+      if (gap <= IDLE_PAUSA_MS) {
+        duracaoAtiva += gap;
+      } else {
+        inicioBloco = null;
+        duracaoAtiva = 0;
+      }
+    }
+  }
+  return processos;
+}
+
+/** Média da duração ativa — ignora processos sem nenhum evento prévio medível. */
+export function mediaTempoRevisaoSci(processos: readonly ProcessoRevisaoSci[]): number {
+  const comSinal = processos.filter((p) => p.duracao_ativa_ms > 0);
+  if (comSinal.length === 0) return 0;
+  return comSinal.reduce((s, p) => s + p.duracao_ativa_ms, 0) / comSinal.length;
+}
+
+export type AnaliseTempoRevisaoSci = {
+  processos: ProcessoRevisaoSci[];
+  media_ms: number;
+  amostras: number;
+};
+
+/** Busca os eventos de revisão/SCI dos últimos N dias e calcula a métrica do #137. */
+export async function analiseTempoRevisaoSci(diasAtras = 30): Promise<AnaliseTempoRevisaoSci> {
+  const desde = new Date(Date.now() - diasAtras * 24 * 3600 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("logs_uso")
+    .select("*")
+    .in("acao", [...ACOES_REVISAO_SCI])
+    .gte("criado_em", desde)
+    .order("criado_em", { ascending: true })
+    .limit(20000);
+  if (error) throw error;
+  const processos = calcularTempoRevisaoSci((data ?? []) as LogRow[]);
+  const comSinal = processos.filter((p) => p.duracao_ativa_ms > 0);
+  return { processos, media_ms: mediaTempoRevisaoSci(processos), amostras: comSinal.length };
 }
 
 export function fmtDuracao(ms: number): string {

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient, useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -16,6 +16,7 @@ import { DOC_TIPO_LABEL } from "@/lib/format";
 import { formatCompetencia } from "@/lib/format";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
 import { avisarPropagacao } from "@/lib/propagacao-toast";
+import { trackAction } from "@/lib/logs.functions";
 import { melhorContaBancaria } from "@/lib/sci-xls";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
@@ -255,6 +256,12 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
   const contaBancariaLabel = formatContaBancaria((empresaData?.contas_bancarias ?? []) as { id?: string; banco: string | null; agencia: string | null; conta: string | null; created_at?: string | null }[]);
   const [busy, setBusy] = useState<"analisar" | "finalizar" | null>(null);
 
+  // #137 — evento de abertura da tela de conciliação (base do "tempo revisão → SCI").
+  useEffect(() => {
+    void trackAction("abriu_conciliacao", { clienteId: empresaId, detalhes: { competencia } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresaId, competencia]);
+
   // Todos os lançamentos extraídos da competência (compartilha cache com a Razão).
   const lancKey = ["lanc-conc", empresaId, competencia];
   const { data: lancData, isLoading: lancLoading } = useQuery({ queryKey: lancKey, queryFn: () => listLancamentosConciliacao({ data: { empresa_id: empresaId, competencia } }) });
@@ -370,6 +377,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       await qc.invalidateQueries({ queryKey: key });
       await qc.invalidateQueries({ queryKey: ["conciliacoes"] });
       const divs = res.divergencias_count ?? 0;
+      void trackAction("analisou_divergencias", { clienteId: empresaId, detalhes: { competencia, divergencias_count: divs } });
       if (divs > 0) {
         toast.warning(`Análise concluída — ${divs} divergência(s) encontrada(s). Arrume antes de conciliar.`);
         scrollParaDivergencias();
@@ -416,6 +424,7 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       await qc.invalidateQueries({ queryKey: key });
       await qc.invalidateQueries({ queryKey: ["conciliacoes"] });
       toast.success(`Conciliação finalizada — ${res.conciliados} conciliado(s).`);
+      void trackAction("finalizou_conciliacao", { clienteId: empresaId, detalhes: { competencia, conciliados: res.conciliados } });
       setSubtab("conciliacao");
       return true;
     } catch (err) {
@@ -512,6 +521,9 @@ export function ConciliacaoBancaria({ empresaId, competencia }: { empresaId: str
       await qc.invalidateQueries({ queryKey: ["lanc-conc"] });
       await qc.invalidateQueries({ queryKey: ["documentos"] });
       await invalidarAnaliseAposEdicao();
+      if (edit.conta_codigo) {
+        void trackAction("aprovou_lancamento", { clienteId: empresaId, detalhes: { competencia, conta_codigo: edit.conta_codigo } });
+      }
       avisarPropagacao(resultado, "Lançamento atualizado.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro");
