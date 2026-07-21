@@ -55,16 +55,17 @@ SUPABASE_KEY = (
 TIPOS_DEBITO = {"ativo", "despesa", "custo", "deducoes"}
 TIPOS_CREDITO = {"passivo", "receita", "resultado", "patrimonio", "patrimonio_liquido"}
 
-BANCO_PARA_CODIGO = {
+# Fallback local (auditoria 21/07) — usado só se a tabela `bancos_apelidos_lcr`
+# não carregar (rede, tabela vazia). A fonte de verdade passou a ser essa
+# tabela: dá pra adicionar um banco novo com um INSERT, sem precisar de
+# deploy nem sync manual na VPS (ver buscar_apelidos_banco abaixo).
+BANCO_PARA_CODIGO_FALLBACK = {
     "bradesco": 9,
     "brasil": 7,
     "bb ": 7,
     "caixa": 8,
     "santander": 10,
     "itau": 657,
-    # "pagseguro"/"pagbank" precisam vir ANTES de "inter": "PagSeguro Internet
-    # S/A" (nome legal oficial) contém "internet", que colidia com a chave
-    # "inter" (Banco Inter) — achado na auditoria de 21/07 (VITALENTO e outros).
     "pagseguro": 946,
     "pagbank": 946,
     "inter": 658,
@@ -77,19 +78,27 @@ BANCO_PARA_CODIGO = {
     "c6": 809,
     "stone": 910,
     "btg": 1031,
-    # Adicionados na auditoria de 21/07 (~44 empresas com conta valida mas
-    # nome de banco fora do dicionario) — codigos confirmados em
-    # plano_de_contas_lcr.
     "safra": 818,
     "cora": 917,
     "mercado pago": 960,
     "wise": 1292,
     "bs2": 830,
     "afinz": 1197,
-    # "208" é o código COMPE oficial do BTG Pactual no Brasil — a IA às vezes
-    # extrai o código em vez do nome (ex. "Banco 208") — achado auditoria 21/07.
     "208": 1031,
 }
+
+
+def buscar_apelidos_banco() -> dict[str, int]:
+    """Busca os aliases de banco cadastrados em `bancos_apelidos_lcr` (fonte de
+    verdade editável sem deploy — auditoria 21/07). Em caso de erro/tabela
+    vazia, cai no dicionário fallback embutido no código.
+    Espelha buscarApelidosBanco (src/lib/sci-xls.ts)."""
+    try:
+        rows = sb_get("bancos_apelidos_lcr", {"select": "alias,codigo_lcr"})
+    except RuntimeError:
+        return dict(BANCO_PARA_CODIGO_FALLBACK)
+    out = {r["alias"]: int(r["codigo_lcr"]) for r in rows if r.get("alias") and r.get("codigo_lcr") is not None}
+    return out or dict(BANCO_PARA_CODIGO_FALLBACK)
 
 COLUNAS_SCI = [
     "DATA",
@@ -298,7 +307,23 @@ def _melhor_conta_bancaria(contas: list[dict]) -> dict | None:
     return ordenadas[-1] if ordenadas else None
 
 
-def buscar_conta_banco(empresa_id: str) -> int | None:
+def _resolver_codigo_banco(banco_nome: str | None, apelidos: dict[str, int]) -> int | None:
+    """Resolve o código LCR a partir do texto livre do banco. Entre vários
+    aliases que casam por substring (ex. "inter" dentro de "PagSeguro
+    Internet S/A"), escolhe o alias MAIS LONGO — critério robusto contra
+    colisão acidental, sem depender da ordem de iteração do dict/tabela
+    (achado auditoria 21/07). Espelha bancoCodigoDe (src/lib/sci-xls.ts)."""
+    banco = _sem_acento((banco_nome or "").lower())
+    melhor_alias = ""
+    melhor_codigo: int | None = None
+    for nome, codigo in apelidos.items():
+        alias = _sem_acento(nome.strip())
+        if len(alias) > len(melhor_alias) and alias in banco:
+            melhor_alias, melhor_codigo = alias, codigo
+    return melhor_codigo
+
+
+def buscar_conta_banco(empresa_id: str, apelidos: dict[str, int] | None = None) -> int | None:
     """CC nº 1 — mesma regra do front (melhorContaBancaria).
     Bug 21/07: faltava normalizar acento — "Itaú" (cadastro real do cliente)
     nunca casava com a chave "itau" do dicionário, deixando o código do banco
@@ -310,11 +335,7 @@ def buscar_conta_banco(empresa_id: str) -> int | None:
     melhor = _melhor_conta_bancaria(contas)
     if not melhor:
         return None
-    banco = _sem_acento((melhor.get("banco") or "").lower())
-    for nome, codigo in BANCO_PARA_CODIGO.items():
-        if _sem_acento(nome) in banco:
-            return codigo
-    return None
+    return _resolver_codigo_banco(melhor.get("banco"), apelidos or buscar_apelidos_banco())
 
 
 def buscar_lancamentos(empresa_id: str, competencia: str) -> list:
