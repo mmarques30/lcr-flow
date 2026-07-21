@@ -1,6 +1,8 @@
 // Helpers para logs_uso — rastreamento de comportamento (não de mudanças
 // de dado; para isso, ver audit_log). Backing da tela /gestao/logs.
 import { supabase } from "@/integrations/supabase/client";
+import { paginarTodas } from "@/lib/paginar";
+import { bancoCodigoDe, buscarApelidosBanco, ehBancoPlaceholder, melhorContaBancaria } from "@/lib/sci-xls";
 
 export type TrackAcao =
   | "login"
@@ -395,4 +397,49 @@ export function fmtDuracao(ms: number): string {
   if (min < 60) return `${min}min`;
   const h = Math.floor(min / 60);
   return `${h}h${String(min % 60).padStart(2, "0")}`;
+}
+
+// ---------- bancos não resolvidos (auditoria 21/07) -------------------------
+//
+// Substitui o audit script manual (scripts/_audit_bancos_todas_empresas.py,
+// rodado sob demanda) por um relatório sempre-fresco na tela de gestão: cada
+// empresa com conta bancária válida (não placeholder) cujo nome de banco não
+// bate com nenhum alias de `bancos_apelidos_lcr` aparece aqui, pra alguém do
+// time cadastrar o alias que falta (1 INSERT — sem deploy) ANTES de o cliente
+// reclamar que a Planilha SCI saiu sem o código do banco.
+
+export type BancoNaoResolvido = {
+  empresa_id: string;
+  nome: string;
+  banco_texto: string;
+};
+
+export async function analiseBancosNaoResolvidos(): Promise<BancoNaoResolvido[]> {
+  const [empresas, contas, apelidos] = await Promise.all([
+    paginarTodas<{ id: string; razao_social: string | null; nome_fantasia: string | null }>(
+      (offset, pageSize) => supabase.from("empresas").select("id,razao_social,nome_fantasia").range(offset, offset + pageSize - 1),
+    ),
+    paginarTodas<{ id: string; empresa_id: string; banco: string | null; created_at: string | null }>(
+      (offset, pageSize) => supabase.from("contas_bancarias").select("id,empresa_id,banco,created_at").range(offset, offset + pageSize - 1),
+    ),
+    buscarApelidosBanco(),
+  ]);
+
+  const nomeEmpresa = new Map(empresas.map((e) => [e.id, e.nome_fantasia || e.razao_social || e.id]));
+  const contasPorEmpresa = new Map<string, typeof contas>();
+  for (const c of contas) {
+    const arr = contasPorEmpresa.get(c.empresa_id) ?? [];
+    arr.push(c);
+    contasPorEmpresa.set(c.empresa_id, arr);
+  }
+
+  const naoResolvidos: BancoNaoResolvido[] = [];
+  for (const [empresaId, contasEmpresa] of contasPorEmpresa) {
+    if (contasEmpresa.every((c) => ehBancoPlaceholder(c.banco))) continue; // gap de dado (doc ainda não identificou o banco), não de dicionário
+    const melhor = melhorContaBancaria(contasEmpresa);
+    if (!melhor?.banco) continue;
+    if (bancoCodigoDe(melhor.banco, apelidos) !== null) continue;
+    naoResolvidos.push({ empresa_id: empresaId, nome: nomeEmpresa.get(empresaId) ?? empresaId, banco_texto: melhor.banco });
+  }
+  return naoResolvidos.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 }

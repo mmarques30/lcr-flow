@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAcesso } from "@/lib/guard";
-import { analiseUso, analiseTempoRevisaoSci, fmtDuracao, telaLabel, ACAO_LABEL, type AnaliseUsuario } from "@/lib/logs.functions";
+import { analiseUso, analiseTempoRevisaoSci, analiseBancosNaoResolvidos, fmtDuracao, telaLabel, ACAO_LABEL, type AnaliseUsuario } from "@/lib/logs.functions";
 import { getHistoricoCerebro } from "@/lib/lcr.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Download, Users, Activity, Brain, Timer, Clock, MonitorSmartphone, ChevronDown, Workflow, FileSpreadsheet } from "lucide-react";
@@ -48,6 +48,12 @@ function LogsPage() {
     queryKey: ["tempo-revisao-sci", dias],
     queryFn: () => analiseTempoRevisaoSci(dias),
     staleTime: 60_000,
+  });
+  // Bancos não resolvidos (auditoria 21/07) — relatório vivo, não depende de rodar script manual.
+  const { data: bancosNaoResolvidos, isLoading: carregandoBancos } = useQuery({
+    queryKey: ["bancos-nao-resolvidos"],
+    queryFn: analiseBancosNaoResolvidos,
+    staleTime: 5 * 60_000,
   });
   // Nome dos clientes para os processos (id → nome curto)
   const { data: nomesClientes } = useQuery({
@@ -123,6 +129,10 @@ function LogsPage() {
           <TabsTrigger value="cerebro">Cérebro</TabsTrigger>
           <TabsTrigger value="produtividade">Produtividade</TabsTrigger>
           <TabsTrigger value="conciliacao-sci">Conciliação → SCI</TabsTrigger>
+          <TabsTrigger value="bancos">
+            Bancos não resolvidos
+            {(bancosNaoResolvidos?.length ?? 0) > 0 && <Badge variant="secondary" className="ml-1.5">{bancosNaoResolvidos!.length}</Badge>}
+          </TabsTrigger>
         </TabsList>
 
         {/* ── PESSOAS: tabela-resumo, clique abre trilha completa ── */}
@@ -325,6 +335,38 @@ function LogsPage() {
             </Table>
             <div className="border-t border-border bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
               Tempo ativo = do primeiro evento de conciliação (abriu/analisou/finalizou/aprovou) até "Baixar SCI", somando só os intervalos ≤ 5min entre eventos — pausas maiores (aba aberta ociosa) não entram na conta.
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* ── BANCOS NÃO RESOLVIDOS (auditoria 21/07): substitui o audit script manual ── */}
+        <TabsContent value="bancos">
+          <Card className="rounded-3xl border-0 shadow-soft overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Nome do banco (texto extraído pela IA)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(bancosNaoResolvidos ?? []).map((b) => (
+                  <TableRow key={b.empresa_id}>
+                    <TableCell className="font-medium">{b.nome}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{b.banco_texto}</TableCell>
+                  </TableRow>
+                ))}
+                {!carregandoBancos && (bancosNaoResolvidos?.length ?? 0) === 0 && (
+                  <TableRow><TableCell colSpan={2} className="py-12 text-center text-sm text-muted-foreground">Nenhum banco pendente — todos os clientes com conta válida resolvem certinho.</TableCell></TableRow>
+                )}
+                {carregandoBancos && (
+                  <TableRow><TableCell colSpan={2} className="py-12 text-center text-sm text-muted-foreground">Carregando…</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+            <div className="border-t border-border bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
+              Não é bug — é gap de dado: a conta bancária foi identificada (não é placeholder), mas o nome do banco não bate com nenhum alias em <code className="rounded bg-muted px-1">bancos_apelidos_lcr</code>.
+              Corrige com um INSERT nessa tabela (Supabase Studio) — sem precisar de deploy no front nem sync na VPS.
             </div>
           </Card>
         </TabsContent>

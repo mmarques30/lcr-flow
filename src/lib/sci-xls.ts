@@ -2,23 +2,35 @@
 // modelo (config/08_-_Modelo_Planilha_Importacao_Lctos_SCI.xls): 11 colunas, uma
 // linha por lançamento, códigos reduzidos SCI (plano_de_contas_lcr.apelido).
 import * as XLSX from "xlsx";
+import { supabase } from "@/integrations/supabase/client";
 
-// banco (texto) → código LCR no plano de contas (contrapartida)
+// banco (texto) → código LCR no plano de contas (contrapartida).
+// Fallback local (auditoria 21/07) — usado só se a tabela `bancos_apelidos_lcr`
+// não carregar. A fonte de verdade é a tabela: dá pra adicionar um banco novo
+// com um INSERT, sem precisar de deploy (ver buscarApelidosBanco/ADR no spec).
 // "pagseguro"/"pagbank" precisam vir ANTES de "inter": "PagSeguro Internet S/A"
-// (nome legal oficial) contém "internet", que colidia com a chave "inter"
-// (Banco Inter) — achado na auditoria de 21/07. "safra"/"cora"/"mercado pago"/
-// "wise"/"bs2"/"afinz" também adicionados na mesma auditoria (~44 empresas com
-// conta válida mas nome de banco fora do dicionário até então).
-const BANCO_PARA_CODIGO: Record<string, number> = {
+// (nome legal oficial) contém "internet", que colidia com a chave "inter".
+const BANCO_PARA_CODIGO_FALLBACK: Record<string, number> = {
   bradesco: 9, brasil: 7, "bb ": 7, caixa: 8, santander: 10, itau: 657,
   pagseguro: 946, pagbank: 946, inter: 658, sicoob: 659, sicredi: 775,
   original: 779, "nu pagamentos": 821, nubank: 821, "xp ": 823, c6: 809,
   stone: 910, btg: 1031, safra: 818, cora: 917, "mercado pago": 960,
-  wise: 1292, bs2: 830, afinz: 1197,
-  // "208" é o código COMPE oficial do BTG Pactual no Brasil — a IA às vezes
-  // extrai o código em vez do nome (ex. "Banco 208") — achado auditoria 21/07.
-  "208": 1031,
+  wise: 1292, bs2: 830, afinz: 1197, "208": 1031,
 };
+
+/** Busca os aliases de banco cadastrados em `bancos_apelidos_lcr` (fonte de
+ *  verdade editável sem deploy — auditoria 21/07). Em caso de erro (rede,
+ *  tabela vazia), cai no dicionário fallback embutido no código, então a
+ *  resolução de banco nunca fica totalmente sem cobertura. */
+export async function buscarApelidosBanco(): Promise<Record<string, number>> {
+  const { data, error } = await supabase.from("bancos_apelidos_lcr").select("alias,codigo_lcr");
+  if (error || !data || data.length === 0) return { ...BANCO_PARA_CODIGO_FALLBACK };
+  const out: Record<string, number> = {};
+  for (const row of data) {
+    if (row.alias && typeof row.codigo_lcr === "number") out[row.alias] = row.codigo_lcr;
+  }
+  return out;
+}
 const TIPOS_DEBITO = ["ativo", "despesa", "custo", "deducoes"];
 const TIPOS_CREDITO = ["passivo", "receita", "resultado", "patrimonio"];
 
@@ -48,13 +60,33 @@ function semAcento(s: string): string {
 /** Resolve o código LCR do banco a partir do nome da conta bancária.
  *  Bug 21/07: faltava normalizar acento — "Itaú" (cadastro real do cliente)
  *  nunca casava com a chave "itau" do dicionário, deixando o código do banco
- *  em branco na Planilha SCI mesmo com o nome aparecendo corretamente. */
-export function bancoCodigoDe(bancoNome: string | null | undefined): number | null {
+ *  em branco na Planilha SCI mesmo com o nome aparecendo corretamente.
+ *
+ *  Entre vários aliases que casam por substring (ex. "inter" dentro de
+ *  "PagSeguro Internet S/A"), escolhe o alias MAIS LONGO — é o critério mais
+ *  robusto pra evitar colisão acidental sem depender da ordem de inserção da
+ *  tabela/dicionário (achado auditoria 21/07: "pagseguro" tem que vencer
+ *  "inter" nesse caso, e "pagseguro" também é o alias mais longo).
+ *
+ *  `apelidos` é opcional — se não informado, usa só o dicionário fallback
+ *  embutido no código. Os call sites (painel.tsx, conciliação) devem buscar
+ *  `buscarApelidosBanco()` e passar aqui, pra ler a tabela editável em vez
+ *  do fallback estático. */
+export function bancoCodigoDe(
+  bancoNome: string | null | undefined,
+  apelidos: Record<string, number> = BANCO_PARA_CODIGO_FALLBACK,
+): number | null {
   const b = semAcento((bancoNome ?? "").toLowerCase());
-  for (const [nome, cod] of Object.entries(BANCO_PARA_CODIGO)) {
-    if (b.includes(semAcento(nome.trim()))) return cod;
+  let melhorAlias = "";
+  let melhorCodigo: number | null = null;
+  for (const [nome, cod] of Object.entries(apelidos)) {
+    const alias = semAcento(nome.trim());
+    if (alias.length > melhorAlias.length && b.includes(alias)) {
+      melhorAlias = alias;
+      melhorCodigo = cod;
+    }
   }
-  return null;
+  return melhorCodigo;
 }
 
 /** Nome de banco "placeholder" — a IA não conseguiu identificar o banco no

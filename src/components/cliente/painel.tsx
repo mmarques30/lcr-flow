@@ -14,7 +14,7 @@ import { StatusPill, variantFor } from "@/components/status-pill";
 import { Markdown } from "@/components/markdown";
 import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, listLancamentosConciliacao, getEmpresa, editarLancamento, type SciLinha } from "@/lib/lcr.functions";
 import { avisarPropagacao } from "@/lib/propagacao-toast";
-import { baixarPlanilhaSciXls, bancoCodigoDe, linhasSci, linhasSciPreview, mapaPdcApelidos, melhorContaBancaria, validarLancamentosSci, COLUNAS as COLUNAS_SCI, type SciCelula } from "@/lib/sci-xls";
+import { baixarPlanilhaSciXls, bancoCodigoDe, buscarApelidosBanco, linhasSci, linhasSciPreview, mapaPdcApelidos, melhorContaBancaria, validarLancamentosSci, COLUNAS as COLUNAS_SCI, type SciCelula } from "@/lib/sci-xls";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { documentoComErroProcessamento } from "@/lib/documento-erros";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
@@ -344,7 +344,9 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
   const { data: emp } = useQuery({ queryKey: ["empresa", empresaId], queryFn: () => getEmpresa({ data: { id: empresaId } }) });
   const contasBanc = (emp as { contas_bancarias?: { id?: string; banco: string | null; created_at?: string | null }[] } | undefined)?.contas_bancarias ?? [];
   const melhorConta = melhorContaBancaria(contasBanc);
-  const bancoCodigo = bancoCodigoDe(melhorConta?.banco ?? null);
+  // Tabela editável sem deploy (auditoria 21/07) — ver buscarApelidosBanco em sci-xls.ts.
+  const { data: apelidosBanco } = useQuery({ queryKey: ["bancos-apelidos-lcr"], queryFn: buscarApelidosBanco });
+  const bancoCodigo = bancoCodigoDe(melhorConta?.banco ?? null, apelidosBanco);
   const bancoNome = melhorConta?.banco ?? "";
   // Plano de Contas oficial LCR (Anexo 1) — códigos reduzidos SCI + validação pré-envio.
   // classificacao/tipo alimentam a resolução #136 (conta T sintética → filha analítica).

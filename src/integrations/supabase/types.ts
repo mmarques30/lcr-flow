@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       aprendizado_participante: {
@@ -93,6 +118,35 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: []
+      }
+      bancos_apelidos_lcr: {
+        Row: {
+          alias: string
+          codigo_lcr: number
+          created_at: string
+          observacao: string | null
+        }
+        Insert: {
+          alias: string
+          codigo_lcr: number
+          created_at?: string
+          observacao?: string | null
+        }
+        Update: {
+          alias?: string
+          codigo_lcr?: number
+          created_at?: string
+          observacao?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bancos_apelidos_lcr_codigo_lcr_fkey"
+            columns: ["codigo_lcr"]
+            isOneToOne: false
+            referencedRelation: "plano_de_contas_lcr"
+            referencedColumns: ["codigo"]
+          },
+        ]
       }
       cerebro_interactions: {
         Row: {
@@ -1929,6 +1983,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       conciliacao_status: [

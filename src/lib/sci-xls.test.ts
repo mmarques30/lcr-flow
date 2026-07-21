@@ -114,6 +114,20 @@ describe("bancoCodigoDe", () => {
   it('resolve "Banco 208" para BTG Pactual (código COMPE oficial, achado auditoria 21/07)', () => {
     expect(bancoCodigoDe("Banco 208")).toBe(1031);
   });
+
+  it("aceita um mapa de apelidos customizado (ex. vindo da tabela bancos_apelidos_lcr)", () => {
+    expect(bancoCodigoDe("Cooperativa XYZ", { cooperativa: 999 })).toBe(999);
+    expect(bancoCodigoDe("Banco Qualquer", { bradesco: 9 })).toBeNull();
+  });
+
+  it('critério "alias mais longo vence" resolve a colisão PagSeguro/Inter independente da ordem do mapa', () => {
+    // "inter" (5 chars) casa por acidente dentro de "internet"; "pagseguro"
+    // (9 chars) é o match correto e mais longo — tem que vencer mesmo se
+    // "inter" vier primeiro no objeto (ordem de iteração não é confiável
+    // quando os apelidos vêm de uma tabela sem ORDER BY garantido).
+    const apelidosInterPrimeiro = { inter: 658, pagseguro: 946 };
+    expect(bancoCodigoDe("PagSeguro Internet S/A", apelidosInterPrimeiro)).toBe(946);
+  });
 });
 
 describe("resolverContaAnalitica", () => {

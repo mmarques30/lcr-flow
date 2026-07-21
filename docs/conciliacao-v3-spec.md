@@ -240,12 +240,13 @@ futuras **já processadas** — não só em documentos novos:
 | [#137](https://github.com/mmarques30/lcr-flow/issues/137) | Log inatividade + eventos | ✅ Implementado — ver seção "Observabilidade (#137)" abaixo |
 | — | Code review 20–21/07: guard propagação, paginação (>1000/5000 linhas), sinal cruzado, sinal débito/crédito, testes automatizados | ✅ Aplicado — ver seções "Sinal débito/crédito" acima e "Testes automatizados" abaixo |
 | — | Auditoria 21/07: fix Tier 1 (banco placeholder + acento + tie-break) refletiu em **todas as 902 empresas**? | ✅ Auditado — ver seção "Auditoria de resolução de banco (21/07)" abaixo |
+| — | Solução persistente pros bancos fora do dicionário (sem depender de deploy) | ✅ Implementado — tabela `bancos_apelidos_lcr` + aba "Bancos não resolvidos" em `/gestao/logs` — ver seção "Persistência da resolução de banco" abaixo |
 
 ### Tier 2/3 (standby — depende de feedback do cliente)
 
 | Item | Descrição | Status |
 |------|-----------|--------|
-| Resolução dinâmica de banco (CC nº 1) | Trocar dicionário `BANCO_PARA_CODIGO` (agora 23 bancos, pós-auditoria 21/07) por resolução contra `plano_de_contas_lcr` — hoje só ~2,9% das empresas com conta cadastrada ainda não resolvem (26 de 902, principalmente bancos raros como Ouribank/Sisprime e roteamento interno "SWAP"/LCR Bank, que não são bancos externos de fato) | Standby |
+| Resolução 100% dinâmica de banco (fuzzy match contra `plano_de_contas_lcr`, sem tabela curada) | O dicionário fixo foi substituído por uma tabela editável em 21/07 (ver seção "Persistência da resolução de banco" abaixo) — isso já resolve o "precisa de deploy pra cada banco novo". O que fica em standby é a ideia mais ambiciosa de não depender de tabela curada nenhuma (fuzzy match direto no nome da conta) — maior esforço/risco, sem ganho claro sobre a tabela + relatório vivo | Standby |
 | `ContaCombobox` hierárquico | Ordenação hierárquica + bloquear seleção direta de conta T/C | Standby |
 | Aba Configurações → Plano de Contas hierárquico | Agrupamento visual T/C → filhas | Standby |
 | Contas analíticas sem `apelido` | Listar p/ confirmação do cliente + bloquear export | Standby |
@@ -317,15 +318,53 @@ corrigidos na mesma auditoria (aplicados em `sci-xls.ts` e
    anterior mais específico (regressão real encontrada no cliente PLENUS).
    Ampliado o filtro pra cobrir `"disponivel"`/`"explicito"`.
 
-Restam **26 empresas** com conta válida mas banco fora do dicionário — na
+Restavam **26 empresas** com conta válida mas banco fora do dicionário — na
 maioria roteamento interno `"SWAP"`/"LCR Bank" (não é banco externo, então
 não deveria resolver mesmo) ou bancos raros ainda não catalogados
-(Ouribank, Sisprime/Sisprima). Fica no item "Resolução dinâmica de banco"
-acima (Tier 2/3, standby).
+(Ouribank, Sisprime/Sisprima, "Banco automático/cooperativa"). Isso não é
+mais um problema pontual de código — ver seção seguinte.
 
 Testes novos: `bancoCodigoDe`/`ehBancoPlaceholder` em `sci-xls.test.ts`
 cobrindo os 3 achados acima (colisão PagSeguro/Inter, bancos novos, filtro
 de placeholder ampliado).
+
+### Persistência da resolução de banco (21/07, pós-auditoria)
+
+O gap dos "26 fora do dicionário" ia se repetir pra sempre: cada banco novo
+exigia editar `BANCO_PARA_CODIGO` em **dois arquivos** (`sci-xls.ts` no
+front e `gerar_planilha_supabase.py` na VPS), testar, commitar, dar deploy
+no front e sincronizar a VPS por `scp` — um ciclo de código pra um problema
+que é só cadastro de dado. Resolvido com duas mudanças:
+
+1. **Tabela `bancos_apelidos_lcr` (Supabase)** — substitui o dicionário fixo
+   como fonte de verdade. Colunas: `alias` (texto normalizado, PK),
+   `codigo_lcr` (FK pra `plano_de_contas_lcr`), `observacao`. Populada com os
+   25 aliases que estavam hardcoded. Front (`buscarApelidosBanco` em
+   `sci-xls.ts`) e VPS (`buscar_apelidos_banco` em `gerar_planilha_supabase.py`)
+   agora leem essa tabela a cada geração de Planilha SCI; o dicionário antigo
+   ficou só como *fallback* (usado se a tabela não carregar). **Adicionar um
+   banco novo agora é 1 `INSERT` direto no Supabase — sem deploy, sem sync na
+   VPS.**
+   - Aproveitando a migração, o critério de desempate entre aliases que
+     casam por substring (ex. "inter" dentro de "PagSeguro Internet S/A")
+     deixou de depender da ordem de inserção do dicionário/tabela: agora
+     escolhe sempre o **alias mais longo** que casa (`bancoCodigoDe` e
+     `_resolver_codigo_banco`), critério estável independente de `ORDER BY`.
+2. **Relatório "Bancos não resolvidos"** — nova aba em `/gestao/logs`
+   (`analiseBancosNaoResolvidos`, `src/lib/logs.functions.ts`) que lista, em
+   tempo real, toda empresa com conta bancária válida (não placeholder) cujo
+   nome de banco não bate com nenhum alias cadastrado. Antes, esse gap só
+   aparecia quando um cliente reclamava (ou numa auditoria manual pontual);
+   agora o time vê proativamente e resolve com um `INSERT`, sem esperar
+   reclamação.
+
+Com isso as 26 empresas remanescentes deixam de ser um "bug represado" e
+passam a ser só linhas nessa aba — a maioria é roteamento interno
+`SWAP`/`LCR Bank` (que de fato não deveria resolver pra um código de banco
+externo) ou bancos raros que só precisam de um cadastro pontual.
+
+Testes novos (`sci-xls.test.ts`): apelidos customizados via parâmetro, e o
+critério "alias mais longo vence" independente da ordem do mapa.
 
 ### Testes automatizados
 
@@ -341,6 +380,7 @@ funções puras de `sci-xls.ts` e nos loops de paginação):
 | `supabase/functions/conciliar/saldo.test.ts` (deno test) | Deno | `validarSaldo`, `detectarFaltantes` (sinal cruzado), `detectarDivergenciaSinal` |
 | `src/lib/logs.functions.test.ts` (vitest) | Node | `calcularTempoRevisaoSci`, `mediaTempoRevisaoSci` (métrica revisão → SCI do #137) |
 | `src/lib/sci-xls.test.ts` (vitest) — ampliado 21/07 | Node | Achados da auditoria de banco: colisão PagSeguro/Inter, bancos novos (Safra/Cora/Mercado Pago/Wise/BS2/Afinz/208), placeholder ampliado |
+| `src/lib/sci-xls.test.ts` (vitest) — persistência 21/07 | Node | `bancoCodigoDe` com mapa de apelidos customizado (tabela `bancos_apelidos_lcr`); critério "alias mais longo vence" independente da ordem de iteração |
 
 Rodar: `npm run test` (front) e `deno test supabase/functions/` (edge, requer
 `deno` instalado — `npx -y deno@latest test ...` funciona sem instalação global).
