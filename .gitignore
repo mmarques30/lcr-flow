@@ -28,6 +28,10 @@ supabase/
 .env
 *.env.local
 
+# Scripts de investigação pontual/descartável (convenção: prefixo "_")
+scripts/_*.py
+scripts/_*.sh
+
 # OS
 .DS_Store
 Thumbs.db
