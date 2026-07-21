@@ -114,6 +114,39 @@ delta = saldo_final - (saldo_inicial + movimentacao_liquida)
 
 NFs/recibos (`fonte_extrato = false`) **não** entram em “sem extrato”.
 
+Ambas as travas exigem **mesmo sinal** além de mesmo valor em módulo — um
+débito e um crédito de mesmo valor absoluto (ex.: PIX enviado e PIX recebido
+no mesmo dia) não casam entre si (*fix sinal cruzado*, code review 20/07).
+
+### Sinal débito/crédito (fix 21/07 — code review)
+
+O sinal de cada lançamento vinha **100% da interpretação da IA**
+(`s.tipo_movimento` em `processar-documento`), sem nenhum cruzamento
+determinístico com o CSV bruto do próprio extrato. Correção em duas camadas:
+
+1. **Override na ingestão** (`processar-documento/parse-csv-sinal.ts`) — ao
+   processar um extrato com arquivo original **já textual** (CSV/TXT, não
+   PDF/imagem), reparseia o CSV bruto por linha e marca `sinalExplicito=true`
+   quando a estrutura do próprio arquivo já deixa o sinal inequívoco: coluna
+   `tipo`/`débito`/`crédito` dedicada, colunas débito/crédito separadas, ou
+   valor já assinado no texto (`-100,00` ou `(100,00)`). Quando há
+   **exatamente 1** linha do CSV com a mesma data + valor e sinal explícito,
+   esse sinal **sobrescreve** o palpite da IA antes do insert em `lancamentos`.
+   Ambíguo (0 ou 2+ candidatos, ou CSV sem estrutura inequívoca) → mantém a
+   decisão da IA (comportamento anterior).
+2. **Alerta não-bloqueante** (`conciliar/saldo.ts` → `detectarFaltantes` →
+   `divergencias_sinal`) — cobre o que a camada 1 não resolve (extrato
+   enviado como PDF/imagem, ou CSV sem estrutura explícita): cruza as
+   "sobras" das duas travas de faltantes buscando pares com mesma data
+   (±3 dias) e mesmo valor absoluto, porém sinal oposto. Não altera
+   `faltantes_count` nem bloqueia nada — só aparece como banner informativo
+   na tela de Conciliação (revisão manual, se fizer sentido).
+
+Por que não um cross-check 100% determinístico de ponta a ponta: os CSVs que
+os clientes sobem são heterogêneos (por isso a IA é usada pra interpretá-los);
+um parser determinístico só é confiável quando o próprio arquivo já é
+estruturalmente inequívoco. Fora isso, a decisão continua sendo da IA.
+
 ### Export SCI
 
 > **Correção (transcrição ~00:56:07):** coluna HISTÓRICO usa **código** (`historicos_sci_lcr.codigo`). A coluna *Apelido* da planilha de históricos e `historicos_contabeis.sci_apelido` **não entram** no export — eram legado do sistema anterior (como col E do PDC para contas).
@@ -142,8 +175,13 @@ futuras **já processadas** — não só em documentos novos:
   - **Bloqueia meses já `concluida`** — não altera nem reabre, evita dessincronia
     silenciosa com o que já foi exportado pro SCI. Reabertura automática fica
     para o [#143](https://github.com/mmarques30/lcr-flow/issues/143) (futuro).
-  - **Pula lançamentos já confirmados manualmente por humano** (`confidence = 1`)
-    em meses futuros — só propaga onde a IA ainda decide sozinha.
+  - **Pula lançamentos já confirmados manualmente por humano** em meses futuros
+    — só propaga onde a IA ainda decide sozinha. *(Fix 20/07: `confidence = 1`
+    por si só não é prova de confirmação humana — a própria propagação marca
+    `confidence = 1` nos lançamentos que ela atualiza. Sem checar também
+    `part_aprendido`, uma 2ª edição na origem parava de propagar pros meses já
+    tocados pela 1ª propagação. Guard corrigido para
+    `confidence = 1 AND part_aprendido = true`.)*
   - Campos propagados: `conta_id`, `part_deb`/`part_cred` (coalesce — só
     sobrescreve se a origem tiver valor); resultado marca `confidence = 1` e
     `part_aprendido = true` nos lançamentos atualizados.
@@ -200,6 +238,34 @@ futuras **já processadas** — não só em documentos novos:
 | [#138](https://github.com/mmarques30/lcr-flow/issues/138) | RPC propagação cross-competência | ✅ Implementado e mesclado (PR #146) — ver seção "Propagação (#138)" acima |
 | [#140](https://github.com/mmarques30/lcr-flow/issues/140) | Editar histórico na conciliação | ✅ Implementado e mesclado (PR #148) |
 | [#137](https://github.com/mmarques30/lcr-flow/issues/137) | Log inatividade + eventos | Pendente |
+| — | Code review 20–21/07: guard propagação, paginação (>1000/5000 linhas), sinal cruzado, sinal débito/crédito, testes automatizados | ✅ Aplicado — ver seções "Sinal débito/crédito" acima e "Testes automatizados" abaixo |
+
+### Tier 2/3 (standby — depende de feedback do cliente)
+
+| Item | Descrição | Status |
+|------|-----------|--------|
+| Resolução dinâmica de banco (CC nº 1) | Trocar dicionário `BANCO_PARA_CODIGO` (16 bancos hardcoded) por resolução contra `plano_de_contas_lcr` — hoje ~16,5% das contas bancárias não batem nem com o fix de acento | Standby |
+| `ContaCombobox` hierárquico | Ordenação hierárquica + bloquear seleção direta de conta T/C | Standby |
+| Aba Configurações → Plano de Contas hierárquico | Agrupamento visual T/C → filhas | Standby |
+| Contas analíticas sem `apelido` | Listar p/ confirmação do cliente + bloquear export | Standby |
+| Backfill ~1.297 lançamentos com `extrato_csv_url` apontando pra binário (não-CSV) | 3 camadas propostas (reparse / CSV sintético via IA / reprocessar) | Backlog — retomar com números corretos |
+| Automação de recebimento/cruzamento pós-fluxo estável (item 3 do CRM) | Depende de esclarecimento do cliente sobre o que automatizar | Pendente |
+
+### Testes automatizados
+
+Cobertura adicionada no code review de 20–21/07 (antes: zero testes nas
+funções puras de `sci-xls.ts` e nos loops de paginação):
+
+| Módulo | Runtime | Cobre |
+|--------|---------|-------|
+| `src/lib/sci-xls.test.ts` (vitest) | Node | `ehBancoPlaceholder`, `melhorContaBancaria` (incl. tie-break determinístico), `bancoCodigoDe`, `resolverContaAnalitica` (T/C) |
+| `src/lib/paginar.test.ts` (vitest) | Node | `paginarTodas` (front — `listLancamentosConciliacao`, `listPlanoContas`, `listHistoricosSci`) |
+| `supabase/functions/conciliar/paginar.test.ts` (deno test) | Deno | `paginarTodas` (edge — `conciliar/index.ts`) |
+| `supabase/functions/processar-documento/parse-csv-sinal.test.ts` (deno test) | Deno | `parseCsvComSinal` (override de sinal na ingestão) |
+| `supabase/functions/conciliar/saldo.test.ts` (deno test) | Deno | `validarSaldo`, `detectarFaltantes` (sinal cruzado), `detectarDivergenciaSinal` |
+
+Rodar: `npm run test` (front) e `deno test supabase/functions/` (edge, requer
+`deno` instalado — `npx -y deno@latest test ...` funciona sem instalação global).
 
 ---
 

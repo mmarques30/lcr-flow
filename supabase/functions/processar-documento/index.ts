@@ -9,6 +9,7 @@ import { corrigirSugestoesMapa } from "./corrigir-mapa.ts";
 import { FORMATO_RESPOSTA_JSON, parseClassificacaoResposta, type ClassificacaoParsed } from "./parse-resposta.ts";
 import { filtrarJanelaCompetencia } from "./janela-competencia.ts";
 import { montarCsvSintetico } from "./csv-sintetico.ts";
+import { parseCsvComSinal } from "./parse-csv-sinal.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -622,10 +623,48 @@ Deno.serve(async (req) => {
     return null;
   }
 
+  // #fix-sinal-ia (code review 20/07): o sinal débito/crédito de cada lançamento
+  // vinha 100% da interpretação da IA (s.tipo_movimento) — sem cruzamento com o
+  // CSV bruto do próprio extrato, mesmo quando ele estrutura o sinal de forma
+  // inequívoca (coluna tipo/débito/crédito dedicada, ou valor já assinado no
+  // texto). Quando há exatamente 1 linha do CSV com a mesma data+valor E
+  // sinalExplicito=true, usamos o sinal do CSV (fonte determinística) em vez do
+  // palpite da IA. Ambíguo (sem match único, ou estrutura não-explícita no CSV)
+  // → mantém o comportamento anterior (decide a IA). Só roda pra extrato
+  // bancário com arquivo original já textual (CSV/TXT real, não PDF/imagem).
+  const sinalPorChave = new Map<string, { sinal: -1 | 1 }[]>();
+  if (isExtratoBancario && extratoOriginalTextual) {
+    try {
+      const textoCru = new TextDecoder().decode(bytes);
+      const anoFallback = Number(competencia.slice(0, 4)) || new Date().getFullYear();
+      for (const l of parseCsvComSinal(textoCru, anoFallback)) {
+        if (!l.sinalExplicito || !l.data) continue;
+        const chave = `${l.data}|${Math.round(l.valorAbs * 100)}`;
+        const arr = sinalPorChave.get(chave) ?? [];
+        arr.push({ sinal: l.sinal });
+        sinalPorChave.set(chave, arr);
+      }
+    } catch {
+      // não-fatal: decode/parse do CSV bruto falhou — mantém o sinal da IA.
+    }
+  }
+
+  let sinalSobrescritoCount = 0;
   const rows = (classificacao.lancamentos_sugeridos ?? []).map((s) => {
     const pdc = pdcByCod.get(String(s.conta_codigo));
     const pdcCodigo = pdc ? Number(s.conta_codigo) : null;
     const histSciCodigo = s.historico_codigo && !Number.isNaN(Number(s.historico_codigo)) ? Number(s.historico_codigo) : null;
+    const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(s.data_lancamento) ? s.data_lancamento : null;
+    const valorAbs = Math.abs(Number(s.valor) || 0);
+    let natureza = normMov(s.tipo_movimento);
+    if (dataOk) {
+      const candidatos = sinalPorChave.get(`${dataOk}|${Math.round(valorAbs * 100)}`);
+      if (candidatos && candidatos.length === 1) {
+        const naturezaCsv = candidatos[0].sinal === -1 ? "debito" : "credito";
+        if (naturezaCsv !== natureza) sinalSobrescritoCount++;
+        natureza = naturezaCsv;
+      }
+    }
     return {
       empresa_id: doc.empresa_id,
       conta_id: contaId.get(s.conta_codigo) ?? null,
@@ -634,10 +673,10 @@ Deno.serve(async (req) => {
       hist_sci_codigo: histSciCodigo,
       requer_participante: pdc?.requer_participante ?? false,
       participante: s.participante ? s.participante.slice(0, 120) : null,
-      data_lancamento: /^\d{4}-\d{2}-\d{2}$/.test(s.data_lancamento) ? s.data_lancamento : null,
-      valor: Math.abs(Number(s.valor) || 0),
+      data_lancamento: dataOk,
+      valor: valorAbs,
       descricao: (s.descricao ?? "").slice(0, 200),
-      natureza_movimento: normMov(s.tipo_movimento),
+      natureza_movimento: natureza,
       competencia,
       status: "gerada" as const,
       confidence: typeof s.confidence === "number" ? s.confidence : null,
@@ -646,6 +685,7 @@ Deno.serve(async (req) => {
       enriquecido: false,
     };
   });
+  if (sinalSobrescritoCount) console.log(`sinal débito/crédito corrigido pelo CSV bruto (estrutura inequívoca): ${sinalSobrescritoCount} lançamento(s)`);
 
   // Filtro de janela de competência (-1 mês / +0 mês) — espelha o parser local
   // (_filtrar_janela_competencia em extrato_bancario.py). #139: extratos com

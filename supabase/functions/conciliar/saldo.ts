@@ -34,8 +34,19 @@ function round2(n: number): number {
 
 const cents = (v: number) => Math.round(Math.abs(v) * 100);
 
+// #fix-sinal-cruzado (code review 20/07): cents() usa valor absoluto — sem esta
+// checagem, um débito e um crédito de mesmo valor na mesma janela de dias
+// (ex.: PIX enviado e PIX recebido de mesmo valor no mesmo dia) podiam casar
+// incorretamente entre si em detectarFaltantes, escondendo um erro real de
+// classificação D/C. Zero não tem sinal — trata como compatível com qualquer
+// lado pra não travar casos legítimos de valor zero.
+function mesmoSinal(a: number, b: number): boolean {
+  if (a === 0 || b === 0) return true;
+  return (a < 0) === (b < 0);
+}
+
 function diasEntre(a: string | null, b: string | null): number {
-  if (!a || !b) return 0; // sem data dos dois lados: não penaliza
+  if (!a || !b) return 0; // falta data de algum dos lados: não penaliza (não dá p/ comparar)
   return Math.abs((Date.parse(a) - Date.parse(b)) / 86400000);
 }
 
@@ -96,11 +107,59 @@ export function validarSaldo(args: {
   };
 }
 
+export type DivergenciaSinal = {
+  data: string | null;
+  valor: number;
+  descricaoExtrato: string;
+  descricaoLancamento: string | null;
+  lancamentoId: string;
+};
+
 export type Faltantes = {
   extrato_sem_classificacao: LinhaExtrato[];
   classificado_sem_extrato: LancamentoConc[];
   faltantes_count: number;
+  divergencias_sinal: DivergenciaSinal[];
 };
+
+// #fix-sinal-ia (code review 20/07): alerta não-bloqueante — NÃO é uma 3ª
+// trava, não altera faltantes_count nem remove nada das duas listas acima.
+// Cruza as "sobras" das duas travas (que já exigem MESMO sinal pra casar)
+// buscando pares com mesma data (±JANELA_DIAS) e mesmo valor em centavos
+// absoluto, porém sinal OPOSTO — exatamente o padrão que o fix de sinal
+// cruzado (mesmoSinal, acima) passou a rejeitar como match. Cobre os casos
+// que a correção determinística na ingestão (processar-documento) não
+// resolve: extrato enviado como PDF/imagem, ou CSV sem estrutura inequívoca
+// de sinal (sem coluna tipo/débito/crédito dedicada nem valor já assinado).
+function detectarDivergenciaSinal(
+  extratoSobra: readonly LinhaExtrato[],
+  lancamentosSobra: readonly LancamentoConc[],
+): DivergenciaSinal[] {
+  const usados = new Array(lancamentosSobra.length).fill(false);
+  const divergencias: DivergenciaSinal[] = [];
+  for (const linha of extratoSobra) {
+    let best = -1, bestDias = Infinity;
+    for (let j = 0; j < lancamentosSobra.length; j++) {
+      if (usados[j]) continue;
+      const l = lancamentosSobra[j];
+      if (cents(linha.valor) !== cents(l.valor)) continue;
+      if (mesmoSinal(linha.valor, l.valor)) continue; // mesmo sinal já teria casado na trava normal
+      const d = diasEntre(linha.data, l.data);
+      if (d <= JANELA_DIAS && d < bestDias) { best = j; bestDias = d; }
+    }
+    if (best >= 0) {
+      usados[best] = true;
+      divergencias.push({
+        data: linha.data,
+        valor: Math.abs(linha.valor),
+        descricaoExtrato: linha.descricao,
+        descricaoLancamento: lancamentosSobra[best].descricao ?? null,
+        lancamentoId: lancamentosSobra[best].id,
+      });
+    }
+  }
+  return divergencias;
+}
 
 /**
  * Duas travas independentes (ambas contam como "faltante", spec ~12:19):
@@ -129,6 +188,7 @@ export function detectarFaltantes(args: {
     for (let j = 0; j < lancamentos.length; j++) {
       if (usadoLancComConta[j] || !lancamentos[j].contaId) continue;
       if (cents(extrato[i].valor) !== cents(lancamentos[j].valor)) continue;
+      if (!mesmoSinal(extrato[i].valor, lancamentos[j].valor)) continue;
       const d = diasEntre(extrato[i].data, lancamentos[j].data);
       if (d <= JANELA_DIAS && d < bestDias) { best = j; bestDias = d; }
     }
@@ -145,6 +205,7 @@ export function detectarFaltantes(args: {
     for (let i = 0; i < extrato.length; i++) {
       if (usadoExtrato[i]) continue;
       if (cents(extrato[i].valor) !== cents(lancamentos[j].valor)) continue;
+      if (!mesmoSinal(extrato[i].valor, lancamentos[j].valor)) continue;
       const d = diasEntre(extrato[i].data, lancamentos[j].data);
       if (d <= JANELA_DIAS && d < bestDias) { best = i; bestDias = d; }
     }
@@ -156,5 +217,6 @@ export function detectarFaltantes(args: {
     extrato_sem_classificacao,
     classificado_sem_extrato,
     faltantes_count: extrato_sem_classificacao.length + classificado_sem_extrato.length,
+    divergencias_sinal: detectarDivergenciaSinal(extrato_sem_classificacao, classificado_sem_extrato),
   };
 }
