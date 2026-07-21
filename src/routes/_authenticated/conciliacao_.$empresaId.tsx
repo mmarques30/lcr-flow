@@ -17,7 +17,7 @@ import { formatCompetencia } from "@/lib/format";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
 import { avisarPropagacao } from "@/lib/propagacao-toast";
 import { trackAction } from "@/lib/logs.functions";
-import { melhorContaBancaria } from "@/lib/sci-xls";
+import { melhorContaBancaria, profundidadeClassificacao } from "@/lib/sci-xls";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAcesso } from "@/lib/guard";
 import { ChevronLeft, Download, CheckCircle2, Sparkles, Wand2, ListChecks, AlertTriangle, FileText, Link2, Pencil, ChevronsUpDown, Check, Plus, Trash2, ArrowUpFromLine, Info } from "lucide-react";
@@ -1201,10 +1201,17 @@ function DeltaMini({ saldo, analisado }: { saldo?: ResultadoSaldo; analisado: bo
 }
 
 // Seletor de conta contábil pesquisável (código ou descrição) sobre o plano de contas.
+// #hierarquia-tc (pedido Mariana 20/07): conta T (sintética) ou C (consolidada) é
+// "conta pai" — não tem correspondência fiscal no SCI, só a filha analítica aceita
+// lançamento (ver resolverContaAnalitica em sci-xls.ts). O combobox já vem ordenado
+// pela hierarquia real (classificacao), não por código/alfabético, e mostra um
+// selo "grupo" nas T/C pra deixar claro que não é pra usar direto — mas não
+// bloqueia a seleção, porque o sistema já resolve automaticamente pra filha (ou
+// avisa se for ambíguo) na hora do export SCI.
 function ContaCombobox({ value, onChange }: { value: string; onChange: (codigo: string) => void }) {
   const [open, setOpen] = useState(false);
   const { data, isLoading } = useQuery({ queryKey: ["plano-contas"], queryFn: () => listPlanoContas(), staleTime: 5 * 60_000 });
-  const contas = (data ?? []) as { codigo: string; descricao: string; tipo: string | null; ativo: boolean }[];
+  const contas = (data ?? []) as { codigo: string; descricao: string; tipo: string | null; ativo: boolean; classificacao: string | null; tipoTC: string | null }[];
   const sel = contas.find((c) => c.codigo === value);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -1222,13 +1229,20 @@ function ContaCombobox({ value, onChange }: { value: string; onChange: (codigo: 
           <CommandList>
             <CommandEmpty>{isLoading ? "Carregando…" : "Nenhuma conta encontrada."}</CommandEmpty>
             <CommandGroup>
-              {contas.map((c) => (
-                <CommandItem key={c.codigo} value={`${c.codigo} ${c.descricao}`} onSelect={() => { onChange(c.codigo); setOpen(false); }}>
-                  <Check className={cn("mr-2 h-4 w-4", value === c.codigo ? "opacity-100" : "opacity-0")} />
-                  <span className="font-mono text-xs mr-2">{c.codigo}</span>
-                  <span className="truncate">{c.descricao}</span>
-                </CommandItem>
-              ))}
+              {contas.map((c) => {
+                const ehGrupo = c.tipoTC === "T" || c.tipoTC === "C";
+                const indent = Math.max(0, (c.classificacao ? profundidadeClassificacao(c.classificacao) : 1) - 2);
+                return (
+                  <CommandItem key={c.codigo} value={`${c.codigo} ${c.descricao}`} onSelect={() => { onChange(c.codigo); setOpen(false); }}>
+                    <Check className={cn("mr-2 h-4 w-4 shrink-0", value === c.codigo ? "opacity-100" : "opacity-0")} />
+                    <span style={{ paddingLeft: `${indent * 0.75}rem` }} className="flex min-w-0 items-center gap-2">
+                      <span className="font-mono text-xs text-muted-foreground">{c.codigo}</span>
+                      <span className={cn("truncate", ehGrupo && "font-semibold")}>{c.descricao}</span>
+                      {ehGrupo && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">grupo</span>}
+                    </span>
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>

@@ -5,6 +5,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
 import { TODAS_CHAVES } from "@/lib/acessos";
 import { paginarTodas } from "@/lib/paginar";
+import { compararClassificacao } from "@/lib/sci-xls";
 
 async function assertAdmin(supabase: SupabaseClient<Database>, userId: string) {
   const { data } = await supabase.from("usuarios_perfil").select("perfil").eq("user_id", userId).maybeSingle();
@@ -1874,17 +1875,35 @@ export const savePresetPermissoes = createServerFn({ method: "POST" })
 // por requisição (db-max-rows, tipicamente 1000) que IGNORA um .range() maior; por
 // isso paginamos em loop até esgotar as páginas, senão contas fora das primeiras
 // ~1000 somem do combobox (#bugfix-1170: mesmo problema causava bloqueio no export SCI).
+//
+// `plano_contas` é um espelho 1:1 de `plano_de_contas_lcr` (por codigo), mas só
+// guarda o tipo débito/crédito (ativo/passivo/receita/despesa/patrimonio) — não
+// carrega a hierarquia T (sintética)/C (consolidada) x filha analítica, que só
+// existe em plano_de_contas_lcr.classificacao/tipo. Junta os dois aqui pra dar pro
+// combobox de conta contábil e pra aba Configurações mostrar pai x filho na ordem
+// certa (pedido Mariana 20/07 — "não pode usar T ou C pra conciliar, só a filha").
 export const listPlanoContas = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const all = await paginarTodas<{ codigo: string; descricao: string | null; tipo: string | null; ativo: boolean | null; sci_apelido: string | null }>((offset, pageSize) =>
-      context.supabase
-        .from("plano_contas")
-        .select("codigo, descricao, tipo, ativo, sci_apelido")
-        .order("codigo")
-        .range(offset, offset + pageSize - 1),
-    );
-    return all.slice().sort((a, b) => (parseInt(a.codigo, 10) || 0) - (parseInt(b.codigo, 10) || 0));
+    const [all, pdcLcr] = await Promise.all([
+      paginarTodas<{ codigo: string; descricao: string | null; tipo: string | null; ativo: boolean | null; sci_apelido: string | null }>((offset, pageSize) =>
+        context.supabase
+          .from("plano_contas")
+          .select("codigo, descricao, tipo, ativo, sci_apelido")
+          .order("codigo")
+          .range(offset, offset + pageSize - 1),
+      ),
+      paginarTodas<{ codigo: number; classificacao: string; tipo: string | null }>((offset, pageSize) =>
+        context.supabase
+          .from("plano_de_contas_lcr")
+          .select("codigo, classificacao, tipo")
+          .range(offset, offset + pageSize - 1),
+      ),
+    ]);
+    const hierarquiaPorCodigo = new Map(pdcLcr.map((p) => [p.codigo, { classificacao: p.classificacao, tipoTC: p.tipo }]));
+    return all
+      .map((c) => ({ ...c, ...(hierarquiaPorCodigo.get(parseInt(c.codigo, 10)) ?? { classificacao: null, tipoTC: null }) }))
+      .sort((a, b) => (a.classificacao && b.classificacao ? compararClassificacao(a.classificacao, b.classificacao) : (parseInt(a.codigo, 10) || 0) - (parseInt(b.codigo, 10) || 0)));
   });
 
 // Plano de Históricos SCI (Anexo 2) — fonte oficial do código exportado na

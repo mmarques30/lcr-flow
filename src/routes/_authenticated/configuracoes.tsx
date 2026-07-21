@@ -19,6 +19,7 @@ import {
 } from "@/lib/lcr.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { ACESSOS, temAcesso } from "@/lib/acessos";
+import { cn } from "@/lib/utils";
 import { Plus, Trash2, ShieldCheck, Copy, Pencil, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { requireAcesso } from "@/lib/guard";
@@ -449,39 +450,45 @@ function ResetarSenhaDialog({ usuario }: { usuario: Usuario }) {
 
 const TIPO_LABEL: Record<string, string> = { ativo: "Ativo", passivo: "Passivo", receita: "Receitas", despesa: "Despesas", outros: "Outros" };
 
+// #hierarquia-tc (pedido Mariana 20/07 — "se ele fez ordem alfabética, não tá
+// considerando o que é correto"): a lista abaixo já vem do backend ordenada pela
+// hierarquia real da planilha oficial (classificacao), não por código/nome. Contas
+// T (sintética) e C (consolidada) são "pai" — aparecem em negrito com o selo
+// "grupo" e não têm correspondência fiscal direta no SCI (só a filha analítica,
+// indentada abaixo, aceita lançamento — ver resolverContaAnalitica em sci-xls.ts).
 function PlanoContasTab() {
   const { data, isLoading } = useQuery({ queryKey: ["plano-contas"], queryFn: () => listPlanoContas() });
   const [q, setQ] = useState("");
-  const contas = (data ?? []).filter((c) =>
-    !q || c.codigo.includes(q) || c.descricao.toLowerCase().includes(q.toLowerCase())
-  );
-  const porTipo = contas.reduce<Record<string, typeof contas>>((acc, c) => {
-    const t = c.tipo ?? "outros";
-    (acc[t] ??= []).push(c);
-    return acc;
-  }, {});
+  const todas = (data ?? []) as Array<{ codigo: string; descricao: string; tipo: string | null; ativo: boolean; classificacao: string | null; tipoTC: string | null }>;
+  const contas = todas.filter((c) => !q || c.codigo.includes(q) || c.descricao.toLowerCase().includes(q.toLowerCase()));
+  const qtdGrupos = todas.filter((c) => c.tipoTC === "T" || c.tipoTC === "C").length;
 
   return (
     <Card>
       <CardContent className="space-y-4 pt-6">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">Plano de contas real da LCR — {data?.length ?? 0} contas.</p>
+          <p className="text-sm text-muted-foreground">
+            Plano de contas real da LCR — {data?.length ?? 0} contas ({qtdGrupos} grupos T/C, sem correspondência fiscal direta).
+          </p>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar código ou descrição" className="max-w-xs" />
         </div>
         {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
         {!isLoading && contas.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma conta encontrada.</p>}
-        <div className="max-h-[60vh] space-y-5 overflow-y-auto font-mono text-sm">
-          {Object.entries(porTipo).map(([tipo, lista]) => (
-            <div key={tipo}>
-              <div className="mb-1 font-sans text-xs font-semibold uppercase tracking-wide text-muted-foreground">{TIPO_LABEL[tipo] ?? tipo} · {lista.length}</div>
-              {lista.map((c) => (
-                <div key={c.codigo} className="flex gap-3 py-0.5">
-                  <span className="w-14 shrink-0 text-muted-foreground">{c.codigo}</span>
-                  <span className={c.ativo ? "text-foreground" : "text-muted-foreground line-through"}>{c.descricao}</span>
-                </div>
-              ))}
-            </div>
-          ))}
+        <div className="max-h-[60vh] overflow-y-auto font-mono text-sm">
+          {contas.map((c) => {
+            const ehGrupo = c.tipoTC === "T" || c.tipoTC === "C";
+            const indent = Math.max(0, (c.classificacao ? c.classificacao.split(".").length : 1) - 2);
+            return (
+              <div key={c.codigo} className={cn("flex items-center gap-3 py-0.5", ehGrupo && "bg-muted/40")}>
+                <span className="w-14 shrink-0 text-muted-foreground">{c.codigo}</span>
+                <span style={{ paddingLeft: `${indent * 0.9}rem` }} className="flex min-w-0 items-center gap-2">
+                  <span className={cn(c.ativo ? "text-foreground" : "text-muted-foreground line-through", ehGrupo && "font-sans font-semibold")}>{c.descricao}</span>
+                  {ehGrupo && <span className="shrink-0 rounded bg-background px-1.5 py-0.5 text-[10px] font-sans uppercase tracking-wide text-muted-foreground">grupo</span>}
+                  <span className="shrink-0 font-sans text-[10px] uppercase tracking-wide text-muted-foreground">{TIPO_LABEL[c.tipo ?? "outros"] ?? c.tipo}</span>
+                </span>
+              </div>
+            );
+          })}
         </div>
       </CardContent>
     </Card>
