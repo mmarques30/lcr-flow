@@ -102,6 +102,10 @@ def buscar_apelidos_banco() -> dict[str, int]:
     out = {r["alias"]: int(r["codigo_lcr"]) for r in rows if r.get("alias") and r.get("codigo_lcr") is not None}
     return out or dict(BANCO_PARA_CODIGO_FALLBACK)
 
+
+# Compat legado (imports antigos de orquestrar/corrigir_extratos).
+BANCO_PARA_CODIGO = BANCO_PARA_CODIGO_FALLBACK
+
 COLUNAS_SCI = [
     "DATA",
     "DÉBITO",

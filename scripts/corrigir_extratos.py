@@ -24,7 +24,7 @@ for sub in ("src", "src/parsers", "src/ai", "src/sci"):
 import bridge_front as bf                       # noqa: E402
 from motor_classificacao import classificar_extrato   # noqa: E402
 import extrato_bancario as EB                   # noqa: E402
-from gerar_planilha_supabase import BANCO_PARA_CODIGO  # noqa: E402
+from gerar_planilha_supabase import buscar_conta_banco  # noqa: E402
 
 BANCO_PADRAO = 657  # Itaú (mesmo fallback do orquestrar.py)
 PREVIEW_DIR = ROOT / "outputs" / "reproc"
@@ -38,14 +38,7 @@ DOCS_PADRAO = [
 
 
 def resolver_banco(empresa_id):
-    contas = bf.sb_get("contas_bancarias", {"select": "banco", "empresa_id": f"eq.{empresa_id}", "limit": "1"})
-    if not contas:
-        return None
-    banco = (contas[0].get("banco") or "").lower()
-    for nome, cod in BANCO_PARA_CODIGO.items():
-        if nome.strip() in banco:
-            return cod
-    return None
+    return buscar_conta_banco(empresa_id)
 
 
 def baixar_storage(path: str) -> bytes:

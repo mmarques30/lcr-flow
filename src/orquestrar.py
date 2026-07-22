@@ -40,7 +40,7 @@ sys.path.insert(0, str(ROOT / "src" / "sci"))
 
 import bridge_front as bf                                  # noqa: E402  (obter_jwt, sb_get, processar_via_gestta, _node_eval, comp_to_gestta, vincular_consultor)
 from motor_classificacao import avaliar_suficiencia_documentos  # noqa: E402
-from gerar_planilha_supabase import BANCO_PARA_CODIGO       # noqa: E402
+from gerar_planilha_supabase import buscar_conta_banco       # noqa: E402
 from gestta import api_docs                                 # noqa: E402  (detalhe_tarefa/suficiencia/baixar_documentos — caminho --via-api, sem browser)
 
 OUT_DIR = ROOT / "outputs" / "orquestracao"
@@ -313,14 +313,8 @@ def resolver_empresa(codigo: str, nome: str):
 
 
 def resolver_banco(empresa_id: str):
-    contas = bf.sb_get("contas_bancarias", {"select": "banco", "empresa_id": f"eq.{empresa_id}", "limit": "1"})
-    if not contas:
-        return None
-    banco = (contas[0].get("banco") or "").lower()
-    for nome, cod in BANCO_PARA_CODIGO.items():
-        if nome.strip() in banco:
-            return cod
-    return None
+    # Fonte de verdade: bancos_apelidos_lcr (+ fallback) via gerar_planilha_supabase.
+    return buscar_conta_banco(empresa_id)
 
 
 def _carregar_ledger() -> dict:
