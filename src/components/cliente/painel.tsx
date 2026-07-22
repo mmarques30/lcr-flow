@@ -412,7 +412,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
         return;
       }
     }
-    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, bancoCodigo, pdcApelidos, pdcTC);
+    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, bancoCodigo, pdcTC);
     if (n === 0) toast.warning("Nenhum lançamento com conta para exportar.");
     else {
       toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);
