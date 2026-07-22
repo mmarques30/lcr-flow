@@ -21,6 +21,20 @@ Deno.test("extrairSaldosDeTexto — milhares no saldo", () => {
   assertEquals(r.final, 10000);
 });
 
+Deno.test("extrairSaldosDeTexto — Santander Saldo anterior/final com data", () => {
+  const texto =
+    "Extrato Santander Empresas - fevereiro/2026. Saldo anterior (31/01): R$ 0,00. Saldo final (28/02): R$ 25,79. Total de Créditos: R$ 120.806,21.";
+  const r = extrairSaldosDeTexto(texto);
+  assertEquals(r.inicial, 0);
+  assertEquals(r.final, 25.79);
+});
+
+Deno.test("extrairSaldosDeTexto — Saldo em DD/MM", () => {
+  const r = extrairSaldosDeTexto("Saldo em 31/01 = 0. Saldo em 28/02: 2.579,00");
+  assertEquals(r.inicial, 0);
+  assertEquals(r.final, 2579);
+});
+
 Deno.test("extrairSaldosDocumento — chaves estruturadas têm prioridade", () => {
   const r = extrairSaldosDocumento({ saldo_inicial: 10, saldo_final: 20, dados_extraidos: "Saldo inicial: R$ 1,00. Saldo final: R$ 2,00." });
   assertEquals(r.inicial, 10);
@@ -43,4 +57,12 @@ Deno.test("extrairSaldosDocumento — lê prosa em classificacao_ia string", () 
   );
   assertEquals(r.inicial, 100);
   assertEquals(r.final, 80.5);
+});
+
+Deno.test("extrairSaldosDocumento — JSON stringificado com chaves", () => {
+  const r = extrairSaldosDocumento({
+    dados_extraidos: JSON.stringify({ saldo_inicial: 16161.72, saldo_final: 36060 }),
+  });
+  assertEquals(r.inicial, 16161.72);
+  assertEquals(r.final, 36060);
 });
