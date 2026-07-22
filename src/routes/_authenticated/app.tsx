@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatusPill, variantFor } from "@/components/status-pill";
 import { getDashboardStats } from "@/lib/lcr.functions";
-import { EMPRESA_STATUS_LABEL, formatCompetencia, competenciaAtual, calendarioParaCompetencia } from "@/lib/format";
+import { EMPRESA_STATUS_LABEL, formatCompetencia, competenciaAtual, mesAnoParaCompetencia } from "@/lib/format";
 import {
   Building2, FileClock, BookOpen, GitCompare, AlertTriangle, ListTodo, ArrowRight,
   Activity, FileText, TrendingUp, TrendingDown, Sparkles, Crown, Scale, Calendar, ChevronDown, Check, Gauge,
@@ -136,20 +136,19 @@ function Dashboard() {
   // Semântica do dropdown: MÊS DO CALENDÁRIO em que o trabalho contábil está
   // sendo feito. Competência = mês selecionado - 1 (regime contábil brasileiro).
   // Default = mês corrente do calendário. Exemplo: Jul/2026 → 2026-06.
-  const hojeDate = useState(new Date())[0];
-  const yyAtual = hojeDate.getFullYear();
-  const mmAtual = hojeDate.getMonth() + 1;
-  const [meses, setMeses] = useState<Set<number>>(new Set([mmAtual]));
-  const [anos, setAnos] = useState<Set<number>>(new Set([yyAtual]));
-  // Anos disponíveis = ano atual e os 3 anteriores.
-  const anosDisponiveis = [yyAtual, yyAtual - 1, yyAtual - 2, yyAtual - 3];
-  // Cross product mês × ano → competências. Aplica a regra "-1 mês" em cada par.
-  // Ex: seleciona Julho/2026 → filtra competência 2026-06.
+  const [compPadrao] = useState(competenciaAtual());
+  const mmPadrao = Number(compPadrao.slice(5, 7));
+  const yyPadrao = Number(compPadrao.slice(0, 4));
+  const [meses, setMeses] = useState<Set<number>>(new Set([mmPadrao]));
+  const [anos, setAnos] = useState<Set<number>>(new Set([yyPadrao]));
+  // Anos disponíveis = ano do padrão contábil e os 3 anteriores.
+  const anosDisponiveis = [yyPadrao, yyPadrao - 1, yyPadrao - 2, yyPadrao - 3];
+  // Cross product mês × ano → competências, 1:1 (OPT-0004): Jan/2026 filtra 2026-01, sem offset -1.
   const competencias = (() => {
     const xs: string[] = [];
-    const ms = meses.size > 0 ? [...meses] : [mmAtual];
-    const ys = anos.size > 0 ? [...anos] : [yyAtual];
-    ys.forEach((y) => ms.forEach((m) => xs.push(calendarioParaCompetencia(y, m))));
+    const ms = meses.size > 0 ? [...meses] : [mmPadrao];
+    const ys = anos.size > 0 ? [...anos] : [yyPadrao];
+    ys.forEach((y) => ms.forEach((m) => xs.push(mesAnoParaCompetencia(y, m))));
     return xs.sort();
   })();
   const compKey = competencias.join(",");
