@@ -45,16 +45,21 @@ function OportunidadesPage() {
 
   const votar = useMutation({
     mutationFn: (opt: Oportunidade) => votarOportunidade(opt.id, !opt.votei),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["oportunidades"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["oportunidades"] });
+      toast.success("Voto registrado.");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Não foi possível votar."),
   });
 
   const mudarStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: OportStatus }) => mudarStatusOportunidade(id, status),
-    onSuccess: () => {
+    onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["oportunidades"] });
+      setSel((atual) => (atual && atual.id === vars.id ? { ...atual, status: vars.status } : atual));
       toast.success("Status atualizado.");
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Erro"),
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Não foi possível alterar o status."),
   });
 
   const porStatus = useMemo(() => {
@@ -106,10 +111,13 @@ function OportunidadesPage() {
                 {porStatus[st].map((o) => {
                   const Icon = TIPO_ICON[o.tipo];
                   return (
-                    <button
+                    <div
                       key={o.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setSel(o)}
-                      className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-card"
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSel(o); }}
+                      className="w-full cursor-pointer rounded-xl border border-border bg-card px-3 py-2.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-card"
                     >
                       <div className="flex items-center gap-2">
                         <span className={cn("inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase", TIPO_COR[o.tipo])}>
@@ -117,12 +125,21 @@ function OportunidadesPage() {
                           {TIPO_LABEL[o.tipo]}
                         </span>
                         <span className="text-[10px] text-muted-foreground">{o.numero}</span>
-                        <span className={cn("ml-auto flex items-center gap-1 text-[11px]", o.votei ? "text-primary font-medium" : "text-muted-foreground")}>
+                        <button
+                          type="button"
+                          title={o.votei ? "Remover voto" : "Votar"}
+                          disabled={votar.isPending}
+                          onClick={(e) => { e.stopPropagation(); votar.mutate(o); }}
+                          className={cn(
+                            "ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors hover:bg-muted",
+                            o.votei ? "text-primary font-medium" : "text-muted-foreground",
+                          )}
+                        >
                           <ThumbsUp className="h-3 w-3" /> {o.votos ?? 0}
-                        </span>
+                        </button>
                       </div>
                       <div className="mt-1.5 line-clamp-2 text-sm font-medium">{o.titulo}</div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -252,3 +269,4 @@ function PainelDetalhe({ opt, onClose, onMudarStatus, onVotar }: {
     </Sheet>
   );
 }
+
