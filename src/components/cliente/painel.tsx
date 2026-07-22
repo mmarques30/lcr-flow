@@ -358,11 +358,11 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     queryKey: ["plano-de-contas-lcr-codigos"],
     queryFn: async () => {
       const pageSize = 1000;
-      const all: { codigo: number; apelido: number | null; requer_participante: boolean; classificacao: string; tipo: string | null }[] = [];
+      const all: { codigo: number; requer_participante: boolean; classificacao: string; tipo: string | null; nome: string }[] = [];
       for (let offset = 0; ; offset += pageSize) {
         const { data } = await supabase
           .from("plano_de_contas_lcr")
-          .select("codigo, apelido, requer_participante, classificacao, tipo")
+          .select("codigo, requer_participante, classificacao, tipo, nome")
           .order("codigo")
           .range(offset, offset + pageSize - 1);
         all.push(...((data ?? []) as typeof all));
@@ -372,10 +372,10 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     },
     staleTime: 10 * 60_000,
   });
-  const pdcApelidos = mapaPdcApelidos(pdcLcr ?? []);
-  const pdcTC = (pdcLcr ?? []).map((c) => ({ codigo: c.codigo, classificacao: c.classificacao, tipo: c.tipo }));
-  const codigosValidos = new Set<string>((pdcLcr ?? []).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
-  const requerParticipante = new Set<string>((pdcLcr ?? []).filter((c) => c.requer_participante).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
+  const pdcTC = (pdcLcr ?? []).map((c) => ({ codigo: c.codigo, classificacao: c.classificacao, tipo: c.tipo, nome: c.nome }));
+  // Apelido abandonado em 21/07 (alinhado com a Mariana) — codigosValidos/requerParticipante usam só o código real.
+  const codigosValidos = new Set<string>((pdcLcr ?? []).map((c) => String(c.codigo)));
+  const requerParticipante = new Set<string>((pdcLcr ?? []).filter((c) => c.requer_participante).map((c) => String(c.codigo)));
 
   // Plano de Históricos SCI (Anexo 2) — set de códigos com pula_complemento=true.
   const { data: histPula } = useQuery({
