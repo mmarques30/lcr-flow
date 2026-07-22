@@ -14,7 +14,7 @@ import { StatusPill, variantFor } from "@/components/status-pill";
 import { Markdown } from "@/components/markdown";
 import { listDocumentos, gerarPlanilhaSci, getHistoricoCerebro, listLancamentosConciliacao, getEmpresa, editarLancamento, type SciLinha } from "@/lib/lcr.functions";
 import { avisarPropagacao } from "@/lib/propagacao-toast";
-import { baixarPlanilhaSciXls, bancoCodigoDe, buscarApelidosBanco, linhasSci, linhasSciPreview, mapaPdcApelidos, melhorContaBancaria, validarLancamentosSci, COLUNAS as COLUNAS_SCI, type SciCelula } from "@/lib/sci-xls";
+import { baixarPlanilhaSciXls, bancoCodigoDe, buscarApelidosBanco, linhasSci, linhasSciPreview, melhorContaBancaria, validarLancamentosSci, COLUNAS as COLUNAS_SCI, type SciCelula } from "@/lib/sci-xls";
 import { DOC_TIPO_LABEL, DOC_STATUS_LABEL, formatCompetencia, competenciaAtual } from "@/lib/format";
 import { documentoComErroProcessamento } from "@/lib/documento-erros";
 import { DocumentoErroHint } from "@/components/documento-erro-hint";
@@ -358,11 +358,11 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     queryKey: ["plano-de-contas-lcr-codigos"],
     queryFn: async () => {
       const pageSize = 1000;
-      const all: { codigo: number; apelido: number | null; requer_participante: boolean; classificacao: string; tipo: string | null }[] = [];
+      const all: { codigo: number; requer_participante: boolean; classificacao: string; tipo: string | null; nome: string }[] = [];
       for (let offset = 0; ; offset += pageSize) {
         const { data } = await supabase
           .from("plano_de_contas_lcr")
-          .select("codigo, apelido, requer_participante, classificacao, tipo")
+          .select("codigo, requer_participante, classificacao, tipo, nome")
           .order("codigo")
           .range(offset, offset + pageSize - 1);
         all.push(...((data ?? []) as typeof all));
@@ -372,10 +372,10 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     },
     staleTime: 10 * 60_000,
   });
-  const pdcApelidos = mapaPdcApelidos(pdcLcr ?? []);
-  const pdcTC = (pdcLcr ?? []).map((c) => ({ codigo: c.codigo, classificacao: c.classificacao, tipo: c.tipo }));
-  const codigosValidos = new Set<string>((pdcLcr ?? []).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
-  const requerParticipante = new Set<string>((pdcLcr ?? []).filter((c) => c.requer_participante).flatMap((c) => [String(c.codigo), c.apelido != null ? String(c.apelido) : ""].filter(Boolean)));
+  const pdcTC = (pdcLcr ?? []).map((c) => ({ codigo: c.codigo, classificacao: c.classificacao, tipo: c.tipo, nome: c.nome }));
+  // Apelido abandonado em 21/07 (alinhado com a Mariana) — codigosValidos/requerParticipante usam só o código real.
+  const codigosValidos = new Set<string>((pdcLcr ?? []).map((c) => String(c.codigo)));
+  const requerParticipante = new Set<string>((pdcLcr ?? []).filter((c) => c.requer_participante).map((c) => String(c.codigo)));
 
   // Plano de Históricos SCI (Anexo 2) — set de códigos com pula_complemento=true.
   const { data: histPula } = useQuery({
@@ -390,7 +390,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
     ? { ...l, historico: { ...l.historico, pula_complemento: true } }
     : l);
 
-  const previewRows = linhasSciPreview(lancsComPula, bancoCodigo, pdcApelidos, bancoNome, pdcTC);
+  const previewRows = linhasSciPreview(lancsComPula, bancoCodigo, bancoNome, pdcTC);
 
   // #135: Baixar SCI só libera depois da conciliação bancária concluída
   // (docs/conciliacao-v3-spec.md — "Conciliar desbloqueia Baixar SCI").
@@ -412,7 +412,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
         return;
       }
     }
-    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, bancoCodigo, pdcApelidos, pdcTC);
+    const n = baixarPlanilhaSciXls(empresaNome, competencia, lancsComPula, bancoCodigo, pdcTC);
     if (n === 0) toast.warning("Nenhum lançamento com conta para exportar.");
     else {
       toast.success(`Planilha SCI (.xls) gerada — ${n} lançamento(s) no layout de importação.`);
@@ -431,7 +431,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
         return;
       }
     }
-    const rows = linhasSci(lancsComPula, bancoCodigo, pdcApelidos, pdcTC);
+    const rows = linhasSci(lancsComPula, bancoCodigo, pdcTC);
     if (rows.length === 0) { toast.warning("Nenhum lançamento com conta para exportar."); return; }
     exportarCsvSci(empresaNome, competencia, rows);
     toast.success(`CSV gerado — ${rows.length} lançamento(s) no layout de importação SCI.`);

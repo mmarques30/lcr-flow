@@ -1,6 +1,9 @@
 // Geração da planilha de importação SCI (.xls) por lançamento, no layout exato do
 // modelo (config/08_-_Modelo_Planilha_Importacao_Lctos_SCI.xls): 11 colunas, uma
-// linha por lançamento, códigos reduzidos SCI (plano_de_contas_lcr.apelido).
+// linha por lançamento, código real da conta (plano_de_contas_lcr.codigo — o
+// código reduzido "apelido" foi abandonado em 21/07, alinhado com a Mariana:
+// era um número de transição de sistema que o próprio cliente confundiu no
+// passado, causa raiz de divergências como a da conta 1170/#136).
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -181,26 +184,15 @@ export function fmtDataPreview(d: string | null): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d);
 }
 
-/** Mapa codigo LCR → código reduzido SCI (plano_de_contas_lcr.apelido, col A PDC). */
-export function mapaPdcApelidos(
-  rows: readonly { codigo: number; apelido: number | null }[],
-): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const r of rows) {
-    if (r.apelido != null) m.set(String(r.codigo), r.apelido);
-  }
-  return m;
-}
-
-/** Código reduzido SCI da conta: plano_de_contas_lcr.apelido; fallback no código LCR. */
-export function codSciReduzido(
-  codigoLcr: string | null | undefined,
-  apelidos: Map<string, number>,
-): number | string {
+/** Código SCI da conta (Débito/Crédito): sempre plano_de_contas_lcr.codigo — o
+ *  código reduzido (`apelido`) foi abandonado em 21/07 (alinhado com a Mariana):
+ *  era um número de transição de sistema que o próprio cliente usou errado no
+ *  passado ("essa parte que tá no ECI é um apelido e não é o código correto"),
+ *  e já tinha sido a causa da divergência do #136 (conta 1170 exportando como
+ *  "859"). Mesmo tratamento que histSciCodigo já dava ao Histórico (#134/#140). */
+export function codSciConta(codigoLcr: string | null | undefined): number | string {
   const c = String(codigoLcr ?? "").trim();
   if (!c) return "";
-  const ap = apelidos.get(c);
-  if (ap != null) return ap;
   const n = Number(c);
   return Number.isNaN(n) ? c : n;
 }
@@ -211,7 +203,7 @@ export function codSciReduzido(
 // Ex. C: 1170 "Aplicação - Banco XP Investimentos" (tipo C, 3 filhas) → ambígua,
 // bloqueia export em vez de usar o código da própria conta-guarda-chuva.
 const TIPOS_NAO_ANALITICOS = ["T", "C"];
-export type PdcTC = { codigo: number; classificacao: string; tipo: string | null };
+export type PdcTC = { codigo: number; classificacao: string; tipo: string | null; nome?: string };
 export type ResolucaoTC =
   | { status: "analitica" } // já é conta que aceita lançamento (tipo não é T nem C)
   | { status: "resolvido"; codigoResolvido: number } // T/C com filha analítica única
@@ -265,19 +257,18 @@ export function codigoParaExportSci(codigo: string, pdc: readonly PdcTC[]): stri
 }
 
 /** Monta as linhas do layout SCI (uma por lançamento com conta).
- *  Débito/crédito usam código reduzido (plano_de_contas_lcr.apelido); banco = CC nº 1. */
+ *  Débito/crédito usam o código real da conta (codSciConta); banco = CC nº 1. */
 export function linhasSci(
   lancs: SciLanc[],
   bancoCodigoLcr: number | null | undefined,
-  pdcApelidos: Map<string, number>,
   pdcTC: readonly PdcTC[] = [],
 ) {
-  const bancoSci = bancoCodigoLcr != null ? codSciReduzido(String(bancoCodigoLcr), pdcApelidos) : "";
+  const bancoSci = bancoCodigoLcr != null ? codSciConta(String(bancoCodigoLcr)) : "";
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
-      // #136: contas sintéticas (T) ou consolidadas (C) resolvem para a filha analítica antes do código reduzido.
-      const conta = codSciReduzido(codigoParaExportSci(l.conta!.codigo, pdcTC), pdcApelidos);
+      // #136: contas sintéticas (T) ou consolidadas (C) resolvem para a filha analítica antes do código.
+      const conta = codSciConta(codigoParaExportSci(l.conta!.codigo, pdcTC));
       const banco: number | string = bancoSci;
       const valor = Number(l.valor ?? 0);
       // Inversão automática contábil: natureza_movimento (IA) > sinal > tipo.
@@ -310,10 +301,9 @@ export function baixarPlanilhaSciXls(
   competencia: string,
   lancs: SciLanc[],
   bancoCodigoLcr: number | null | undefined,
-  pdcApelidos: Map<string, number>,
   pdcTC: readonly PdcTC[] = [],
 ): number {
-  const rows = linhasSci(lancs, bancoCodigoLcr, pdcApelidos, pdcTC);
+  const rows = linhasSci(lancs, bancoCodigoLcr, pdcTC);
   const ws = XLSX.utils.json_to_sheet(rows, { header: COLUNAS });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Planilha de importação");
@@ -389,22 +379,26 @@ export function histSciCodigo(codigo: string | null | undefined): number | strin
 }
 
 /** Monta as linhas da prévia (uma por lançamento), reproduzindo o layout do modelo.
- *  Mesmos códigos reduzidos do export .xls (plano_de_contas_lcr.apelido). */
+ *  Mesmo código real do export .xls (codSciConta — apelido abandonado em 21/07). */
 export function linhasSciPreview(
   lancs: SciLancRico[],
   bancoCodigoLcr: number | null | undefined,
-  pdcApelidos: Map<string, number>,
   bancoNome: string,
   pdcTC: readonly PdcTC[] = [],
 ): SciPreviewRow[] {
-  const bancoSci = bancoCodigoLcr != null ? codSciReduzido(String(bancoCodigoLcr), pdcApelidos) : "";
+  const bancoSci = bancoCodigoLcr != null ? codSciConta(String(bancoCodigoLcr)) : "";
   return lancs
     .filter((l) => l.conta?.codigo)
     .map((l) => {
       // #136: mesma resolução T/C → filha analítica usada no export real, para a prévia bater com o .xls.
+      // O nome também precisa refletir a filha resolvida — mostrar o nome da conta-pai
+      // (ex. "ADIANTAMENTO A SÓCIOS") com o código da filha (ex. 20) confundia mais
+      // do que ajudava (achado 21/07, junto com a remoção do apelido).
+      const codigoResolvido = codigoParaExportSci(l.conta!.codigo, pdcTC);
+      const contaResolvida = pdcTC.find((p) => String(p.codigo) === codigoResolvido);
       const conta: SciCelula = {
-        codigo: codSciReduzido(codigoParaExportSci(l.conta!.codigo, pdcTC), pdcApelidos),
-        nome: l.conta!.descricao,
+        codigo: codSciConta(codigoResolvido),
+        nome: contaResolvida?.nome ?? l.conta!.descricao,
       };
       const banco: SciCelula = { codigo: bancoSci, nome: bancoNome || "Banco" };
       const valor = Number(l.valor ?? 0);
