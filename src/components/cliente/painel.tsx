@@ -431,7 +431,7 @@ export function PlanilhaSciTab({ empresaId, empresaNome, competencia }: { empres
         return;
       }
     }
-    const rows = linhasSci(lancsComPula, bancoCodigo, pdcApelidos, pdcTC);
+    const rows = linhasSci(lancsComPula, bancoCodigo, pdcTC);
     if (rows.length === 0) { toast.warning("Nenhum lançamento com conta para exportar."); return; }
     exportarCsvSci(empresaNome, competencia, rows);
     toast.success(`CSV gerado — ${rows.length} lançamento(s) no layout de importação SCI.`);
