@@ -19,6 +19,7 @@ Rode da raiz do repo, com PYTHONUTF8=1 no Windows.
 
 import os
 import sys
+import re
 import json
 import time
 import base64
@@ -28,6 +29,9 @@ import datetime as dt
 from pathlib import Path
 
 import requests
+
+# Competência contábil YYYY-MM (competence_date do Gestta truncado).
+_RE_COMPETENCIA = re.compile(r"^\d{4}-\d{2}$")
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -416,6 +420,19 @@ def selecionar_pendentes(tarefas: list, competencia: str, limite: int, pular_vis
 
 
 # ── Processa uma tarefa (Etapas 1–4, sem escrever no Gestta) ──────────────────
+def competencia_front_da_tarefa(t: dict, competencia_cli: str) -> str:
+    """OPT-0004 (Bruno 22/07/2026): grava no Supabase a competência do MOVIMENTO
+    (Gestta `competence_date`), não o mês da DUE_DATE usado só para listar a
+    cobrança. Sem competence válida, cai no CLI (`--competencia`).
+
+    Ex.: cobrança com due date em 01/2026 e competence_date=2025-12 → docs em 2025-12.
+    """
+    raw = (t.get("competence") or "").strip()
+    if _RE_COMPETENCIA.match(raw):
+        return raw
+    return competencia_cli
+
+
 def processar_tarefa(t: dict, competencia: str, comp_g: str, jwt: str) -> dict:
     codigo = t.get("clienteCodigo") or ""
     nome = t.get("clienteNome") or ""
@@ -430,9 +447,11 @@ def processar_tarefa(t: dict, competencia: str, comp_g: str, jwt: str) -> dict:
     if not empresa:
         return {**base, "status": "erro", "motivo": f"empresa não encontrada no Supabase ('{nome or codigo}')"}
     empresa_id = empresa["id"]
-    comp_mov = t.get("competence") or competencia   # referência Gestta (log); gravação no front usa `competencia`
+    # competence_date = mês do movimento; CLI = mês da due date (lista).
+    competencia_front = competencia_front_da_tarefa(t, competencia)
     base["empresa_id"] = empresa_id
-    base["competencia_movimento"] = comp_mov
+    base["competencia_movimento"] = competencia_front
+    base["competencia_front"] = competencia_front
 
     if ja_processada(empresa_id, competencia):
         return {**base, "status": "pulada_idempotencia"}
@@ -461,10 +480,14 @@ def processar_tarefa(t: dict, competencia: str, comp_g: str, jwt: str) -> dict:
         return {**base, "status": "sem_documentos",
                 "motivo": "todos os documentos solicitados estão desconsiderados (nada a baixar)"}
 
-    # Etapa 4 — baixa + classifica + envia ao front (sem concluir no Gestta)
+    # Etapa 4 — baixa + classifica + envia ao front (sem concluir no Gestta).
+    # competencia_front = mês do movimento (OPT-0004), não o mês da due date.
     banco = resolver_banco(empresa_id) or BANCO_PADRAO
     try:
-        resumo = bf.processar_via_gestta(empresa_id, competencia, None, tarefa_id, banco, jwt, competencia_front=competencia)
+        resumo = bf.processar_via_gestta(
+            empresa_id, competencia, None, tarefa_id, banco, jwt,
+            competencia_front=competencia_front,
+        )
     except Exception as e:
         return {**base, "status": "erro", "motivo": f"etapa4: {str(e)[:600]}"}
 
@@ -525,9 +548,10 @@ def processar_tarefa_api(t: dict, competencia: str, comp_g: str, jwt: str, jwt_g
     if not empresa:
         return {**base, "status": "erro", "motivo": f"empresa não encontrada no Supabase ('{nome or codigo}')"}
     empresa_id = empresa["id"]
-    comp_mov = t.get("competence") or competencia   # referência Gestta (log); gravação no front usa `competencia`
+    competencia_front = competencia_front_da_tarefa(t, competencia)
     base["empresa_id"] = empresa_id
-    base["competencia_movimento"] = comp_mov
+    base["competencia_movimento"] = competencia_front
+    base["competencia_front"] = competencia_front
 
     if ja_processada(empresa_id, competencia):
         return {**base, "status": "pulada_idempotencia"}
@@ -557,9 +581,10 @@ def processar_tarefa_api(t: dict, competencia: str, comp_g: str, jwt: str, jwt_g
         return {**base, "status": "sem_documentos",
                 "motivo": "todos os documentos solicitados estão desconsiderados (nada a baixar)"}
 
-    # Etapa 4 — download via API + núcleo reusado (bf.processar_arquivos, sem browser)
+    # Etapa 4 — download via API + núcleo reusado (bf.processar_arquivos, sem browser).
+    # Grava sob competencia_front (mês do movimento — OPT-0004).
     banco = resolver_banco(empresa_id) or BANCO_PADRAO
-    destino = str(ROOT / "outputs" / "gestta" / f"{empresa_id}_{comp_mov}")
+    destino = str(ROOT / "outputs" / "gestta" / f"{empresa_id}_{competencia_front}")
     try:
         dl = api_docs.baixar_documentos(detalhe, destino, jwt_gestta)
         arquivos, vazios_dl, falhas_dl = dl["salvos"], dl.get("vazios", []), dl["falhas"]
@@ -579,14 +604,16 @@ def processar_tarefa_api(t: dict, competencia: str, comp_g: str, jwt: str, jwt_g
 
     try:
         # Backfill: extrato que o parser local não ler cai p/ a edge (IA lê layouts diversos).
-        resumo = bf.processar_arquivos(empresa_id, competencia, processaveis, banco, jwt, extrato_fallback_edge=True)
+        resumo = bf.processar_arquivos(
+            empresa_id, competencia_front, processaveis, banco, jwt, extrato_fallback_edge=True,
+        )
     except Exception as e:
         return {**base, "status": "erro", "motivo": f"etapa4(api): {str(e)[:600]}"}
 
     # Sinaliza os extratos vazios: aviso EXPLÍCITO no documento (tela de Revisão) —
     # "sem movimento no período" — para não parecer que faltou processar.
     for v in vazios_dl:
-        _sinalizar_documento(empresa_id, competencia, v["arquivo"], f"AVISO: {v['motivo']}")
+        _sinalizar_documento(empresa_id, competencia_front, v["arquivo"], f"AVISO: {v['motivo']}")
         log(f"    sinalizado extrato vazio: {v['arquivo']} — {v['motivo']}")
 
     if resp:
